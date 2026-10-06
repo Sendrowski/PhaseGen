@@ -19,11 +19,6 @@ import tensorflow as tf
 from tqdm import tqdm
 
 try:
-    import sys
-
-    # necessary to import local module
-    sys.path.append('.')
-
     testing = False
 except NameError:
     # testing

@@ -73,6 +73,21 @@ files = [
 ]
 
 [[package]]
+name = "autodocsumm"
+version = "0.2.15"
+description = "Extended sphinx autodoc including automatic autosummaries"
+optional = false
+python-versions = ">=3.7"
+groups = ["dev"]
+files = [
+    {file = "autodocsumm-0.2.15-py3-none-any.whl", hash = "sha256:dbe6fabcaeae4540748ea9b3443eb76c2692e063d44f004f67c424610a5aca9a"},
+    {file = "autodocsumm-0.2.15.tar.gz", hash = "sha256:eaf431e7a5a39e41a215311173c8b95e83859059df1ccf3b79c64bf3d5582b3c"},
+]
+
+[package.dependencies]
+Sphinx = ">=4.0,<10.0"
+
+[[package]]
 name = "babel"
 version = "2.18.0"
 description = "Internationalization utilities"
@@ -746,36 +761,6 @@ files = [
 
 [package.extras]
 tests = ["asttokens (>=2.1.0)", "coverage", "coverage-enable-subprocess", "ipython", "littleutils", "pytest", "rich ; python_version >= \"3.11\""]
-
-[[package]]
-name = "fastdfe"
-version = "1.2.2"
-description = "Fast and flexible inference of the distribution of fitness effects (DFE), VCF-SFS parsing with ancestral allele and site-degeneracy annotation."
-optional = false
-python-versions = "<3.14,>=3.10"
-groups = ["main"]
-files = [
-    {file = "fastdfe-1.2.2-py3-none-any.whl", hash = "sha256:f03c9d31e31963f991741324eee75d036539b2b9b2e53f3efca20d3b6c586d43"},
-    {file = "fastdfe-1.2.2.tar.gz", hash = "sha256:bfa98865daeb4419ac86548f4b12aed23a5227302e9648692435fbed019c3386"},
-]
-
-[package.dependencies]
-biopython = ">=1.84,<2.0"
-jsonpickle = ">=3.0.0,<4.0.0"
-matplotlib = ">=3.9,<4.0"
-mpmath = ">=1.3.0,<2.0.0"
-multiprocess = ">=0.70.12,<0.71.0"
-numpy = ">=1.24,<3"
-pandas = ">=2.2.2,<3.0.0"
-pyyaml = ">=6.0,<7.0"
-requests = ">=2.28"
-scipy = ">=1.13,<2.0"
-seaborn = ">=0.13.2,<0.14.0"
-tqdm = ">=4.60.0,<5.0.0"
-typing-extensions = ">=4.5.0,<5.0.0"
-
-[package.extras]
-vcf = ["cyvcf2 (>=0.31.0,<0.32.0)"]
 
 [[package]]
 name = "fastjsonschema"
@@ -1717,27 +1702,6 @@ files = [
 ]
 
 [[package]]
-name = "mpmath"
-version = "1.4.1"
-description = "Python library for arbitrary-precision floating-point arithmetic"
-optional = false
-python-versions = ">=3.9"
-groups = ["main"]
-files = [
-    {file = "mpmath-1.4.1-py3-none-any.whl", hash = "sha256:dc4f0ea2304480d4a9a48a94c1020571558ade522b44a6912efac63a586e140f"},
-    {file = "mpmath-1.4.1.tar.gz", hash = "sha256:efd6d1b75f09d69524a67609949812668b28e81ecbfe0ab449ced8c13e92642e"},
-]
-
-[package.extras]
-ci = ["diff_cover", "pytest-xdist"]
-develop = ["build", "flake518 (>=1.5)", "mpmath[tests]", "pytest-cov (>=7)", "wheel"]
-docs = ["matplotlib", "sphinx", "sphinxcontrib-autoprogram"]
-gmp = ["python-gmp"]
-gmpy = ["mpmath[gmpy2]"]
-gmpy2 = ["gmpy2 (>=2.3)"]
-tests = ["hypothesis", "ipython", "matplotlib", "numpy", "packaging", "pexpect", "pytest (>=6)", "pytest-timeout"]
-
-[[package]]
 name = "multiprocess"
 version = "0.70.19"
 description = "better multiprocessing and multithreading in Python"
@@ -2455,15 +2419,15 @@ test = ["pytest", "pytest-cov", "pytest-regressions", "sphinx[test]"]
 
 [[package]]
 name = "pydata-sphinx-theme"
-version = "0.16.1"
+version = "0.17.1"
 description = "Bootstrap-based Sphinx theme from the PyData community"
 optional = false
-python-versions = ">=3.9"
+python-versions = ">=3.10"
 groups = ["dev"]
 markers = "python_version >= \"3.11\""
 files = [
-    {file = "pydata_sphinx_theme-0.16.1-py3-none-any.whl", hash = "sha256:225331e8ac4b32682c18fcac5a57a6f717c4e632cea5dd0e247b55155faeccde"},
-    {file = "pydata_sphinx_theme-0.16.1.tar.gz", hash = "sha256:a08b7f0b7f70387219dc659bff0893a7554d5eb39b59d3b8ef37b8401b7642d7"},
+    {file = "pydata_sphinx_theme-0.17.1-py3-none-any.whl", hash = "sha256:320b022d7808bdf5920d9a28e573f27aace9b23e1af6ca103eecc752411df492"},
+    {file = "pydata_sphinx_theme-0.17.1.tar.gz", hash = "sha256:2cfc1d926c753c77039b7ee53f0ccebcbee5e81f0db61432b01cbb10ad7fd0af"},
 ]
 
 [package.dependencies]
@@ -2472,15 +2436,15 @@ Babel = "*"
 beautifulsoup4 = "*"
 docutils = "!=0.17.0"
 pygments = ">=2.7"
-sphinx = ">=6.1"
+sphinx = ">=7.0,<10"
 typing-extensions = "*"
 
 [package.extras]
-a11y = ["pytest-playwright"]
+a11y = ["pydata-sphinx-theme[test]"]
 dev = ["pandoc", "pre-commit", "pydata-sphinx-theme[doc,test]", "pyyaml", "sphinx-theme-builder[cli]", "tox"]
-doc = ["ablog (>=0.11.8)", "colorama", "graphviz", "ipykernel", "ipyleaflet", "ipywidgets", "jupyter_sphinx", "jupyterlite-sphinx", "linkify-it-py", "matplotlib", "myst-parser", "nbsphinx", "numpy", "numpydoc", "pandas", "plotly", "rich", "sphinx-autoapi (>=3.0.0)", "sphinx-copybutton", "sphinx-design", "sphinx-favicon (>=1.0.1)", "sphinx-sitemap", "sphinx-togglebutton", "sphinxcontrib-youtube (>=1.4.1)", "sphinxext-rediraffe", "xarray"]
+doc = ["ablog (>=0.11.8)", "astroid (>=3,!=4.0.3)", "colorama", "graphviz", "ipykernel", "ipyleaflet", "ipywidgets", "jupyter_sphinx", "jupyterlite-sphinx", "linkify-it-py", "matplotlib", "myst-parser", "nbsphinx", "numpy", "numpydoc", "pandas", "plotly", "rich", "sphinx-autoapi (==3.6.1)", "sphinx-copybutton", "sphinx-design", "sphinx-favicon (>=1.0.1)", "sphinx-sitemap (<2.7.0)", "sphinx-togglebutton", "sphinxcontrib-mermaid", "sphinxcontrib-youtube (>=1.4.1)", "sphinxext-rediraffe", "xarray"]
 i18n = ["Babel", "jinja2"]
-test = ["pytest", "pytest-cov", "pytest-regressions", "sphinx[test]"]
+test = ["pytest", "pytest-cov", "pytest-playwright", "pytest-regressions", "sphinx[test]"]
 
 [[package]]
 name = "pygments"
@@ -3201,6 +3165,66 @@ docs = ["ipykernel", "nbconvert", "numpydoc", "pydata_sphinx_theme (==0.10.0rc2)
 stats = ["scipy (>=1.7)", "statsmodels (>=0.12)"]
 
 [[package]]
+name = "sfsutils-popgen"
+version = "0.1.0b2"
+description = "SFS parsing with site filtration and annotation, from VCF, Zarr, or tree sequences"
+optional = false
+python-versions = "<3.14,>=3.10"
+groups = ["main"]
+markers = "python_version == \"3.10\""
+files = [
+    {file = "sfsutils_popgen-0.1.0b2-py3-none-any.whl", hash = "sha256:f342a14dcbb5b2fdafe5b5b144432536a54623db644bf18e35ac89d67653da69"},
+    {file = "sfsutils_popgen-0.1.0b2.tar.gz", hash = "sha256:406479ced7e7893f4ff95b7232925e19bcf5583ff33056fd07610af4e2fc2b3f"},
+]
+
+[package.dependencies]
+biopython = ">=1.84,<2.0"
+jsonpickle = ">=3.0.0,<4.0.0"
+matplotlib = ">=3.9,<4.0"
+multiprocess = ">=0.70.12,<0.71.0"
+numpy = ">=1.24,<3"
+pandas = ">=2.2.2,<3.0.0"
+requests = ">=2.28"
+scipy = ">=1.13,<2.0"
+seaborn = ">=0.13.2,<0.14.0"
+tqdm = ">=4.60.0,<5.0.0"
+
+[package.extras]
+arg = ["tskit (>=0.5)"]
+vcf = ["cyvcf2 (>=0.31.0,<0.32.0)"]
+zarr = ["zarr (>=2.17,<3)"]
+
+[[package]]
+name = "sfsutils-popgen"
+version = "1.0.0"
+description = "SFS parsing with site filtration and annotation, from VCF, Zarr, or tree sequences"
+optional = false
+python-versions = "<3.14,>=3.11"
+groups = ["main"]
+markers = "python_version >= \"3.11\""
+files = [
+    {file = "sfsutils_popgen-1.0.0-py3-none-any.whl", hash = "sha256:ff4c932979401c5b4c4b3cec2ed7e39ad67c0694051a9f9b55b5baf7c0044d18"},
+    {file = "sfsutils_popgen-1.0.0.tar.gz", hash = "sha256:0b4e18b7f1d77ea0cf21739f22f17f322d1dd309d0fe969db1fa4e8b75200c8f"},
+]
+
+[package.dependencies]
+biopython = ">=1.84,<2"
+jsonpickle = ">=3,<4"
+matplotlib = ">=3.9,<4"
+multiprocess = ">=0.70.12,<0.71"
+numpy = ">=1.24,<3"
+pandas = ">=2.2.2,<3"
+requests = ">=2.28"
+scipy = ">=1.13,<2"
+seaborn = ">=0.13.2,<1"
+tqdm = ">=4.60,<5"
+
+[package.extras]
+arg = ["tskit (>=0.5)"]
+vcf = ["cyvcf2 (>=0.31,<1)"]
+zarr = ["zarr (>=3.1)"]
+
+[[package]]
 name = "six"
 version = "1.17.0"
 description = "Python 2 and 3 compatibility utilities"
@@ -3316,19 +3340,19 @@ test = ["beautifulsoup4", "coverage", "defusedxml", "myst-nb", "pytest", "pytest
 
 [[package]]
 name = "sphinx-book-theme"
-version = "1.2.0"
+version = "1.3.0"
 description = "A clean book theme for scientific explanations and documentation with Sphinx"
 optional = false
 python-versions = ">=3.11"
 groups = ["dev"]
 markers = "python_version >= \"3.11\""
 files = [
-    {file = "sphinx_book_theme-1.2.0-py3-none-any.whl", hash = "sha256:709605d308e1991c5ef0cf19c481dbe9084b62852e317fafab74382a0ee7ccfa"},
-    {file = "sphinx_book_theme-1.2.0.tar.gz", hash = "sha256:4a7ebfc7da4395309ac942ddfc38fbec5c5254c3be22195e99ad12586fbda9e3"},
+    {file = "sphinx_book_theme-1.3.0-py3-none-any.whl", hash = "sha256:143020f5c1d2ce733646eb765594f16684e3e1d116d1679f1f03823f85c63626"},
+    {file = "sphinx_book_theme-1.3.0.tar.gz", hash = "sha256:0bdcd3c3670154eed4bd8452a62a7884cb1317dcfc6ee80e0ae8f9fbf43a9eaa"},
 ]
 
 [package.dependencies]
-pydata-sphinx-theme = "0.16.1"
+pydata-sphinx-theme = "0.17.1"
 sphinx = ">=7.0"
 
 [package.extras]
@@ -3354,6 +3378,47 @@ sphinx = ">=1.8"
 [package.extras]
 code-style = ["pre-commit (==2.12.1)"]
 rtd = ["ipython", "myst-nb", "sphinx", "sphinx-book-theme", "sphinx-examples"]
+
+[[package]]
+name = "sphinx-design"
+version = "0.6.1"
+description = "A sphinx extension for designing beautiful, view size responsive web components."
+optional = false
+python-versions = ">=3.9"
+groups = ["dev"]
+files = [
+    {file = "sphinx_design-0.6.1-py3-none-any.whl", hash = "sha256:b11f37db1a802a183d61b159d9a202314d4d2fe29c163437001324fe2f19549c"},
+    {file = "sphinx_design-0.6.1.tar.gz", hash = "sha256:b44eea3719386d04d765c1a8257caca2b3e6f8421d7b3a5e742c0fd45f84e632"},
+]
+
+[package.dependencies]
+sphinx = ">=6,<9"
+
+[package.extras]
+code-style = ["pre-commit (>=3,<4)"]
+rtd = ["myst-parser (>=2,<4)"]
+testing = ["defusedxml", "myst-parser (>=2,<4)", "pytest (>=8.3,<9.0)", "pytest-cov", "pytest-regressions"]
+testing-no-myst = ["defusedxml", "pytest (>=8.3,<9.0)", "pytest-cov", "pytest-regressions"]
+theme-furo = ["furo (>=2024.7.18,<2024.8.0)"]
+theme-im = ["sphinx-immaterial (>=0.12.2,<0.13.0)"]
+theme-pydata = ["pydata-sphinx-theme (>=0.15.2,<0.16.0)"]
+theme-rtd = ["sphinx-rtd-theme (>=2.0,<3.0)"]
+theme-sbt = ["sphinx-book-theme (>=1.1,<2.0)"]
+
+[[package]]
+name = "sphinx-paramlinks"
+version = "0.6.0"
+description = "Allows param links in Sphinx function/method descriptions to be linkable"
+optional = false
+python-versions = "*"
+groups = ["dev"]
+files = [
+    {file = "sphinx-paramlinks-0.6.0.tar.gz", hash = "sha256:746a0816860aa3fff5d8d746efcbec4deead421f152687411db1d613d29f915e"},
+]
+
+[package.dependencies]
+docutils = "*"
+Sphinx = ">=4.0.0"
 
 [[package]]
 name = "sphinxcontrib-applehelp"
@@ -3779,4 +3844,4 @@ type = ["pytest-mypy (>=1.0.1) ; platform_python_implementation != \"PyPy\""]
 [metadata]
 lock-version = "2.1"
 python-versions = ">=3.10,<3.14"
-content-hash = "7c4c8ce512e0a320f22dbc9014561f507736fc21d8f2864873c65fc18492bf80"
+content-hash = "15ab4a707c7c4caa04fac4cc1f46d6e34879fbbff0443f71778340418c5710b0"

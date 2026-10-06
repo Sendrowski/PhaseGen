@@ -1,0 +1,55 @@
+n: 4
+n_samples: 200000
+pop_sizes:
+  pop_0:
+    0: 1.2
+    0.3: 10
+    1: 0.8
+    1.4: 10
+model: standard
+seed: 42
+comparisons:
+  tolerance:
+    sfs:
+      # the derivative identity agrees with a sampler of 6e8 replicates within 2.2 standard errors at five levels of
+      # each bin of (1, 2). The largest error of the conditional mean is 7.1e-4.
+      conditional:
+        '[(1, 2), (1, 3)]':
+          moments: 0.0015
+        '[(1, 3)]':
+          # the atom conditional, against the msprime sample (see 1_epoch_n_4). The atom transform is an exact
+          # closed-form ratio, which is the point of checking it on a multi-epoch demography.
+          atom:
+            mass: 0.019
+            mean: 0.099
+            var: 0.36
+            cdf: 0.035
+            pdf: 0.07
+            quantile: 0.07
+        '[(1, 2)]':
+          # the nested conditional against msprime: the only place a *sample* decides it away from the atom (every
+          # other conditional check is an identity the analytic joint must satisfy, so an error shared by the
+          # transform and the identity would pass them all). A sample can only estimate the conditional over a
+          # window, so both sides are averaged over the same one and the O(h) window bias cancels rather than being
+          # corrected for. Tolerances are in SIGMAS of the sample, the only floor left once the bias is gone.
+          windowed:
+            quantiles: [0.25, 0.5, 0.75]
+            window: 0.2
+            mean: 5
+          # the conditional CDF against the de Hoog inversion of its transform (see 1_epoch_n_4), at the median alone
+          dehoog:
+            cdf: 0.19
+            quantiles: [0.5]
+    empirical:
+      tree_height:
+        mean: 0.01
+        var: 0.026
+        cdf: 0.0045
+        pdf: 0.009
+        quantile: 0.009
+      total_branch_length:
+        mean: 0.0094
+        var: 0.025
+      sfs:
+        mean: 0.02
+        m2: 0.046

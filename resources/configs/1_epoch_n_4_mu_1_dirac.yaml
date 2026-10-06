@@ -9,9 +9,27 @@ pop_sizes:
 model: dirac
 psi: 0.5
 c: 1
+seed: 42
 comparisons:
   tolerance:
     sfs:
-      mutation_configs: 0.02
+      mutation_configs: 0.004
+      cosine:
+        pdf: 0.0042
+        cdf: 0.002
+        quantile: 0.004
+      pairwise:
+        '[(1, 2), (1, 3), (2, 3)]':
+          cdf: 0.0023
+          pdf: 0.0066
     fsfs:
-      mutation_configs: 0.02
+      mutation_configs: 0.004
+    tree_height:
+      pdf: 0.0041
+      cdf: 0.002
+      quantile: 0.004
+    total_branch_length:
+      cosine:
+        pdf: 0.004
+        cdf: 0.002
+        quantile: 0.004

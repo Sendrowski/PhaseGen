@@ -1,41 +1,31 @@
 """
-Numba-accelerated kernels for single-locus state-space construction.
+Numba-accelerated kernels for state-space construction.
 
-This module is imported behind a guard (:data:`HAS_NUMBA`); when numba is unavailable the public classes fall back
-to the pure-Python construction in :mod:`phasegen.state_space`. The kernels operate on integer state rows (the
-flattened ``lineages`` array of shape ``(n_demes, n_blocks)`` for a single locus) and build the rate matrix directly.
+The kernels operate on integer state rows (the flattened ``lineages`` array of shape ``(n_demes, n_blocks)``) and build the rate matrix directly. Kinds 0 and 1
+build the single-locus lineage- and block-/joint-counting spaces, and kinds 2 and 3 the two-locus block- and
+lineage-counting spaces under recombination.
 
 Coalescent rates are reproduced from the model formulae (exact ``comb`` via an integer loop, the Euler beta via
-``math.lgamma``, and the binomial pmf via ``comb`` and powers), parameterised by a ``model_id`` (0 standard,
-1 beta, 2 dirac) plus ``alpha``/``psi``/``c``. Per-deme timescales and the migration-rate matrix are precomputed in
-Python and passed in, so no transcendental model code other than the rates lives here.
+``math.lgamma``, and the binomial pmf via ``comb`` and powers, all three in log space from
+``_LOG_SPACE_MIN_LINEAGES`` lineages on, where the float binomial coefficient would overflow), parameterised by a
+``model_id`` (0 standard, 1 beta, 2 dirac) plus ``alpha``/``psi``/``c``. Per-deme timescales and the migration-rate
+matrix are precomputed in Python and passed in, so no transcendental model code other than the rates lives here.
 
-States are numbered in discovery order, which differs from the pure-Python enumeration; this is intentional and
-validated by permutation-invariant parity tests.
+States are numbered in discovery order, which differs from the pure-Python enumeration. Parity tests compare the two
+constructions up to a permutation of the states.
 """
 
 import math
 
 import numpy as np
 
-try:
-    from numba import njit
-    from numba.typed import Dict, List
-    from numba.core import types
+from numba import njit
+from numba.typed import Dict, List
+from numba.core import types
 
-    HAS_NUMBA = True
-except ImportError:  # pragma: no cover - exercised only when numba is absent
-    HAS_NUMBA = False
-
-    def njit(*args, **kwargs):
-        """No-op ``njit`` shim so the kernels remain importable without numba (the Python fallback is used)."""
-        if args and callable(args[0]):
-            return args[0]
-
-        def _decorator(func):
-            return func
-
-        return _decorator
+#: Number of lineages from which the multiple-merger rates are evaluated in log space. The float binomial coefficient
+#: overflows from about 1030 lineages, and the factor it multiplies underflows correspondingly.
+_LOG_SPACE_MIN_LINEAGES = 512
 
 
 # ---------------------------------------------------------------------------------------------------------------------
@@ -43,7 +33,7 @@ except ImportError:  # pragma: no cover - exercised only when numba is absent
 # ---------------------------------------------------------------------------------------------------------------------
 
 @njit(cache=True)
-def _comb(n, k):
+def _comb(n, k) -> float:
     """Binomial coefficient C(n, k) as a float."""
     if k < 0 or k > n:
         return 0.0
@@ -58,22 +48,42 @@ def _comb(n, k):
 
 
 @njit(cache=True)
-def _beta(a, b):
+def _log_comb(n, k) -> float:
+    """Logarithm of the binomial coefficient C(n, k) for 0 <= k <= n, via log-gamma."""
+    return math.lgamma(n + 1.0) - math.lgamma(k + 1.0) - math.lgamma(n - k + 1.0)
+
+
+@njit(cache=True)
+def _log_beta(a, b) -> float:
+    """Logarithm of the absolute value of the Euler beta function, via log-gamma."""
+    return math.lgamma(a) + math.lgamma(b) - math.lgamma(a + b)
+
+
+@njit(cache=True)
+def _beta(a, b) -> float:
     """Euler beta function via log-gamma."""
     return math.exp(math.lgamma(a) + math.lgamma(b) - math.lgamma(a + b))
 
 
 @njit(cache=True)
-def _binom_pmf(k, n, p):
+def _binom_pmf(k, n, p) -> float:
     """Binomial pmf P(X = k) for X ~ Binom(n, p)."""
     if k < 0 or k > n:
         return 0.0
+    if n >= _LOG_SPACE_MIN_LINEAGES:
+        return math.exp(_log_comb(n, k) + k * math.log(p) + (n - k) * math.log1p(-p))
     return _comb(n, k) * p ** k * (1.0 - p) ** (n - k)
 
 
 @njit(cache=True)
-def _rate_pairwise(model_id, alpha, psi, c, b, k):
-    """Reproduce ``CoalescentModel._get_rate(b, k)`` (lineage-counting merger rate)."""
+def _rate_pairwise(model_id, alpha, psi, c, b, k) -> float:
+    """
+    Port of the lineage-counting merger rate of ``k`` out of ``b`` lineages, dispatched by ``model_id``
+    (0 standard, 1 beta, 2 dirac). See :meth:`~phasegen.coalescent_models.CoalescentModel._get_rate` and the
+    per-model overrides (:class:`~phasegen.coalescent_models.StandardCoalescent`,
+    :class:`~phasegen.coalescent_models.BetaCoalescent`, :class:`~phasegen.coalescent_models.DiracCoalescent`) for the
+    formulae.
+    """
     if model_id == 0:  # standard
         if k == 2:
             return b * (b - 1) / 2.0
@@ -82,6 +92,8 @@ def _rate_pairwise(model_id, alpha, psi, c, b, k):
     if model_id == 1:  # beta
         if k < 1 or k > b:
             return 0.0
+        if b >= _LOG_SPACE_MIN_LINEAGES:
+            return math.exp(_log_comb(b, k) + _log_beta(k - alpha, b - k + alpha) - _log_beta(alpha, 2.0 - alpha))
         base = _beta(k - alpha, b - k + alpha) / _beta(alpha, 2.0 - alpha)
         return _comb(b, k) * base
 
@@ -91,8 +103,13 @@ def _rate_pairwise(model_id, alpha, psi, c, b, k):
 
 
 @njit(cache=True)
-def _rate_block(model_id, alpha, psi, c, n, b_arr, k_arr):
-    """Reproduce ``CoalescentModel._get_rate_block_counting(n, b, k)`` for a merger touching ``len(b_arr)`` blocks."""
+def _rate_block(model_id, alpha, psi, c, n, b_arr, k_arr) -> float:
+    """
+    Port of the block-counting rate of a simultaneous merger of ``k_i`` out of ``b_i`` lineages touching
+    ``len(b_arr)`` blocks, among ``n`` present lineages, dispatched by ``model_id`` (0 standard, 1 beta, 2 dirac).
+    See :meth:`~phasegen.coalescent_models.CoalescentModel._get_rate_block_counting` and the per-model overrides for
+    the formulae.
+    """
     m = b_arr.shape[0]
 
     if model_id == 0:  # standard
@@ -109,6 +126,11 @@ def _rate_block(model_id, alpha, psi, c, n, b_arr, k_arr):
         sum_b += b_arr[i]
 
     if model_id == 1:  # beta
+        if n >= _LOG_SPACE_MIN_LINEAGES:
+            log_rate = _log_beta(sum_k - alpha, n - sum_k + alpha) - _log_beta(alpha, 2.0 - alpha)
+            for i in range(m):
+                log_rate += _log_comb(b_arr[i], k_arr[i])
+            return math.exp(log_rate)
         combs = 1.0
         for i in range(m):
             combs *= _comb(b_arr[i], k_arr[i])
@@ -137,7 +159,7 @@ def _rate_block(model_id, alpha, psi, c, n, b_arr, k_arr):
 # ---------------------------------------------------------------------------------------------------------------------
 
 @njit(cache=True)
-def _hash_row(row):
+def _hash_row(row) -> 'np.int64':
     """FNV-1a hash of a non-negative integer row, returned as int64."""
     h = np.uint64(14695981039346656037)
     for i in range(row.shape[0]):
@@ -146,7 +168,7 @@ def _hash_row(row):
 
 
 @njit(cache=True)
-def _rows_equal(a, b):
+def _rows_equal(a, b) -> bool:
     """Whether two integer rows are element-wise equal."""
     for i in range(a.shape[0]):
         if a[i] != b[i]:
@@ -155,7 +177,7 @@ def _rows_equal(a, b):
 
 
 @njit(cache=True)
-def _find_or_add(rows, chain_next, head, target):
+def _find_or_add(rows, chain_next, head, target) -> int:
     """Return the index of ``target`` in ``rows``, appending it (and updating the hash chains) if new."""
     h = _hash_row(target)
     if h in head:
@@ -178,19 +200,20 @@ def _find_or_add(rows, chain_next, head, target):
 
 @njit(cache=True)
 def _build(initial, kind, n_demes, n_blocks, mig, timescales, model_id, alpha, psi, c, block_vectors,
-           recomb_rate, recomb0, recomb1, max_states):
+           recomb_rate, recomb0, recomb1, max_states) -> tuple:
     """
     Build the state graph by BFS over integer ``lineages`` rows.
 
     :param initial: Flattened initial lineage row (length ``n_demes * n_blocks``).
-    :param kind: 0 lineage-counting, 1 block-/joint-counting, 2 two-locus block-counting (recombination).
+    :param kind: 0 lineage-counting, 1 block-/joint-counting, 2 two-locus block-counting (recombination), 3 two-locus
+        lineage-counting (recombination).
     :param mig: ``(n_demes, n_demes)`` migration-rate matrix.
     :param timescales: per-deme timescale by which coalescence rates are divided.
     :param block_vectors: ``(n_blocks, vdim)`` block labels (descendant vectors / size classes); the merged block of a
         merger is the one whose label equals the summed label of the merging blocks (found by linear search).
-    :param recomb_rate: recombination rate (kind 2 only).
-    :param recomb0: ``recomb0[b]`` is the block index of ``(a_0, 0)`` for block ``b`` (kind 2 only).
-    :param recomb1: ``recomb1[b]`` is the block index of ``(0, a_1)`` for block ``b`` (kind 2 only).
+    :param recomb_rate: recombination rate (kinds 2 and 3 only).
+    :param recomb0: ``recomb0[b]`` is the block index of ``(a_0, 0)`` for block ``b`` (kinds 2 and 3 only).
+    :param recomb1: ``recomb1[b]`` is the block index of ``(0, a_1)`` for block ``b`` (kinds 2 and 3 only).
     :return: ``(rows_arr, src_arr, dst_arr, rate_arr)`` — the state rows and the COO transitions.
     """
     dim = n_demes * n_blocks
@@ -209,8 +232,7 @@ def _build(initial, kind, n_demes, n_blocks, mig, timescales, model_id, alpha, p
 
     cur = 0
     while cur < len(rows):
-        # abort the BFS once the discovered states exceed the cap (the caller raises); this guards against building
-        # a prohibitively large state space (which would otherwise exhaust memory before returning)
+        # abort the BFS once the discovered states exceed the cap (the caller raises)
         if len(rows) > max_states:
             break
 
@@ -220,18 +242,20 @@ def _build(initial, kind, n_demes, n_blocks, mig, timescales, model_id, alpha, p
         for x in range(dim):
             total += source[x]
 
-        # --- two-locus absorption: both loci have reached their MRCA (one ancestral lineage each) ---
+        # --- two-locus absorption: both loci have reached their MRCA (one ancestral lineage each, summed over demes;
+        # kind 2 block-counting and kind 3 lineage-counting share this predicate) ---
         absorbing = False
-        if kind == 2:
+        if kind == 2 or kind == 3:
             carry0 = 0
             carry1 = 0
-            for blk in range(n_blocks):
-                cnt = source[blk]
-                if cnt > 0:
-                    if block_vectors[blk, 0] > 0:
-                        carry0 += cnt
-                    if block_vectors[blk, 1] > 0:
-                        carry1 += cnt
+            for d in range(n_demes):
+                for blk in range(n_blocks):
+                    cnt = source[d * n_blocks + blk]
+                    if cnt > 0:
+                        if block_vectors[blk, 0] > 0:
+                            carry0 += cnt
+                        if block_vectors[blk, 1] > 0:
+                            carry1 += cnt
             absorbing = carry0 == 1 and carry1 == 1
 
         # --- migration: move one lineage of each block between demes, rate scaled by source count ---
@@ -322,7 +346,13 @@ def _build(initial, kind, n_demes, n_blocks, mig, timescales, model_id, alpha, p
                             bb[idx] = source[base + blk]
                             kk[idx] = comb[x]
                             for v in range(vdim):
-                                label[v] += comb[x] * block_vectors[blk, v]
+                                if kind == 3:
+                                    # lineage-counting two-locus: the merged lineage is ancestral at a locus iff any
+                                    # merging lineage was (presence OR), not the summed descendant count
+                                    if block_vectors[blk, v] > 0:
+                                        label[v] = 1
+                                else:
+                                    label[v] += comb[x] * block_vectors[blk, v]
                             idx += 1
 
                     r = _rate_block(model_id, alpha, psi, c, deme_total, bb, kk)
@@ -352,25 +382,33 @@ def _build(initial, kind, n_demes, n_blocks, mig, timescales, model_id, alpha, p
                     dst.append(np.int64(tidx))
                     rate.append(r / ts)
 
-        # --- recombination (two-locus only): a linked block (a_0, a_1) splits into (a_0, 0) and (0, a_1) ---
-        if kind == 2 and not absorbing:
-            for blk in range(n_blocks):
-                cnt = source[blk]
-                if cnt > 0 and block_vectors[blk, 0] > 0 and block_vectors[blk, 1] > 0:
-                    target = source.copy()
-                    target[blk] -= 1
-                    target[recomb0[blk]] += 1
-                    target[recomb1[blk]] += 1
-                    tidx = _find_or_add(rows, chain_next, head, target)
-                    if recomb_rate != 0.0:
-                        src.append(np.int64(cur))
-                        dst.append(np.int64(tidx))
-                        rate.append(recomb_rate * cnt)
+        # --- recombination (two-locus): a block ancestral at both loci splits into the two single-locus blocks, per
+        # deme, at rate r per such lineage. Kind 2 (block-counting) splits (a_0, a_1) -> (a_0, 0) + (0, a_1); kind 3
+        # (lineage-counting) splits a linked lineage -> one locus-0-only and one locus-1-only. ---
+        if (kind == 2 or kind == 3) and not absorbing:
+            for d in range(n_demes):
+                dbase = d * n_blocks
+                for blk in range(n_blocks):
+                    cnt = source[dbase + blk]
+                    if cnt > 0 and block_vectors[blk, 0] > 0 and block_vectors[blk, 1] > 0:
+                        target = source.copy()
+                        target[dbase + blk] -= 1
+                        target[dbase + recomb0[blk]] += 1
+                        target[dbase + recomb1[blk]] += 1
+                        tidx = _find_or_add(rows, chain_next, head, target)
+                        if recomb_rate != 0.0:
+                            src.append(np.int64(cur))
+                            dst.append(np.int64(tidx))
+                            rate.append(recomb_rate * cnt)
 
         cur += 1
 
-    # convert to arrays
+    # convert to arrays, an aborted build returning only its state count in the row dimension of an empty array
     n_states = len(rows)
+    if n_states > max_states:
+        empty = np.empty(0, dtype=np.int64)
+        return np.empty((n_states, 0), dtype=np.int64), empty, empty, np.empty(0, dtype=np.float64)
+
     rows_arr = np.empty((n_states, dim), dtype=np.int64)
     for i in range(n_states):
         rows_arr[i] = rows[i]
@@ -404,23 +442,24 @@ def build_rate_matrix(
         recomb1: np.ndarray = None,
         max_states: int = 2 ** 62,
         dense_max_states: int = 0,
-):
+) -> tuple:
     """
     Python entry point: build the state rows and the rate matrix via the numba kernel.
 
-    The kernel's BFS is aborted once it discovers more than ``max_states`` states, which guards against building a
-    prohibitively large state space (raising a clear error instead of exhausting memory). The COO transitions it
-    returns are assembled, in one place, into either a dense array (below ``dense_max_states`` states, where dense is
-    cheap and the dense moment paths are faster) or a :class:`scipy.sparse.csr_matrix` (above it — the generator is
-    sparse, each state coalescing to only O(n) others, so a dense ``n_states**2`` matrix would be prohibitive).
+    The kernel's BFS is aborted once it discovers more than ``max_states`` states, and a :class:`MemoryError` is
+    raised. The cap bounds the number of states, not the memory, which grows with the width of a state row. The COO
+    transitions the kernel returns are assembled, in one place, into either a dense array (below ``dense_max_states``
+    states, where dense is cheap and the dense moment paths are faster) or a :class:`scipy.sparse.csr_matrix` (above
+    it, since the generator is sparse, each state coalescing to only O(n) others, and a dense ``n_states**2`` matrix
+    would be prohibitive).
 
     :return: ``(rows, S)`` where ``rows`` is ``(n_states, n_demes * n_blocks)`` integer lineage rows (discovery
-        order) and ``S`` is the intensity matrix (dense or sparse; diagonal = negative row sums).
+        order) and ``S`` is the dense or sparse intensity matrix, whose diagonal holds the negative row sums.
     :raises MemoryError: if the state space exceeds ``max_states``.
     """
     from scipy.sparse import coo_matrix
 
-    # the recombination split maps are only used for the two-locus kernel (kind 2); pass dummies otherwise
+    # the recombination split maps are only used for the two-locus kernels (kinds 2 and 3), pass dummies otherwise
     if recomb0 is None:
         recomb0 = np.zeros(n_blocks, dtype=np.int64)
     if recomb1 is None:

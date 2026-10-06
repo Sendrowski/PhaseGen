@@ -7,43 +7,33 @@ __contact__ = "sendrowski.janek@gmail.com"
 __date__ = "2023-03-11"
 
 try:
-    import sys
-
-    # necessary to import local module
-    sys.path.append('.')
-
     testing = False
     file = snakemake.input[0]
+    stats = snakemake.params.stats
     out = snakemake.output[0]
 except NameError:
     # testing
     testing = True
-    file = "resources/configs/test_plot_pdf_const_tree_height.yaml"
-
+    file = "resources/configs/1_epoch_n_2.yaml"
+    stats = {'ph': {'tree_height': 'pdf'}, 'ms': {'tree_height': 'pdf'}}
     out = "scratch/test_comp.png"
 
 import os
 
-import yaml
 from matplotlib import pyplot as plt
 
-from phasegen import Comparison
+from phasegen.comparison import Comparison
 
-# load config from file
-with open(file, 'r') as f:
-    config = yaml.safe_load(f)
-
-s = Comparison(**config['config'])
+s = Comparison.from_yaml(file)
 
 # plot
-stats = config['stats']
 for stat in stats:
     prop = list(stats[stat].keys())[0]
     func = stats[stat][prop]
-    getattr(getattr(getattr(s, stat), prop), func)(show=False, clear=False, label=stat)
+    getattr(getattr(getattr(s, stat), prop), func).plot(show=False, clear=False, label=stat)
 
 name = os.path.splitext(os.path.basename(file))[0]
-plt.title(config['config'], fontsize=10)
+plt.title(name, fontsize=10)
 plt.legend()
 
 # save plot

@@ -15,11 +15,6 @@ from matplotlib import pyplot as plt
 from tqdm import tqdm
 
 try:
-    import sys
-
-    # necessary to import local module
-    sys.path.append('.')
-
     testing = False
     out = snakemake.output[0]
 except NameError:

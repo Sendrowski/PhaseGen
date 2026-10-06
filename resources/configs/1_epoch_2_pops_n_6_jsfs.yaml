@@ -1,7 +1,7 @@
 n:
   pop_0: 3
   pop_1: 3
-num_replicates: 500000
+num_replicates: 1000000
 seed: 100
 pop_sizes:
   pop_0:
@@ -9,13 +9,17 @@ pop_sizes:
   pop_1:
     0: 1.5
 migration_rates:
-  !!python/tuple [ 'pop_0', 'pop_1' ]:
-    0: 0.5
-  !!python/tuple [ 'pop_1', 'pop_0' ]:
-    0: 1
+  ? !!python/tuple
+  - 'pop_0'
+  - 'pop_1'
+  : 0: 0.5
+  ? !!python/tuple
+  - 'pop_1'
+  - 'pop_0'
+  : 0: 1
 model: standard
 comparisons:
   tolerance:
     jsfs:
-      mean: 0.03
-      var: 0.06
+      mean: 0.017
+      var: 0.019

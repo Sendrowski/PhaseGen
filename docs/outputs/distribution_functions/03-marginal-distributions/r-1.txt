@@ -1,0 +1,1 @@
+marginal mean = 1.1324   (bin 1 mean = 1.1324)

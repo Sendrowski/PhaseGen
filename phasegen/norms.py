@@ -7,7 +7,12 @@ from abc import ABC
 from typing import Any, Iterable
 
 import numpy as np
-from fastdfe.likelihood import Likelihood as PoissonLikelihoodFastDFE
+from ._likelihood import Likelihood as _Likelihood
+from .errors import ModelError
+
+#: Magnitude, relative to the largest modelled magnitude, up to which a negative modelled value is taken as round-off
+#: and clamped to zero
+_NEGATIVE_RTOL = 1e-10
 
 
 class Norm(ABC):
@@ -25,20 +30,49 @@ class Norm(ABC):
         """
         pass
 
+    @staticmethod
+    def _check_shapes(a: np.ndarray, b: np.ndarray) -> None:
+        """
+        Check that two compared arrays have the same shape.
+
+        :param a: An array.
+        :param b: Another array.
+        :raises ValueError: If the shapes differ.
+        """
+        if np.shape(a) != np.shape(b):
+            raise ValueError(f'Compared values must have the same shape, got {np.shape(a)} and {np.shape(b)}.')
+
 
 class LNorm(Norm):
     """
-    Class for L-norms.
+    Class for :math:`L^p`-norms of the element-wise difference,
+
+    .. math::
+
+        \\|\\mathbf{a} - \\mathbf{b}\\|_p = \\left( \\sum_i |a_i - b_i|^p \\right)^{1/p},
+
+    with the inputs flattened first, so a multi-dimensional input (e.g. a joint SFS matrix) yields the element-wise
+    vector distance and not an induced matrix norm.
+
+    The following example computes the :math:`L^3`-distance between the mean site-frequency spectrum and an observed
+    one.
+
+    ::
+
+        sfs = pg.Coalescent(n=4).sfs.mean
+
+        d = pg.LNorm(p=3).compute(sfs.polymorphic, [2.1, 0.9, 0.7])
     """
 
-    def __init__(self, p: int):
+    def __init__(self, p: float) -> None:
         """
         Initialize the class with the provided parameters.
 
-        :param p: The order of the norm. see :func:`numpy.linalg.norm` for details.
+        :param p: The order of the norm, any real number or :math:`\\pm\\infty`, as for vectors in
+            :func:`numpy.linalg.norm`.
         """
         #: The order of the norm.
-        self.p: int = np.inf if np.isinf(p) else int(p)
+        self.p: float = float(p)
 
     def compute(self, a: float | np.ndarray, b: float | np.ndarray) -> float | int:
         """
@@ -47,16 +81,32 @@ class LNorm(Norm):
         :param a: A value.
         :param b: Another value.
         :return: A numerical value representing the difference between the two values.
+        :raises ValueError: If the two values differ in shape.
         """
-        return np.linalg.norm(a - b, ord=self.p)
+        a = np.asarray(a)
+        b = np.asarray(b)
+        self._check_shapes(a, b)
+
+        # flatten so a multi-dimensional input (e.g. a joint SFS matrix) yields the element-wise vector distance
+        # rather than a matrix norm
+        return np.linalg.norm(np.ravel(a - b), ord=self.p)
 
 
 class L2Norm(LNorm):
     """
-    Class for L2-norm (Euclidean distance).
+    Class for the :math:`L^2`-norm (Euclidean distance),
+    :math:`\\|\\mathbf{a} - \\mathbf{b}\\|_2 = \\sqrt{\\sum_i (a_i - b_i)^2}`.
+
+    The following example computes the Euclidean distance between the mean site-frequency spectrum and an observed one.
+
+    ::
+
+        sfs = pg.Coalescent(n=4).sfs.mean
+
+        d = pg.L2Norm().compute(sfs.polymorphic, [2.1, 0.9, 0.7])
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
         """
         Initialize the class.
         """
@@ -65,10 +115,19 @@ class L2Norm(LNorm):
 
 class L1Norm(LNorm):
     """
-    Class for L1-norm (Manhattan distance).
+    Class for the :math:`L^1`-norm (Manhattan distance),
+    :math:`\\|\\mathbf{a} - \\mathbf{b}\\|_1 = \\sum_i |a_i - b_i|`.
+
+    The following example computes the Manhattan distance between the mean site-frequency spectrum and an observed one.
+
+    ::
+
+        sfs = pg.Coalescent(n=4).sfs.mean
+
+        d = pg.L1Norm().compute(sfs.polymorphic, [2.1, 0.9, 0.7])
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
         """
         Initialize the class.
         """
@@ -77,10 +136,19 @@ class L1Norm(LNorm):
 
 class LInfNorm(LNorm):
     """
-    Class for L-infinity norm (Chebyshev distance).
+    Class for the :math:`L^\\infty`-norm (Chebyshev distance),
+    :math:`\\|\\mathbf{a} - \\mathbf{b}\\|_\\infty = \\max_i |a_i - b_i|`.
+
+    The following example computes the Chebyshev distance between the mean site-frequency spectrum and an observed one.
+
+    ::
+
+        sfs = pg.Coalescent(n=4).sfs.mean
+
+        d = pg.LInfNorm().compute(sfs.polymorphic, [2.1, 0.9, 0.7])
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
         """
         Initialize the class.
         """
@@ -91,13 +159,52 @@ class Likelihood(Norm, ABC):
     """
     Abstract class for likelihoods.
     """
-    pass
+
+    @staticmethod
+    def _check_signs(observed: np.ndarray, modelled: np.ndarray) -> np.ndarray:
+        """
+        Check that the observed counts are non-negative and the modelled values are non-negative up to round-off.
+
+        :param observed: Observed counts.
+        :param modelled: Modelled values.
+        :return: The modelled values, those negative within round-off of zero set to zero.
+        :raises ValueError: If an observed count is negative.
+        :raises ModelError: If a modelled value is negative beyond round-off, relative to the largest modelled
+            magnitude.
+        """
+        if np.any(observed < 0):
+            raise ValueError(f'Observed counts must be non-negative, got minimum {np.min(observed)}.')
+
+        if np.any(modelled < 0):
+            if np.min(modelled) < -_NEGATIVE_RTOL * np.max(np.abs(modelled)):
+                raise ModelError(f'Modelled values must be non-negative, got minimum {np.min(modelled)}.')
+
+            return np.maximum(modelled, 0)
+
+        return modelled
 
 
 class PoissonLikelihood(Likelihood):
     """
     Class for Poisson likelihoods. Site frequency spectra are often assumed to be
     independent Poisson random variables.
+
+    For observed counts :math:`k_i` and modelled means :math:`\\mu_i`, the additive inverse of the log-likelihood
+
+    .. math::
+
+        L = -\\sum_i \\left( k_i \\log \\mu_i - \\mu_i - \\log k_i! \\right)
+
+    is returned, a positive value to be minimized.
+
+    The following example computes the negative log-likelihood of observed counts given the mean site-frequency spectrum
+    scaled by 10.
+
+    ::
+
+        sfs = pg.Coalescent(n=4).sfs.mean
+
+        nll = pg.PoissonLikelihood().compute(observed=[21, 9, 6], modelled=10 * sfs.polymorphic)
     """
 
     def compute(self, observed: Iterable | float, modelled: Iterable | float) -> float | int:
@@ -107,16 +214,20 @@ class PoissonLikelihood(Likelihood):
 
         :param observed: Observed value or values.
         :param modelled: Modelled value or values.
-        :return: A numerical value representing the difference between the two values.
+        :return: The negative Poisson log-likelihood of ``observed`` given the means ``modelled``.
+        :raises ValueError: If the observed and modelled values differ in shape, or an observed count is negative.
+        :raises ModelError: If a modelled value is negative beyond round-off.
         """
         # special case: single value
         if not isinstance(observed, Iterable) or not isinstance(modelled, Iterable):
             return self.compute(observed=[observed], modelled=[modelled])
 
-        return - PoissonLikelihoodFastDFE.log_poisson(
-            mu=np.array(list(modelled)),
-            k=np.array(list(observed))
-        ).sum()
+        observed = np.array(list(observed))
+        modelled = np.array(list(modelled))
+        self._check_shapes(observed, modelled)
+        modelled = self._check_signs(observed, modelled)
+
+        return - _Likelihood.log_poisson(mu=modelled, k=observed).sum()
 
 
 class MultinomialLikelihood(Likelihood):
@@ -124,8 +235,24 @@ class MultinomialLikelihood(Likelihood):
     Class for Multinomial likelihoods. Used when modeling observed counts distributed
     across categories, given expected probabilities.
 
-    The modelled values are normalized to form a valid probability distribution
-    (i.e., they sum to 1).
+    The modelled values :math:`m_i` are normalized to form a valid probability distribution,
+    :math:`p_i = m_i / \\sum_j m_j`, and the additive inverse of the log-likelihood
+
+    .. math::
+
+        L = -\\sum_i k_i \\log p_i
+
+    is returned, a positive value to be minimized (the multinomial coefficient, constant in the parameters, is
+    dropped).
+
+    The following example computes the negative log-likelihood of observed counts given the mean site-frequency
+    spectrum.
+
+    ::
+
+        sfs = pg.Coalescent(n=4).sfs.mean
+
+        nll = pg.MultinomialLikelihood().compute(observed=[21, 9, 6], modelled=sfs.polymorphic)
     """
 
     def compute(self, observed: Iterable, modelled: Iterable) -> float:
@@ -136,10 +263,17 @@ class MultinomialLikelihood(Likelihood):
         :param observed: Observed counts per category.
         :param modelled: Modelled values (will be normalized to probabilities).
         :return: Negative log-likelihood as a float.
+        :raises ValueError: If the observed and modelled values differ in shape, or an observed count is negative.
+        :raises ModelError: If a modelled value is negative beyond round-off.
         """
         observed = np.array(list(observed))
         modelled = np.array(list(modelled))
-        modelled = modelled / modelled.sum()
+        self._check_shapes(observed, modelled)
+        modelled = self._check_signs(observed, modelled)
 
+        modelled = modelled / max(modelled.sum(), np.finfo(float).tiny)
+
+        # floor the probabilities before the log so a category the model assigns zero probability yields a large
+        # finite penalty rather than an infinite objective, matching the epsilon convention of the Poisson likelihood
         mask = observed > 0
-        return -np.sum(observed[mask] * np.log(modelled[mask]))
+        return -np.sum(observed[mask] * np.log(np.maximum(modelled[mask], 1e-50)))

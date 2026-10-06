@@ -3,10 +3,14 @@ n:
   pop_1: 3
 num_replicates: 1000000
 migration_rates:
-  !!python/tuple [ 'pop_0', 'pop_1' ]:
-    0: 1
-  !!python/tuple [ 'pop_1', 'pop_0' ]:
-    0: 1
+  ? !!python/tuple
+  - 'pop_0'
+  - 'pop_1'
+  : 0: 1
+  ? !!python/tuple
+  - 'pop_1'
+  - 'pop_0'
+  : 0: 1
 pop_sizes:
   pop_0:
     0: 1
@@ -16,17 +20,18 @@ pop_sizes:
     0: 5
     0.2: 1
 model: standard
+seed: 42
 comparisons:
   tolerance:
     tree_height:
-      pdf: 0.02
-      cdf: 0.7
-      mean: 0.01
-      var: 0.02
+      pdf: 0.004
+      cdf: 0.002
+      mean: 0.0025
+      var: 0.012
     total_branch_length:
-      mean: 0.01
-      var: 0.02
+      mean: 0.002
+      var: 0.01
     sfs:
-      mean: 0.01
-      cov: 0.02
-      corr: 0.02
+      mean: 0.0072
+      cov: 0.033
+      corr: 0.032

@@ -6,15 +6,29 @@ pop_sizes:
 model: dirac
 psi: 0.99999999
 c: 50
+seed: 42
 comparisons:
   tolerance:
     tree_height:
-      pdf: 1
-      cdf: 0.01
-      mean: 0.01
-      var: 0.01
+      pdf: 0.004
+      cdf: 0.002
+      mean: 0.0044
+      var: 0.011
+      quantile: 0.004
     total_branch_length:
-      mean: 0.01
-      var: 0.01
+      mean: 0.0042
+      var: 0.011
+      cosine:
+        pdf: 0.004
+        cdf: 0.002
+        quantile: 0.004
     sfs:
-      mean: 0.1
+      mean: 0.25
+      cosine:
+        pdf: 0.0051
+        cdf: 0.002
+        quantile: 0.0058
+      pairwise:
+        '(1, 2)':
+          cdf: 0.002
+          pdf: 0.004

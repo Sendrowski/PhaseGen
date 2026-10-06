@@ -1,44 +1,1385 @@
 """Distribution base classes and marginal (per-deme / per-locus) views."""
 
 import logging
+import warnings
 from abc import ABC, abstractmethod
 from collections.abc import Mapping
 from ..caching import cached_property
-from typing import Iterator, Sequence, TYPE_CHECKING
+from typing import Any, Callable, Iterator, Sequence, TYPE_CHECKING
 import numpy as np
-from ..expm import Backend
-from ..rewards import DemeReward, LocusReward, CombinedReward
+from ..rewards import RestrictedReward
+from ..settings import Settings
+from ..spectrum import AbstractSpectrum
 
 if TYPE_CHECKING:
+    from .reward import JointRewardDistribution
     from matplotlib import pyplot as plt
     from .phase_type import PhaseTypeDistribution
+    from ..visualization import _CurveData, _SurfaceData
 
-expm = Backend.expm
 logger = logging.getLogger('phasegen')
+
+#: Smallest step of the exact-node march, relative to the node's position.
+_EXACT_STEP_FLOOR = 1e-6
+
+#: Probability level above which a reward quantile is approximate, the inversion resolving the CDF to about 1e-11.
+_QUANTILE_TAIL_LEVEL = 1.0 - 1e-9
+
+
+class DistributionFunction:
+    """
+    Distribution function returned by the ``pdf``, ``cdf`` and ``quantile`` properties of a distribution.
+
+    Calling the object evaluates the function, so that ``coal.sfs.pdf(x)`` returns the density of every bin at ``x``,
+    and :meth:`DistributionFunction.plot() <phasegen.distributions.DistributionFunction.plot>` draws it, so that
+    ``coal.sfs.pdf.plot()`` draws the density curve of every bin. A joint function also draws its surface with
+    ``plot_surface()``.
+
+    The properties return the subclasses :class:`~phasegen.distributions.DensityFunction`,
+    :class:`~phasegen.distributions.CumulativeDistributionFunction` and
+    :class:`~phasegen.distributions.QuantileFunction` in plain, marginal (one function per spectrum bin), joint and
+    conditional variants. The methods by which they are evaluated are listed at
+    :class:`~phasegen.distributions.CumulativeDistributionFunction`.
+
+    The following example evaluates the density of every bin of the site-frequency spectrum at 1 and draws the
+    density curves.
+
+    ::
+
+        pdf = pg.Coalescent(n=5).sfs.pdf
+
+        f = pdf(1.0)
+        pdf.plot(show=False)
+
+    :param distribution: The distribution this function belongs to.
+    """
+    #: Kind of the function: ``'pdf'``, ``'cdf'`` or ``'quantile'``.
+    kind: str = ''
+
+    def __init__(self, distribution: 'CallableDistributionFunctions') -> None:
+        self._distribution = distribution
+
+    def __call__(self, *args, **kwargs) -> 'Any':
+        """Evaluate the function at a point or an array of points, with the arguments of the concrete subclass."""
+        return getattr(self._distribution, '_' + self.kind)(*args, **kwargs)
+
+    def _plot_data(self, *args, **kwargs) -> '_CurveData':
+        """
+        The curves :meth:`plot` draws: this function evaluated over a grid, with labels and title, built by the
+        distribution's ``_plot_data_<kind>``. Also called by the R package.
+
+        :return: The curves, one per bin for a spectrum.
+        """
+        return getattr(self._distribution, '_plot_data_' + self.kind)(*args, **kwargs)
+
+    def plot(
+            self,
+            ax: 'plt.Axes' = None,
+            t: np.ndarray = None,
+            n_points: int = None,
+            show: bool = True,
+            file: str = None,
+            clear: bool = True,
+            label: str = None,
+            title: str = None,
+            **kwargs
+    ) -> 'plt.Axes':
+        """
+        Plot the function over a grid. The curve is ``self(t)``, the function the caller evaluates.
+
+        :param ax: Axes to plot on.
+        :param t: Points to evaluate at. By default, :attr:`~phasegen.settings.Settings.plot_n_grid` points up to
+            the :attr:`~phasegen.settings.Settings.plot_endpoint_quantile` quantile.
+        :param n_points: Number of points of the default grid.
+        :param show: Whether to show the plot.
+        :param file: File to save the plot to.
+        :param clear: Whether to draw on a new figure when ``ax`` is not given, otherwise onto the current axes.
+        :param label: Legend label of the curve, ``None`` for none.
+        :param title: Plot title, ``None`` for the default title.
+        :param kwargs: Line styling passed to the curve, such as ``alpha`` or ``lw``.
+        :return: Axes.
+        """
+        from ..visualization import Visualization
+
+        return Visualization.plot_curves(ax=ax, data=self._plot_data(t=t, n_points=n_points), file=file, show=show,
+                                         clear=clear, label=label, title=title, **kwargs)
+
+    def _curve(self, grid: np.ndarray | None, n_points: int | None, variable: str, title: str) -> '_CurveData':
+        """
+        One unlabelled curve of this function, over ``grid`` or by default over :attr:`Settings.plot_n_grid` points
+        up to the :attr:`Settings.plot_endpoint_quantile` quantile (the probability axis for a quantile function).
+
+        :param grid: Points to evaluate at, ``None`` for the default grid.
+        :param n_points: Number of points of the default grid, ``None`` for :attr:`Settings.plot_n_grid`.
+        :param variable: Name of the variable on the x-axis.
+        :param title: Plot title.
+        :return: The curve.
+        """
+        from ..visualization import _CurveData
+
+        grid = self._default_grid(self.kind, grid, n_points,
+                                  lambda: self._distribution.quantile(Settings.plot_endpoint_quantile))
+
+        return _CurveData(
+            x=grid,
+            y=np.atleast_2d(self(grid)),
+            labels=[''],
+            xlabel='q' if self.kind == 'quantile' else variable,
+            ylabel=dict(pdf=f'f({variable})', cdf=f'F({variable})', quantile='quantile')[self.kind],
+            title=title
+        )
+
+    @staticmethod
+    def _default_grid(kind: str, grid: np.ndarray | None, n_points: int | None, end: Callable[[], float]) -> np.ndarray:
+        """
+        The plotting grid: ``grid`` itself if given, otherwise :attr:`Settings.plot_n_grid` points from 0 to ``end()``,
+        or across the central :attr:`Settings.plot_endpoint_quantile` probability range for a quantile function.
+
+        :param kind: The function kind, ``'pdf'``, ``'cdf'`` or ``'quantile'``.
+        :param grid: Points to evaluate at, ``None`` for the default grid.
+        :param n_points: Number of points of the default grid, ``None`` for :attr:`Settings.plot_n_grid`.
+        :param end: Right end of the default grid of a density or CDF, called only when needed.
+        :return: The grid.
+        """
+        if grid is not None:
+            return np.asarray(grid, dtype=float)
+
+        n_points = n_points or Settings.plot_n_grid
+        q_end = Settings.plot_endpoint_quantile
+
+        if kind == 'quantile':
+            return np.linspace(1.0 - q_end, q_end, n_points)
+
+        return np.linspace(0, float(end()), n_points)
+
+    def __repr__(self) -> str:
+        return f"<{type(self).__name__}: call to evaluate, .plot() to draw>"
+
+
+# --- function kinds -------------------------------------------------------------------------------------------------
+
+class DensityFunction(DistributionFunction):
+    r"""Probability density function :math:`f(x) = F'(x)` of a distribution with CDF :math:`F`.
+
+    Calling ``pdf(x)`` returns the density at ``x``, for a scalar or an array, evaluated as listed at
+    :class:`~phasegen.distributions.CumulativeDistributionFunction`.
+
+    The following example evaluates the density of the tree height on a grid and draws it.
+
+    ::
+
+        pdf = pg.Coalescent(n=5).tree_height.pdf
+
+        f = pdf(np.linspace(0.5, 4, 8))
+        pdf.plot(show=False)
+    """
+    kind = 'pdf'
+
+    def __call__(self, t: 'float | np.ndarray') -> 'float | np.ndarray':
+        """
+        The density at ``t``.
+
+        :param t: A point or an array of points.
+        :return: The density, of the same shape as ``t``.
+        """
+        return super().__call__(t)
+
+
+class CumulativeDistributionFunction(DistributionFunction):
+    r"""Cumulative distribution function :math:`F(x) = \mathbb{P}(Y \le x)` of the random variable :math:`Y` of a
+    distribution.
+
+    Calling ``cdf(x)`` returns the probability at ``x``, for a scalar or an array. The evaluation is described at
+    :class:`~phasegen.distributions.TreeHeightDistribution` for the tree height, at
+    :class:`~phasegen.distributions.RewardDistribution` for any other accumulated reward and at
+    :class:`~phasegen.distributions.EmpiricalDistribution` for a sample.
+
+    The following example evaluates the CDF of the total branch length on a grid and draws it.
+
+    ::
+
+        cdf = pg.Coalescent(n=5).total_branch_length.cdf
+
+        p = cdf(np.linspace(0.5, 8, 16))
+        cdf.plot(show=False)
+    """
+    kind = 'cdf'
+
+    def __call__(self, t: 'float | np.ndarray') -> 'float | np.ndarray':
+        """
+        The cumulative probability at ``t``.
+
+        :param t: A point or an array of points.
+        :return: The cumulative probability, of the same shape as ``t``.
+        """
+        return super().__call__(t)
+
+
+class QuantileFunction(DistributionFunction):
+    r"""Quantile function :math:`F^{-1}(q) = \inf\{x : F(x) \ge q\}` of a distribution with CDF :math:`F`, for a
+    probability level :math:`q \in [0, 1]`.
+
+    Calling ``quantile(q)`` returns the quantile at ``q``, for a scalar or an array. An
+    :class:`~phasegen.distributions.EmpiricalDistribution` uses the sample quantile.
+
+    The following example computes the 5%, 50% and 95% quantiles of the tree height.
+
+    ::
+
+        x = pg.Coalescent(n=5).tree_height.quantile([0.05, 0.5, 0.95])
+
+    .. rubric:: Log-survival grid
+
+    The analytic distributions carry the negative log-survival :math:`H(x) = -\log(1 - F(x))` on a grid of nodes and
+    interpolate it, which is exact for an exponential tail. With :math:`\hat H` the interpolant,
+
+    .. math::
+
+        F^{-1}(q) = \hat H^{-1}\big(-\log(1 - q)\big).
+
+    The tree height interpolates :math:`H` by cubic Hermite polynomials and evaluates its CDF and density pointwise
+    (see :class:`~phasegen.distributions.TreeHeightDistribution`). Any other accumulated reward interpolates
+    :math:`H` linearly and reads its CDF and density from the same grid (see
+    :class:`~phasegen.distributions.RewardDistribution`), as :math:`F = 1 - e^{-\hat H}` and
+    :math:`f = e^{-\hat H} \hat H'`, so that its quantile inverts its CDF exactly and its density is non-negative.
+
+    .. rubric:: Implementation
+
+    - The slope :math:`\hat H'` is the slope of the segment of :math:`\hat H` holding :math:`x`.
+    - Levels beyond the last node return the last node.
+    """
+    kind = 'quantile'
+
+    def __call__(self, q: 'float | np.ndarray') -> 'float | np.ndarray':
+        """
+        The quantile at the probability level ``q``.
+
+        :param q: A probability level in :math:`[0, 1]` or an array of levels.
+        :return: The quantile, of the same shape as ``q``.
+        """
+        return super().__call__(q)
+
+    def plot(
+            self,
+            ax: 'plt.Axes' = None,
+            q: np.ndarray = None,
+            n_points: int = None,
+            show: bool = True,
+            file: str = None,
+            clear: bool = True,
+            label: str = None,
+            title: str = None,
+            **kwargs
+    ) -> 'plt.Axes':
+        """
+        Plot the quantile function (value versus probability). The curve is ``self(q)``, the function the caller
+        evaluates.
+
+        :param ax: Axes to plot on.
+        :param q: Probabilities to evaluate at. By default, :attr:`~phasegen.settings.Settings.plot_n_grid` points
+            from ``1 - Settings.plot_endpoint_quantile`` to :attr:`~phasegen.settings.Settings.plot_endpoint_quantile`.
+        :param n_points: Number of points of the default grid.
+        :param show: Whether to show the plot.
+        :param file: File to save the plot to.
+        :param clear: Whether to draw on a new figure when ``ax`` is not given, otherwise onto the current axes.
+        :param label: Legend label of the curve, ``None`` for none.
+        :param title: Plot title, ``None`` for the default title.
+        :param kwargs: Line styling passed to the curve, such as ``alpha`` or ``lw``.
+        :return: Axes.
+        """
+        from ..visualization import Visualization
+
+        return Visualization.plot_curves(ax=ax, data=self._plot_data(q=q, n_points=n_points), file=file, show=show,
+                                         clear=clear, label=label, title=title, **kwargs)
+
+
+# --- the shared CDF representation ----------------------------------------------------------------------------------
+
+class _LogSurvivalGrid:
+    """
+    The log-survival grid described at ``QuantileFunction``. ``_interp_cdf``, ``_interp_quantile`` and
+    ``_interp_pdf`` read it, and the subclasses ``_LSTFunction`` and ``_ExpmFunction`` supply the nodes through
+    ``_cdf_grid``.
+    """
+
+    def _shared(self, key: str, build) -> 'Any':
+        """Return a shared entry of the CDF representation, built once via ``build`` and cached on the distribution
+        (so the cdf / pdf / quantile of one distribution reuse it). Honors :attr:`~phasegen.settings.Settings.cache`."""
+        cache = self._distribution.__dict__.setdefault('_lst_curve_cache', {})
+        # the grid is built for one inversion configuration: the tail cut decides where the exact nodes join the fit,
+        # the de Hoog degree the value at each of those nodes, and the term count the fit below them. If any of the
+        # three was changed on this live distribution the cached entries no longer answer the question being asked,
+        # so discard them and rebuild.
+        config = (Settings.dehoog_tail_quantile, Settings.dehoog_degree, Settings.cos_terms)
+        if cache.get('_config', config) != config:
+            cache.clear()
+        cache['_config'] = config
+        if key in cache:
+            return cache[key]
+        val = build()
+        if Settings.cache:
+            cache[key] = val
+        return val
+
+    def _cdf_grid(self, x_max: float = 0.0, q_max: float = 0.0) -> tuple:
+        """
+        The grid: its nodes and the negative log-survival on them, both ascending.
+
+        :param x_max: Largest point the caller will evaluate.
+        :param q_max: Largest probability level the caller will invert.
+        :return: The nodes and the negative log-survival on them.
+        """
+        raise NotImplementedError
+
+    @staticmethod
+    def _log_survival(cdf: 'np.ndarray | float') -> np.ndarray:
+        r"""The negative log-survival :math:`H = -\log(1 - F)`, the coordinate the grid is interpolated in. Capped, so a
+        CDF that has saturated at 1 (as the cosine fit does at the end of its window) does not take it to infinity."""
+        return -np.log1p(-np.minimum(np.asarray(cdf, dtype=float), 1.0 - 1e-16))
+
+    def _interp_cdf(self, t: np.ndarray, nodes: np.ndarray, log_survival: np.ndarray) -> np.ndarray:
+        r"""
+        The CDF between the grid's nodes: :math:`F(x) = 1 - e^{-H(x)}`, with the negative log-survival ``H``
+        interpolated linearly in ``x``. A chord in ``F`` out in the tail would instead join the nodes underneath a
+        concave curve, biasing the far-tail quantile 1e-3 long.
+
+        :param t: Points to evaluate at.
+        :param nodes: The grid's nodes.
+        :param log_survival: The negative log-survival on them.
+        :return: The CDF at ``t``.
+        """
+        # below the support (t < nodes[0] = 0) the CDF is 0, not the clamped first-node value np.interp would return
+        return -np.expm1(-np.interp(t, nodes, log_survival, left=0.0))
+
+    def _interp_quantile(self, q: np.ndarray, nodes: np.ndarray, log_survival: np.ndarray) -> np.ndarray:
+        r"""The closed-form inverse of :meth:`_interp_cdf`'s map: the same relation between ``x`` and ``H``, read the
+        other way. Levels at or below the atom :math:`\mathbb{P}(R = 0)` land on the first node, which is 0.
+
+        :param q: Probability levels.
+        :param nodes: The grid's nodes.
+        :param log_survival: The negative log-survival on them.
+        :return: The quantiles at ``q``.
+        """
+        hq = self._log_survival(q)
+
+        return np.where(hq <= log_survival[0], nodes[0], np.interp(hq, log_survival, nodes))
+
+    def _interp_pdf(self, t: np.ndarray, nodes: np.ndarray, log_survival: np.ndarray) -> np.ndarray:
+        r"""The derivative of :meth:`_interp_cdf`'s map: on the segment :math:`[x_i, x_{i+1})` holding ``t``,
+        :math:`f = e^{-H(x)}\,(H_{i+1} - H_i)/(x_{i+1} - x_i)`, so integrating the density over any segment gives
+        exactly the CDF increment there. Non-negative since ``H`` is non-decreasing, zero outside the nodes and NaN
+        at NaN.
+
+        :param t: Points to evaluate at.
+        :param nodes: The grid's nodes.
+        :param log_survival: The negative log-survival on them.
+        :return: The density at ``t``.
+        """
+        t = np.asarray(t, dtype=float)
+
+        if len(nodes) < 2:
+            # a grid of a single node (a near-total atom at 0) has no segment, so the continuous density is zero
+            return np.where(np.isnan(t), np.nan, 0.0)
+
+        widths = np.diff(nodes)
+        slopes = np.divide(np.diff(log_survival), widths, out=np.zeros_like(widths), where=widths > 0)
+
+        # segment holding t, with the last node closing the last segment
+        i = np.clip(np.searchsorted(nodes, t, side='right') - 1, 0, len(widths) - 1)
+        inside = ((t >= nodes[0]) & (t <= nodes[-1])) | np.isnan(t)
+
+        return np.where(inside, np.exp(-np.interp(t, nodes, log_survival, left=0.0)) * slopes[i], 0.0)
+
+
+# --- the accumulated-reward (LST / de Hoog) inversion machinery, owned by the function objects -----------------------
+
+class _LSTFunction(_LogSurvivalGrid):
+    """
+    The inversion of an accumulated-reward transform, described at ``RewardDistribution``, for the function objects
+    of a ``RewardDistribution`` and its conditional subclasses. The transform and its scales come from
+    ``self._distribution`` (``lst``, ``_invert``, ``_range``). ``_cdf_point`` is the per-point de Hoog CDF
+    behind the tail nodes and the conditional support bracket.
+    """
+    #: Equispaced nodes :math:`N` on which the expansion is evaluated.
+    _cos_n_grid: int = 8192
+
+    #: CDF level :math:`1 - \delta` at which the second-pass window ends. The expansion discards the mass above it.
+    _cos_tail_target: float = 1.0 - 1e-5
+
+    #: Scale factor :math:`\kappa` of the first-pass window :math:`[0, \hat\mu + \kappa \hat\sigma]`.
+    _cos_rough_scale: float = 20.0
+
+    #: Largest estimated truncation error of the expansion, in probability, before it is reported unresolved.
+    _cos_truncation_tol: float = 1e-3
+
+    #: Largest difference between the expansion and the de Hoog CDF where the grid joins them before it is reported.
+    #: ``None`` skips the check.
+    _cos_join_tol: float | None = 1e-3
+
+    @property
+    def _cos_terms(self) -> int:
+        """The number of cosine terms, :attr:`~phasegen.settings.Settings.cos_terms`."""
+        return Settings.cos_terms
+
+    @property
+    def _cos_terms_rough(self) -> int:
+        """The number of cosine terms of the locating pass, a third of the second pass."""
+        return max(self._cos_terms // 3, 2)
+
+    #: Step :math:`\eta_H` of the exact nodes in negative log-survival.
+    _log_survival_step: float = 0.25
+
+    #: Step :math:`\eta_F` of the exact nodes in probability, which resolves the body when the tail level is low.
+    _cdf_step: float = 0.01
+
+    #: Largest factor by which a step between exact nodes exceeds the previous one.
+    _step_growth: float = 2.0
+
+    #: CDF level :math:`1 - \epsilon` the exact nodes reach unless a query reaches further, and their maximum number.
+    _tail_target: float = 1.0 - 1e-6
+    _max_exact_nodes: int = 512
+
+    #: Largest relative change of the density across the band above the cut over which the de Hoog nodes are shifted
+    #: onto the fit.
+    _join_density_tol: float = 0.1
+
+    # ---- distribution primitives (thin accessors) --------------------------------------------------------------
+    def _range(self, scale: float = 12.0) -> float:
+        return self._distribution._range(scale)
+
+    def _cdf_point(self, t) -> 'float | np.ndarray':
+        """Per-point de Hoog CDF at ``t``, the atom at ``t = 0`` and 0 below it. Memoised per distribution. The points
+        of an array not yet cached are inverted together. It supplies the tail nodes of the grid, the conditional
+        support bracket and the exact reference of the tests.
+
+        :param t: The point, or a 1D array of points.
+        :return: The CDF, a float for a scalar ``t`` and an array otherwise.
+        """
+        d = self._distribution
+        cache = self._shared('cdf_points', dict)
+        ts = [float(v) for v in np.atleast_1d(t)]
+        new = sorted({v for v in ts if v > 0 and v not in cache})
+
+        if new:
+            cache.update(zip(new, np.atleast_1d(d._invert(lambda s: d._lst_nodes(s) / s, np.array(new)))))
+
+        # F(0) = P(R <= 0) = P(R = 0), the atom phi(inf) -- right-continuous at the point mass, matching the
+        # de Hoog / cosine curves (which split the atom off and add it back). The inversion is skipped there both to
+        # avoid the phi(s)/s singularity and because at t > 0 it already carries the atom.
+        out = [0.0 if v < 0 else max(d.lst(np.inf).real, 0.0) if v == 0 else float(cache.get(v, np.nan)) for v in ts]
+
+        return out[0] if np.ndim(t) == 0 else np.array(out)
+
+    def _pdf_point(self, t) -> 'float | np.ndarray':
+        r"""Per-point de Hoog density (transform :math:`\mathcal{L}[f] = \varphi(s)`), a float for a scalar ``t`` and an
+        array for a 1D array of points, which are inverted together."""
+        d = self._distribution
+        return d._invert(d._lst_nodes, t)
+
+    # ---- shared CDF representation (cached on the distribution) -------------------------------------------------
+    @property
+    def _cos_coeffs(self) -> dict:
+        return self._shared('cos_coeffs', self._build_cos_coeffs)
+
+    @property
+    def _cos_cdf_grid(self) -> tuple:
+        return self._shared('cos_cdf_grid', self._build_cos_cdf_grid)
+
+    def _build_cos_coeffs(self) -> dict:
+        """The two-pass cosine expansion described at ``RewardDistribution``, with the window scale
+        ``_cos_rough_scale`` and the tail level ``_cos_tail_target``."""
+        rough = self._fit_cos(self._range(self._cos_rough_scale), self._cos_terms_rough, warn=False)
+        xs = np.linspace(0.0, rough['b'], 1024)
+        cdf = np.maximum.accumulate(self._eval_cos_cdf(rough, xs))
+        b = float(np.interp(self._cos_tail_target, cdf, xs))
+
+        return self._fit_cos(max(b, rough['b'] * 1e-3), self._cos_terms)
+
+    def _fit_cos(self, b: float, n_terms: int, warn: bool = True) -> dict:
+        """
+        One cosine expansion on ``[0, b]`` with ``n_terms`` terms, described at ``RewardDistribution``, fitted by
+        ``_cos_fit_from`` and checked by ``_check_cos_fit``.
+
+        :param b: The window end.
+        :param n_terms: The number of cosine terms.
+        :param warn: Whether to report ringing or an unresolved expansion. The locating pass describes a fit that is
+            discarded, at a term count the caller never chose, so only the returned expansion reports.
+        :return: The window end, frequencies, coefficients, atom and mass.
+        """
+        d = self._distribution
+        w = np.arange(n_terms) * np.pi / b
+        fit = self._cos_fit_from(b, w, d._lst_nodes(-1j * w), d.lst(np.inf).real)
+        if warn:
+            self._check_cos_fit(fit, d, d._titled('COS CDF'))
+
+        return fit
+
+    def _check_cos_fit(self, fit: dict, d: 'CallableDistributionFunctions', label: str) -> None:
+        """
+        Report ringing and an unresolved expansion of ``fit``: ``_warn_if_nonmonotone`` checks the raw continuous CDF
+        for ringing and ``_warn_if_unresolved`` checks that the terms have converged. A fit without a continuous part
+        is not checked.
+
+        :param fit: The expansion, as returned by ``_cos_fit_from``.
+        :param d: The distribution whose logger reports.
+        :param label: The name of the expansion in the reports.
+        """
+        b, w, fk, p0, mass = fit['b'], fit['w'], fit['fk'], fit['p0'], fit['mass']
+        if mass - p0 <= 1e-12:
+            return
+        n_terms = len(w)
+
+        # the sag of the (continuous) CDF below its running maximum is the sensitive ringing detector (a visibly
+        # rippling CDF can come from sub-percent density wiggles); the shared non-monotonicity guard surfaces a
+        # substantial one (rtol 1e-2 of the [0, 1] CDF range -- a loose bar, the cosine series being coarse near a sharp
+        # feature)
+        xd = np.linspace(0.0, b, max(512, 2 * n_terms))
+        sines = np.sin(np.outer(w[1:], xd))
+        Fd = fk[0] * xd + (fk[1:] / w[1:]) @ sines
+        d._warn_if_nonmonotone(Fd, f'{label} (residual ripple)', rtol=1e-2)
+
+        half = max(n_terms // 2, 1)
+        Fh = fk[0] * xd + (fk[1:half] / w[1:half]) @ sines[:half - 1]
+
+        # convergence order of the partial sums, from the decay of the CDF-term amplitudes |f_k| / w_k ~ k^-q
+        k = np.arange(1, n_terms)
+        amp = np.maximum.accumulate((np.abs(fk[1:]) / w[1:])[::-1])[::-1]
+        sel = (k >= n_terms // 4) & (amp > 0)
+        q = -np.polyfit(np.log(k[sel]), np.log(amp[sel]), 1)[0] if sel.sum() > 4 else 2.0
+        order = float(np.clip(q - 1.0, 1.0, 2.0))
+        move = float(np.abs(Fd - Fh).max()) * (mass - p0 if p0 > 1e-9 else 1.0)
+        self._warn_if_unresolved(d, f'{label} (truncation)', move / (2.0 ** order - 1.0), move, order, n_terms)
+
+    @staticmethod
+    def _cos_fit_from(b: float, w: np.ndarray, chi: np.ndarray, p0: float, mass: float = 1.0) -> dict:
+        """
+        The cosine expansion on ``[0, b]`` from the transform at the frequencies ``w``, described at
+        ``RewardDistribution``, of a distribution of total mass ``mass``, below 1 for a sub-distribution. An atom
+        ``p0`` above ``1e-9`` is split off and the continuous part normalized to mass 1. A continuous mass
+        ``mass - p0`` within ``1e-12`` of zero leaves no continuous part, whose coefficients are then zero.
+
+        :param b: The window end.
+        :param w: The frequencies ``j pi / b``.
+        :param chi: The transform at ``-i w``.
+        :param p0: The atom at 0.
+        :param mass: The total mass.
+        :return: The window end, frequencies, coefficients, atom and mass.
+        """
+        if p0 > 1e-9:
+            cont = mass - p0
+            if cont <= 1e-12:  # all the mass on the atom at 0: degenerate point mass, no continuous part
+                return dict(b=b, w=w, fk=np.zeros(len(w)), p0=p0, mass=mass)
+            chi = (chi - p0) / cont  # continuous part only
+        fk = (2.0 / b) * np.real(chi)  # a = 0, so exp(-i w a) = 1
+        fk[0] *= 0.5
+        return dict(b=b, w=w, fk=fk, p0=p0, mass=mass)
+
+    def _warn_if_unresolved(self, d: 'CallableDistributionFunctions', label: str, truncation: float, move: float,
+                            order: float, n_terms: int) -> None:
+        r"""
+        Warn when the estimated truncation error exceeds ``_cos_truncation_tol``. The coefficients do not depend on
+        how many of them are summed, so for an error :math:`C K^{-p}` after :math:`K` terms the largest difference
+        ``move`` between the expansion truncated at half the terms and at all of them is :math:`C K^{-p} (2^p - 1)`,
+        and the error is ``move`` divided by :math:`2^p - 1`. The order :math:`p` is one less than the decay exponent
+        of the CDF-term amplitudes, clamped to :math:`[1, 2]`.
+
+        :param d: The distribution whose logger reports.
+        :param label: The name of the expansion in the report.
+        :param truncation: The estimated truncation error, in probability.
+        :param move: The largest absolute difference between the two truncations, in probability.
+        :param order: The convergence order :math:`p`.
+        :param n_terms: The number of cosine terms summed.
+        """
+        if Settings.check_inversions and truncation > self._cos_truncation_tol:
+            d._logger.warning(
+                "%s: the cosine expansion is unresolved, its estimated truncation error is %.2e (bar %.0e), the last "
+                "%d of %d terms moving the CDF by %.2e at convergence order %.1f. The distribution spans scales the "
+                "window cannot resolve at this many terms. Raise Settings.cos_terms, whose cost is linear in it.",
+                label, truncation, self._cos_truncation_tol, n_terms - n_terms // 2, n_terms, move, order
+            )
+
+    @staticmethod
+    def _eval_cos_cdf(fit: dict, xs: np.ndarray) -> np.ndarray:
+        """Evaluate the COS CDF of ``fit`` at ``xs``: a split atom ``p0`` plus the continuous part clipped to
+        ``[0, mass - p0]``, or else the series clipped to ``[0, mass]``."""
+        w, fk, p0, mass = fit['w'], fit['fk'], fit['p0'], fit['mass']
+        cdf_c = fk[0] * xs + (fk[1:] / w[1:]) @ np.sin(np.outer(w[1:], xs))
+        return p0 + (mass - p0) * np.clip(cdf_c, 0.0, 1.0) if p0 > 1e-9 else np.clip(cdf_c, 0.0, mass)
+
+    def _build_cos_cdf_grid(self) -> tuple:
+        """A fine, monotone CDF on the fit's window ``[0, b]``: the body of the shared grid of ``_cdf_grid``,
+        computed once per distribution."""
+        fit = self._cos_coeffs
+        xs = np.linspace(0.0, fit['b'], self._cos_n_grid)
+        cdf = np.maximum.accumulate(self._eval_cos_cdf(fit, xs))
+        self._warn_if_join_off(xs, cdf)
+
+        return xs, cdf
+
+    def _warn_if_join_off(self, xs: np.ndarray, cdf: np.ndarray) -> None:
+        """
+        Warn when the expansion departs by more than ``_cos_join_tol`` from the de Hoog CDF where ``_cdf_grid`` joins
+        them, at a :attr:`Settings.dehoog_tail_quantile <phasegen.settings.Settings.dehoog_tail_quantile>` strictly
+        between 0 and 1. A locating pass too coarse for a narrow body with a long tail ends the window early, and the
+        expansion folds the mass beyond it into the body. The check costs one de Hoog point.
+
+        :param xs: The nodes of the expansion.
+        :param cdf: The expansion's CDF on them.
+        """
+        cut = Settings.dehoog_tail_quantile
+        if self._cos_join_tol is None or not Settings.check_inversions or cut is None or not 0.0 < cut < 1.0:
+            return
+
+        x_cut = float(np.interp(cut, cdf, xs))
+        error = abs(self._cdf_point(x_cut) - float(np.interp(x_cut, xs, cdf)))
+
+        if error > self._cos_join_tol:
+            d = self._distribution
+            d._logger.warning(
+                "%s: the expansion departs from the de Hoog CDF by %.2e at %.4g (bar %.0e). Its window ends at %.4g "
+                "and leaves out a mass of %.2e, which it folds back into the body. Settings.dehoog_tail_quantile = 0 "
+                "evaluates the CDF by the de Hoog inversion throughout.", d._titled('COS CDF (window)'), error, x_cut,
+                self._cos_join_tol, xs[-1], 1.0 - self._cdf_point(float(xs[-1]))
+            )
+
+    def _exact_step(self, nodes: list) -> float:
+        """
+        The step to the next exact node: the increment in probability, the finer of ``_log_survival_step`` in negative
+        log-survival and ``_cdf_step``, divided by the local density, and at most a local limit. For the first step the
+        density is the slope of the cosine grid at the anchor and the limit is the distance along that grid to the
+        incremented level. Afterwards the density is the secant of the last two nodes, raised to the local slope of the
+        cosine grid while the node lies inside the fit's window, and the limit is ``_step_growth`` times the last step.
+        A density that is not positive takes the limit. The march floors the step at ``_EXACT_STEP_FLOOR`` times the
+        node's position. The nodes do not depend on the queries.
+
+        :param nodes: The ``(x, F)`` nodes so far, ascending, with ``F < 1`` at the last.
+        :return: The step to the next node.
+        """
+        x, cdf = nodes[-1]
+        increment = min(self._log_survival_step * (1.0 - cdf), self._cdf_step)
+
+        if len(nodes) == 1:
+            xs, cs = self._cos_cdf_grid
+            density = float(np.interp(x, xs, np.gradient(cs, xs)))
+            limit = float(np.interp(cdf + increment, cs, xs)) - x
+        else:
+            x_prev, cdf_prev = nodes[-2]
+            density = (cdf - cdf_prev) / (x - x_prev)
+            limit = self._step_growth * (x - x_prev)
+
+            # the secant is the average density over the span, which sits below the density here whenever the span
+            # covers a flatter region: an anchor at the origin of a distribution with no mass there makes it
+            # arbitrarily small and the step overshoots the increment it is meant to respect. Inside the fit's
+            # window the grid has a local slope to compare against, and the larger density gives the safer step.
+            xs, cs = self._cos_cdf_grid
+            if x <= xs[-1]:
+                density = max(density, float(np.interp(x, xs, np.gradient(cs, xs))))
+
+        return float(min(increment / density, limit)) if density > 0 else limit
+
+    def _exact_nodes(self, x_cut: float, cut: float, x_max: float, q_max: float) -> list:
+        r"""
+        The ``(x, F)`` de Hoog nodes described at ``RewardDistribution``, marching outward from the anchor at the cut.
+        They are cached on the distribution and extended when a query reaches past their end, never trimmed, so an
+        answer does not depend on later queries. The march advances on the de Hoog values, because the cosine quantile
+        saturates at the end of its window. It ends once the nodes cover the query and reach the CDF level
+        ``_tail_target``, or a query level above it, or earlier where the CDF saturates at 1 or, past that level,
+        stops rising.
+
+        The anchor carries the fit's negative log-survival :math:`H_c` at ``x_cut``, where the de Hoog value is
+        :math:`H_d(x_\mathrm{cut})`. Every later node carries the de Hoog value :math:`H_d(x)` shifted by
+        :math:`\Delta = H_c - H_d(x_\mathrm{cut})` times :math:`\max(0, 1 - (H_d(x) - H_d(x_\mathrm{cut})) / h)`,
+        with the band :math:`h = |\Delta| / \epsilon` and :math:`\epsilon` = ``_join_density_tol``. The tail joins the
+        fit without a step, its density departs by at most a factor :math:`1 \pm \epsilon` from the de Hoog density,
+        and it is the de Hoog CDF from :math:`h` above the anchor's value. Where the grid is exact throughout, the
+        anchor carries the de Hoog value and :math:`\Delta = 0`.
+
+        :param x_cut: Where the CDF reaches the cut.
+        :param cut: CDF value at or above which the exact inversion supplies the grid.
+        :param x_max: Largest point the caller will evaluate.
+        :param q_max: Largest probability level the caller will invert.
+        :return: The nodes, ascending.
+        """
+        nodes = self._shared('cdf_exact', list)
+
+        if not nodes:
+            # an atom at 0 can carry the CDF past the cut in one jump, so ``x_cut`` is 0 and the fit's value there is
+            # the atom, above the cut
+            xs, cdf = self._cos_cdf_grid
+            nodes.append((x_cut, self._cdf_point(x_cut) if cut <= 0.0 else float(np.interp(x_cut, xs, cdf))))
+
+        if x_max <= x_cut and q_max <= cut:
+            return nodes  # the query stays in the fit's half, so the expensive nodes are left unbuilt
+
+        x_anchor, cdf_anchor = nodes[0]
+        log_survival_anchor = float(self._log_survival(self._cdf_point(x_anchor)))
+        shift = float(self._log_survival(cdf_anchor)) - log_survival_anchor
+        if not np.isfinite(shift):
+            shift = 0.0
+        band = abs(shift) / self._join_density_tol
+
+        target = min(max(q_max, self._tail_target), 1.0 - 1e-12)
+        top = max(c for _, c in nodes[:-1]) if len(nodes) > 1 else -np.inf
+        while len(nodes) < self._max_exact_nodes:
+            x, cdf = nodes[-1]
+            # stop once the ladder covers the query and holds the target mass. A CDF that has saturated at 1, or that
+            # stops rising above the nodes before it once it holds the target mass, has reached the resolution of
+            # the inversion and says nothing more about points beyond it, so either ends the march regardless
+            if max(cdf, top) >= target and (x >= x_max or cdf >= 1.0 - 1e-12 or cdf <= top):
+                break
+            top = max(top, cdf)
+            # scattered per-point values on a near-vertical rise can shrink the step towards the spacing of the
+            # floats; a floor relative to ``x`` keeps the march advancing, and the growth limit then widens it again
+            x_next = x + max(self._exact_step(nodes), _EXACT_STEP_FLOOR * abs(x))
+
+            if not x_next > x:
+                break
+
+            cdf_next = self._cdf_point(x_next)
+            if shift != 0.0:
+                log_survival = float(self._log_survival(cdf_next))
+                log_survival += shift * max(0.0, 1.0 - (log_survival - log_survival_anchor) / band)
+                cdf_next = -np.expm1(-log_survival)
+            nodes.append((x_next, cdf_next))
+
+        return nodes
+
+    def _cdf_grid(self, x_max: float = 0.0, q_max: float = 0.0) -> tuple:
+        """
+        The grid described at ``RewardDistribution``: the cosine nodes below ``Settings.dehoog_tail_quantile``, whose
+        saturated nodes are dropped, joined to the de Hoog nodes of ``_exact_nodes`` above it. A cut of 1 or ``None``
+        uses the cosine nodes only, and a cut of 0 the de Hoog nodes only.
+
+        :param x_max: Largest point the caller will evaluate.
+        :param q_max: Largest probability level the caller will invert.
+        :return: The nodes and the negative log-survival on them, both ascending.
+        """
+        xs, cdf = self._cos_cdf_grid
+        cut = Settings.dehoog_tail_quantile
+        cut = 1.0 if cut is None else float(np.clip(cut, 0.0, 1.0))
+
+        # the fit's own nodes, up to the cut. The saturated ones carry no information -- the fit force-normalises to 1
+        # at the end of its window -- and would pin ``H`` at its cap, so they go whatever the cut is.
+        keep = (cdf < cut) & (cdf < 1.0 - 1e-12)
+        nodes, values = xs[keep], cdf[keep]
+
+        x_cut = float(np.interp(cut, cdf, xs)) if cut > 0.0 else 0.0
+
+        if cut < 1.0:
+            exact = self._exact_nodes(x_cut, cut, x_max, q_max)
+            nodes = np.concatenate([nodes, [x for x, _ in exact]])
+            values = np.concatenate([values, [c for _, c in exact]])
+
+        if not len(nodes):
+            # every node of the fit is saturated, a reward that is 0 almost surely: its atom at the origin
+            nodes, values = xs[:1], cdf[:1]
+
+        order = np.argsort(nodes, kind='stable')
+
+        return nodes[order], np.maximum.accumulate(self._log_survival(values[order]))
+
+
+class _LSTCumulativeDistributionFunction(_LSTFunction, CumulativeDistributionFunction):
+    """The CDF of an accumulated reward, read from the grid of ``_LSTFunction._cdf_grid``."""
+
+    def __call__(self, t) -> 'np.ndarray | float':
+        r"""
+        The CDF :math:`F(x) = \mathbb{P}(R \le x)`, see :class:`~phasegen.distributions.RewardDistribution`.
+
+        :param t: Point or array of points :math:`x` at which to evaluate the CDF.
+        :return: The CDF at ``t``, of the same shape.
+        :raises NotImplementedError: If the coalescent has a bounded accumulation window.
+        """
+        ta = np.atleast_1d(np.asarray(t, dtype=float))
+        out = self._interp_cdf(ta, *self._cdf_grid(x_max=float(np.max(ta, initial=0.0, where=~np.isnan(ta)))))
+
+        return out if np.ndim(t) > 0 else float(out[0])
+
+    def _plot_data(self, t: np.ndarray = None, n_points: int = None) -> '_CurveData':
+        """
+        The CDF curve :meth:`plot` draws.
+
+        :param t: Points to evaluate at. By default, :attr:`Settings.plot_n_grid` points up to the
+            :attr:`Settings.plot_endpoint_quantile` quantile.
+        :param n_points: Number of points of the default grid.
+        :return: The curve.
+        """
+        return self._curve(t, n_points, 'x', self._distribution._titled('CDF'))
+
+
+class _LSTDensityFunction(_LSTFunction, DensityFunction):
+    """The density of an accumulated reward, read from the grid of ``_LSTFunction._cdf_grid``."""
+
+    def __call__(self, t) -> 'np.ndarray | float':
+        r"""
+        The density :math:`f(x)` of the continuous part of :math:`R`, see
+        :class:`~phasegen.distributions.RewardDistribution`.
+
+        :param t: Point or array of points :math:`x` at which to evaluate the density.
+        :return: The density at ``t``, of the same shape.
+        :raises NotImplementedError: If the coalescent has a bounded accumulation window.
+        """
+        ta = np.atleast_1d(np.asarray(t, dtype=float))
+        out = self._interp_pdf(ta, *self._cdf_grid(x_max=float(np.max(ta, initial=0.0, where=~np.isnan(ta)))))
+        return out if np.ndim(t) > 0 else float(out[0])
+
+    def _plot_data(self, t: np.ndarray = None, n_points: int = None) -> '_CurveData':
+        """
+        The density curve :meth:`plot` draws.
+
+        :param t: Points to evaluate at. By default, :attr:`Settings.plot_n_grid` points up to the
+            :attr:`Settings.plot_endpoint_quantile` quantile.
+        :param n_points: Number of points of the default grid.
+        :return: The curve.
+        """
+        return self._curve(t, n_points, 'x', self._distribution._titled('PDF'))
+
+
+class _LSTQuantileFunction(_LSTFunction, QuantileFunction):
+    """The quantile function of an accumulated reward, read from the grid of ``_LSTFunction._cdf_grid``."""
+
+    def __call__(self, q) -> 'np.ndarray | float':
+        r"""
+        The quantile :math:`F^{-1}(q) = \inf\{x : F(x) \ge q\}` of the accumulated reward :math:`R` with CDF
+        :math:`F`, evaluated as described at :class:`~phasegen.distributions.RewardDistribution`. Levels at or below
+        the atom :math:`p_0` return 0. Levels above ``1 - 1e-9`` approach the absolute accuracy of the inversion, about
+        ``1e-11``, so their quantiles are approximate and a warning is logged.
+
+        :param q: Probability level or array of levels :math:`q \in [0, 1]`.
+        :return: The quantiles, of the same shape as ``q``.
+        :raises NotImplementedError: If the coalescent has a bounded accumulation window.
+        :raises ValueError: If any ``q`` lies outside :math:`[0, 1]`.
+        """
+        qa = np.atleast_1d(np.asarray(q, dtype=float))
+        if np.any((qa < 0) | (qa > 1)):
+            raise ValueError("Quantile must be between 0 and 1.")
+
+        if Settings.check_inversions and np.any(qa > _QUANTILE_TAIL_LEVEL):
+            self._distribution._logger.warning(
+                "%s: levels above %.10g approach the absolute accuracy of the inversion, so their quantiles are "
+                "approximate.", self._distribution._titled('quantile'), _QUANTILE_TAIL_LEVEL
+            )
+
+        # NaN levels are passed through, the grid taking the others
+        valid = ~np.isnan(qa)
+        out = np.full_like(qa, np.nan)
+        if valid.any():
+            out[valid] = self._interp_quantile(qa[valid], *self._cdf_grid(q_max=float(qa[valid].max())))
+
+        return out if np.ndim(q) > 0 else float(out[0])
+
+    def _plot_data(self, q: np.ndarray = None, n_points: int = None) -> '_CurveData':
+        """
+        The quantile curve :meth:`plot` draws (value versus probability).
+
+        :param q: Probabilities to evaluate at. By default, :attr:`Settings.plot_n_grid` points from
+            ``1 - Settings.plot_endpoint_quantile`` to :attr:`Settings.plot_endpoint_quantile`.
+        :param n_points: Number of points of the default grid.
+        :return: The curve.
+        """
+        return self._curve(q, n_points, 'x', self._distribution._titled('quantile function'))
+
+
+# --- direct grid evaluation (matrix-exponential tree height) ---------------------------------------------------------
+
+class _GridCumulativeDistributionFunction(CumulativeDistributionFunction):
+    """CDF whose distribution computes ``P(R <= t)`` *directly* (the exact matrix-exponential tree height) rather than
+    by Laplace inversion. The evaluation lives in the subclass ``__call__``."""
+
+    def _plot_data(self, t: np.ndarray = None, n_points: int = None) -> '_CurveData':
+        """
+        The CDF curve :meth:`plot` draws.
+
+        :param t: Points to evaluate at. By default, :attr:`Settings.plot_n_grid` points up to the
+            :attr:`Settings.plot_endpoint_quantile` quantile.
+        :param n_points: Number of points of the default grid.
+        :return: The curve.
+        """
+        return self._curve(t, n_points, 't', 'CDF')
+
+
+class _GridDensityFunction(DensityFunction):
+    """Density whose distribution computes it directly (see :class:`_GridCumulativeDistributionFunction`)."""
+
+    def _plot_data(self, t: np.ndarray = None, n_points: int = None) -> '_CurveData':
+        """
+        The density curve :meth:`plot` draws.
+
+        :param t: Points to evaluate at. By default, :attr:`Settings.plot_n_grid` points up to the
+            :attr:`Settings.plot_endpoint_quantile` quantile.
+        :param n_points: Number of points of the default grid.
+        :return: The curve.
+        """
+        return self._curve(t, n_points, 't', 'PDF')
+
+
+class _GridQuantileFunction(QuantileFunction):
+    """Quantile function whose distribution computes it directly (see :class:`_GridCumulativeDistributionFunction`)."""
+
+    def _plot_data(self, q: np.ndarray = None, n_points: int = None) -> '_CurveData':
+        """
+        The quantile curve :meth:`plot` draws (value versus probability).
+
+        :param q: Probabilities to evaluate at. By default, :attr:`Settings.plot_n_grid` points from
+            ``1 - Settings.plot_endpoint_quantile`` to :attr:`Settings.plot_endpoint_quantile`.
+        :param n_points: Number of points of the default grid.
+        :return: The curve.
+        """
+        return self._curve(q, n_points, 't', 'Quantile function')
+
+
+# --- joint (bivariate) flavours -------------------------------------------------------------------------------------
+
+class _JointFunction:
+    """Plotting grid, heatmap and surface shared by ``JointCDF`` and ``JointDensity``. The 2D representation lives on
+    the ``JointRewardDistribution`` the function belongs to."""
+
+    def _grid_values(self, xs: np.ndarray, ys: np.ndarray) -> np.ndarray:
+        """The joint kind evaluated on the grid ``xs x ys`` (implemented per kind)."""
+        raise NotImplementedError
+
+    def _axis_end(self, axis: str) -> float:
+        """
+        The end of a plotting axis, the marginal :attr:`Settings.plot_endpoint_quantile` quantile clipped to the
+        cosine window the representation was built on.
+
+        :param axis: The axis, ``'a'`` or ``'b'``.
+        :return: The end of the axis.
+        """
+        d = self._distribution
+
+        return min(d.marginal(axis).quantile(Settings.plot_endpoint_quantile), d._cos2d_window(axis))
+
+    def _plot_data(self, n_points: int = None, surface: bool = False) -> '_SurfaceData':
+        """
+        The grid and values :meth:`plot` and :meth:`plot_surface` draw. Each axis runs from 0 to the marginal
+        :attr:`Settings.plot_endpoint_quantile` quantile. A CDF has its value scale fixed to ``[0, 1]``.
+
+        :param n_points: Number of grid points per axis. By default, :attr:`Settings.plot_joint_cdf_n_grid` for a
+            CDF, and :attr:`Settings.plot_joint_pdf_surface_n_grid` or :attr:`Settings.plot_joint_pdf_n_grid` for a
+            density drawn as a surface or a heatmap.
+        :param surface: Whether the default resolution is that of a surface rather than a heatmap.
+        :return: The grid and the values on it.
+        """
+        from ..visualization import _SurfaceData
+
+        d = self._distribution
+        is_cdf = self.kind == 'cdf'
+
+        if n_points is None:
+            if is_cdf:
+                n_points = Settings.plot_joint_cdf_n_grid
+            else:
+                n_points = Settings.plot_joint_pdf_surface_n_grid if surface else Settings.plot_joint_pdf_n_grid
+
+        xs = np.linspace(0, self._axis_end('a'), n_points)
+        ys = np.linspace(0, self._axis_end('b'), n_points)
+        name = self.kind.upper()
+
+        return _SurfaceData(
+            x=xs,
+            y=ys,
+            z=self._grid_values(xs, ys),
+            xlabel='$R_a$',
+            ylabel='$R_b$',
+            zlabel='F(R_a, R_b)' if is_cdf else 'f(R_a, R_b)',
+            title=f"Joint {name} {d.label}" if d.label else f"Joint reward {name}",
+            vmin=0.0 if is_cdf else None,
+            vmax=1.0 if is_cdf else None
+        )
+
+    def plot(self, ax: 'plt.Axes' = None, n_points: int = None, show: bool = True, file: str = None,
+             title: str = None) -> 'plt.Axes':
+        """
+        Heatmap of the joint function. Each axis runs from 0 to the marginal
+        :attr:`~phasegen.settings.Settings.plot_endpoint_quantile` quantile.
+
+        :param ax: Axes to plot on.
+        :param n_points: Number of grid points per axis. By default,
+            :attr:`~phasegen.settings.Settings.plot_joint_cdf_n_grid` for a CDF and
+            :attr:`~phasegen.settings.Settings.plot_joint_pdf_n_grid` for a density.
+        :param show: Whether to show the plot.
+        :param file: File to save the plot to.
+        :param title: Plot title, ``None`` for the default title.
+        :return: Axes.
+        """
+        from ..visualization import Visualization
+
+        return Visualization.plot_surface(self._plot_data(n_points), surface=False, ax=ax, title=title, file=file,
+                                          show=show)
+
+    def plot_surface(self, ax: 'plt.Axes' = None, n_points: int = None, show: bool = True, file: str = None,
+                     title: str = None) -> 'plt.Axes':
+        """
+        3D surface of the joint function. Each axis runs from 0 to the marginal
+        :attr:`~phasegen.settings.Settings.plot_endpoint_quantile` quantile.
+
+        :param ax: Axes to plot on.
+        :param n_points: Number of grid points per axis. By default,
+            :attr:`~phasegen.settings.Settings.plot_joint_cdf_n_grid` for a CDF and
+            :attr:`~phasegen.settings.Settings.plot_joint_pdf_surface_n_grid` for a density.
+        :param show: Whether to show the plot.
+        :param file: File to save the plot to.
+        :param title: Plot title, ``None`` for the default title.
+        :return: Axes.
+        """
+        from ..visualization import Visualization
+
+        return Visualization.plot_surface(self._plot_data(n_points, surface=True), surface=True, ax=ax, title=title,
+                                          file=file, show=show)
+
+
+class JointDensity(_JointFunction, DensityFunction):
+    r"""
+    Joint density :math:`f(x, y)` of the continuous part of a :class:`~phasegen.distributions.JointRewardDistribution`,
+    for :math:`x, y > 0`. The atom and the mass on the axes described at :class:`~phasegen.distributions.JointCDF` have
+    no density.
+
+    Mass on a line :math:`R_a = c R_b` through the origin, as for the tree heights of linked loci (:math:`c = 1`), has
+    no density either. Near such a line the values form a ridge whose height depends on the grid resolution. Away
+    from it the density is unaffected.
+
+    The density is the mixed central difference of the continuous part :math:`C` of
+    :class:`~phasegen.distributions.JointCDF` on a uniform grid with steps :math:`h_x` and :math:`h_y`,
+
+    .. math::
+
+        f(x, y) \approx \frac{1}{4 h_x h_y} \big[\, & C(x + h_x, y + h_y) - C(x + h_x, y - h_y) \\
+        & - C(x - h_x, y + h_y) + C(x - h_x, y - h_y) \,\big],
+
+    the density averaged over one cell, which smooths the residual oscillation of the cosine expansion near the origin.
+
+    The following example evaluates the joint density of the tree height and the total branch length at
+    :math:`(1, 3)`.
+
+    ::
+
+        coal = pg.Coalescent(n=4)
+        joint = coal.joint(pg.TreeHeightReward(), pg.TotalBranchLengthReward())
+
+        f = joint.pdf(1.0, 3.0)
+
+    .. rubric:: Implementation
+
+    - The grid spans the cosine window :math:`[0, L_a] \times [0, L_b]` of
+      :class:`~phasegen.distributions.JointCDF`, so the steps are properties of the distribution and a value depends
+      only on its own point. A bicubic spline interpolates between the nodes. The expansion holds no mass beyond its
+      window, where the density is therefore zero.
+    - Negative values are set to zero, with a warning under :attr:`Settings.check_inversions
+      <phasegen.settings.Settings.check_inversions>`.
+    """
+
+    def __call__(self, x, y) -> 'np.ndarray | float':
+        r"""
+        Evaluate the joint density :math:`f(x_j, y_l)` on the outer grid of the arguments.
+
+        :param x: Value(s) :math:`x_j` of :math:`R_a`, a scalar or a 1D array.
+        :param y: Value(s) :math:`y_l` of :math:`R_b`, a scalar or a 1D array.
+        :return: An array of shape ``(len(x), len(y))``, or a float for a single pair.
+        :raises NotImplementedError: If one reward is a constant multiple of the other on every transient state, so
+            that the law has no density on the plane, or if the coalescent has a bounded accumulation window.
+        """
+        xs, ys = np.atleast_1d(x).astype(float), np.atleast_1d(y).astype(float)
+        f = self._grid_values(xs, ys)
+        return float(f.ravel()[0]) if f.size == 1 else f
+
+    def _grid_values(self, xs, ys) -> 'np.ndarray':
+        d = self._distribution
+        # guarded here so that plot() and plot_surface(), which call _grid_values directly, refuse as well
+        if d._ratio is not None:
+            raise NotImplementedError("The joint density is singular when one reward is a constant multiple c of the "
+                                      "other (R_a = c R_b almost surely): the law lives on a line and has no 2D "
+                                      "density. Use cdf(x, y) = marginal CDF of R_a at min(x, c y), or the 1D marginal "
+                                      "density.")
+        raw = d._density(xs, ys)  # the cosine 2D density can dip negative near the origin edge (Gibbs)
+        d._warn_if_negative(raw, 'joint density (cosine)')
+        return np.clip(raw, 0.0, None)
+
+
+class JointCDF(_JointFunction, CumulativeDistributionFunction):
+    r"""
+    Joint CDF :math:`F(x, y) = \mathbb{P}(R_a \le x,\ R_b \le y)` of a
+    :class:`~phasegen.distributions.JointRewardDistribution`, zero when either threshold is negative. With
+    :math:`p_{00} = \mathbb{P}(R_a = R_b = 0)`,
+
+    .. math::
+
+        F(x, y) = g_b(x) + g_a(y) - p_{00} + C(x, y),
+
+    where :math:`g_b(x) = \mathbb{P}(R_a \le x,\ R_b = 0)` and :math:`g_a(y) = \mathbb{P}(R_a = 0,\ R_b \le y)` hold the
+    mass on the axes, and :math:`C(x, y) = \mathbb{P}(0 < R_a \le x,\ 0 < R_b \le y)` is the continuous part.
+
+    The following example evaluates the joint CDF of the tree height and the total branch length at :math:`(1, 3)`.
+
+    ::
+
+        coal = pg.Coalescent(n=4)
+        joint = coal.joint(pg.TreeHeightReward(), pg.TotalBranchLengthReward())
+
+        p = joint.cdf(1.0, 3.0)
+
+    .. rubric:: Continuous part
+
+    :math:`C` is a two-dimensional Fourier-cosine expansion (Ruijter and Oosterlee, 2012) on a window
+    :math:`[0, L_a] \times [0, L_b]` that holds nearly all the mass. Removing the axes from the joint transform
+    :math:`\Phi` gives the characteristic function of the continuous part,
+
+    .. math::
+
+        \chi(\omega_a, \omega_b) = \Phi(-\mathrm{i}\omega_a, -\mathrm{i}\omega_b)
+        - \Phi(-\mathrm{i}\omega_a, \infty) - \Phi(\infty, -\mathrm{i}\omega_b) + p_{00}.
+
+    With :math:`N` frequencies :math:`u_j = j\pi / L_a` and :math:`v_l = l\pi / L_b` per axis,
+
+    .. math::
+
+        C(x, y) = \sum_{j, l = 0}^{N - 1} A_{jl}\, \frac{\sin(u_j x)}{u_j}\, \frac{\sin(v_l y)}{v_l},
+
+    .. math::
+
+        A_{jl} = \frac{2}{L_a L_b} \operatorname{Re}\big[\chi(u_j, v_l) + \chi(u_j, -v_l)\big],
+
+    for :math:`x \le L_a` and :math:`y \le L_b`. A zero frequency contributes :math:`x` or :math:`y` in place of the
+    fraction and halves the coefficient.
+
+    .. rubric:: Implementation
+
+    - The window ends are the marginal means plus a fixed multiple of the standard deviations. Lanczos factors damp the
+      ringing of the series without changing the total mass. :math:`N` is given by :attr:`Settings.cos_terms_2d
+      <phasegen.settings.Settings.cos_terms_2d>`, at a cost quadratic in it.
+    - For a single epoch on a dense state space, the transform values of one frequency :math:`u_j` form a shifted
+      linear system in :math:`s_b`, so one generalized Schur (QZ) decomposition serves the whole row.
+    - The axis terms are one-dimensional cosine series of :math:`\Phi(\cdot, \infty)` and :math:`\Phi(\infty, \cdot)`
+      on the window ending at the marginal mean plus a fixed multiple of the standard deviation, fitted and checked as
+      the marginal CDF of a :class:`~phasegen.distributions.RewardDistribution`.
+    - When :math:`\mathbf{r}_a = c\,\mathbf{r}_b` on every transient state for a constant :math:`c > 0`,
+      :math:`R_a = c R_b` almost surely and :math:`F(x, y) = \mathbb{P}(R_a \le \min(x, c y))`.
+    - Under :attr:`Settings.check_inversions <phasegen.settings.Settings.check_inversions>`, a warning is logged when
+      :math:`F(x, \infty)` departs from the marginal CDF near the origin.
+
+    .. rubric:: References
+
+    Ruijter, M. J. and Oosterlee, C. W. (2012). Two-dimensional Fourier cosine series expansion method for pricing
+    financial options. SIAM Journal on Scientific Computing 34(5), B642-B671.
+    """
+
+    def __call__(self, x, y) -> 'np.ndarray | float':
+        r"""
+        Evaluate the joint CDF :math:`F(x_j, y_l)` on the outer grid of the thresholds.
+
+        :param x: Threshold(s) :math:`x_j` for :math:`R_a`, a scalar or a 1D array.
+        :param y: Threshold(s) :math:`y_l` for :math:`R_b`, a scalar or a 1D array.
+        :return: An array of shape ``(len(x), len(y))``, or a float for a single pair.
+        :raises NotImplementedError: If the coalescent has a bounded accumulation window.
+        """
+        xs, ys = np.atleast_1d(x).astype(float), np.atleast_1d(y).astype(float)
+        G = self._grid_values(xs, ys)
+        return float(G.ravel()[0]) if G.size == 1 else G
+
+    def _grid_values(self, xs, ys) -> 'np.ndarray':
+        # reduced here so that plot() and plot_surface(), which call _grid_values directly, draw the same CDF
+        d = self._distribution
+        if d._ratio is not None:
+            m = d.marginal('a')
+            t = np.minimum.outer(xs, d._ratio * ys)
+            # the CDF vanishes below 0 and equals the atom P(R = 0) at 0
+            p0 = float(d._atoms['both0'])
+            return np.array([[0.0 if tt < 0.0 else p0 if tt == 0.0 else float(m.cdf(tt)) for tt in row] for row in t])
+        return d._cdf_grid(xs, ys)
+
+
+# (a bivariate joint has no quantile flavour: a 2D quantile is not well-defined -- use a marginal or conditional)
+
+
+# --- conditional flavours -------------------------------------------------------------------------------------------
+
+class _ConditionalCosTerms:
+    """Halves the cosine terms of a conditional expansion, every coefficient of which costs an inner inversion, and
+    refines that inversion before the first expansion."""
+
+    #: The join is not checked, as each de Hoog point costs an inner inversion.
+    _cos_join_tol = None
+
+    @property
+    def _cos_terms(self) -> int:
+        """The number of cosine terms, half of :attr:`~phasegen.settings.Settings.cos_terms`."""
+        return max(Settings.cos_terms // 2, 2)
+
+    @property
+    def _cos_terms_rough(self) -> int:
+        """The number of cosine terms of the locating pass, half of the second pass."""
+        return max(self._cos_terms // 2, 2)
+
+    def _build_cos_coeffs(self) -> dict:
+        """The expansion of ``_LSTFunction._build_cos_coeffs`` after ``ConditionalRewardDistribution._refine``, whose
+        values of the transform on the locating pass it reuses."""
+        self._distribution._refine()
+        return super()._build_cos_coeffs()
+
+
+class ConditionalDensity(_ConditionalCosTerms, _LSTDensityFunction):
+    """Density of a :class:`~phasegen.distributions.ConditionalRewardDistribution`, computed as described there.
+
+    The following example evaluates the density of the total branch length at 3 given a tree height of 1.
+
+    ::
+
+        coal = pg.Coalescent(n=4)
+        cond = coal.joint(pg.TreeHeightReward(), pg.TotalBranchLengthReward()).conditional(value=1.0)
+
+        f = cond.pdf(3.0)
+    """
+
+
+class ConditionalCDF(_ConditionalCosTerms, _LSTCumulativeDistributionFunction):
+    """CDF of a :class:`~phasegen.distributions.ConditionalRewardDistribution`, computed as described there.
+
+    The following example evaluates the CDF of the total branch length at 3 given a tree height of 1.
+
+    ::
+
+        coal = pg.Coalescent(n=4)
+        cond = coal.joint(pg.TreeHeightReward(), pg.TotalBranchLengthReward()).conditional(value=1.0)
+
+        p = cond.cdf(3.0)
+    """
+
+
+class ConditionalQuantileFunction(_ConditionalCosTerms, _LSTQuantileFunction):
+    """Quantile function of a :class:`~phasegen.distributions.ConditionalRewardDistribution`, computed as described
+    there.
+
+    The following example computes the median total branch length given a tree height of 1.
+
+    ::
+
+        coal = pg.Coalescent(n=4)
+        cond = coal.joint(pg.TreeHeightReward(), pg.TotalBranchLengthReward()).conditional(value=1.0)
+
+        x = cond.quantile(0.5)
+    """
+
+
+
+
+class CallableDistributionFunctions:
+    """
+    Mixin exposing ``pdf`` / ``cdf`` / ``quantile`` as callable-and-plottable distribution-function properties. Each
+    concrete distribution supplies the evaluation and plot data of these functions, or its function objects provide
+    them. The class of the returned function objects depends on the distribution, for example the ``Marginal...``
+    classes for a spectrum and the ``Conditional...`` classes for a conditional distribution.
+    """
+    #: The distribution-function classes returned by the properties; overridden by subclasses to select the flavour.
+    #: ``_quantile_function = None`` marks a distribution without a quantile (e.g. a bivariate joint).
+    _pdf_function = DensityFunction
+    _cdf_function = CumulativeDistributionFunction
+    _quantile_function = QuantileFunction
+
+    def _function(self, kind: str, factory) -> 'Any':
+        """Return the (cached) distribution-function object for ``kind``, built once via ``factory`` and stored on
+        this distribution. Caching the object -- not just rebuilding a thin wrapper -- is what lets the function
+        object's own cached cosine coefficients / CDF grid persist across ``.cdf`` / ``.pdf`` /
+        ``.quantile`` accesses, since the three share the one distribution they hang off. Honors the global cache
+        switch (:attr:`~phasegen.settings.Settings.cache`)."""
+        cache = self.__dict__.setdefault('_function_cache', {})
+        if kind in cache:
+            return cache[kind]
+        obj = factory(self)
+        if Settings.cache:
+            cache[kind] = obj
+        return obj
+
+    @property
+    def cdf(self) -> CumulativeDistributionFunction:
+        """
+        The cumulative distribution function. Calling it evaluates the function at ``t``, and
+        :meth:`DistributionFunction.plot() <phasegen.distributions.DistributionFunction.plot>` draws its curve.
+        """
+        return self._function('cdf', self._cdf_function)
+
+    @property
+    def pdf(self) -> DensityFunction:
+        """
+        The probability density function. Calling it evaluates the function at ``t``, and
+        :meth:`DistributionFunction.plot() <phasegen.distributions.DistributionFunction.plot>` draws its curve.
+        """
+        return self._function('pdf', self._pdf_function)
+
+    @property
+    def quantile(self) -> QuantileFunction:
+        """Quantile function: callable (``quantile(q)``) and plottable (``quantile.plot()``)."""
+        if self._quantile_function is None:
+            raise NotImplementedError(f"{type(self).__name__} has no quantile function "
+                                      "(a bivariate joint quantile is not well-defined; use a marginal/conditional).")
+        return self._function('quantile', self._quantile_function)
+
+    def plot_cdf(self, *args, **kwargs) -> 'plt.Axes':
+        """
+        Plot the CDF curve.
+
+        .. deprecated:: 2.0.0
+            Use ``cdf.plot()``. ``plot_cdf`` will be removed in a future release.
+        """
+        warnings.warn("plot_cdf() is deprecated since 2.0.0 and will be removed in a future release; "
+                      "use .cdf.plot() instead.", DeprecationWarning, stacklevel=2)
+        return self.cdf.plot(*args, **kwargs)
+
+    def _warn_if_negative(self, values: np.ndarray, label: str, rtol: float = 1e-3) -> np.ndarray:
+        """Warn (via this distribution's logger) if ``values`` has a substantial negative entry relative to its scale,
+        then return it unchanged (the caller clips). A density / probability must be non-negative, so a real negative
+        -- beyond the ``rtol`` numerical-noise band -- signals inversion ringing (Gibbs) worth surfacing rather than
+        silently clipping. Gated by :attr:`~phasegen.settings.Settings.check_inversions`."""
+        arr = np.asarray(values, dtype=float)
+        if Settings.check_inversions and arr.size:
+            scale = max(float(np.abs(arr).max()), 1e-300)
+            mn = float(np.nanmin(arr))
+            if mn < -rtol * scale:
+                self._logger.warning(f"{label}: substantial negative value ({mn:.2e} vs scale {scale:.2e}); clipping "
+                                     f"to 0 -- the numerical inversion may be imprecise here")
+        return values
+
+    def _warn_if_nonmonotone(self, cdf: np.ndarray, label: str, rtol: float = 1e-3) -> np.ndarray:
+        """Warn if ``cdf`` sags below its running maximum by more than ``rtol`` of its range, then return it unchanged
+        (the caller enforces monotonicity, which flattens the sag). A sag accumulates over many small downward steps
+        as well as in one. Logging, noise band and gating are those of ``_warn_if_negative``."""
+        arr = np.asarray(cdf, dtype=float)
+        if Settings.check_inversions and arr.size > 1:
+            rng = max(float(np.nanmax(arr) - np.nanmin(arr)), 1e-300)
+            sag = float(np.nanmax(np.fmax.accumulate(arr) - arr))
+            if sag > rtol * rng:
+                self._logger.warning(f"{label}: non-monotone CDF (sag {sag:.2e} below its running maximum vs range "
+                                     f"{rng:.2e}); enforcing monotonicity -- the numerical inversion may be imprecise "
+                                     f"here")
+        return cdf
 
 
 class ProbabilityDistribution(ABC):
     """
-    Abstract base class for probability distributions for which moments can be calculated.
+    Abstract base class for probability distributions.
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
         """
         Create object.
         """
         #: Logger
         self._logger = logger.getChild(self.__class__.__name__)
 
-    def touch(self, **kwargs: dict):
+    #: Cached properties that :meth:`_touch` leaves unevaluated, as they are unavailable on this instance.
+    _untouched: Sequence[str] = ()
+
+    def _touch(self, **kwargs: dict) -> None:
         """
-        Touch all cached properties.
+        Touch all cached properties except those in :attr:`_untouched`.
 
         :param kwargs: Additional keyword arguments.
         """
         for cls in self.__class__.__mro__:
             for attr, value in cls.__dict__.items():
-                if isinstance(value, cached_property):
-                    getattr(self, attr)
+                if isinstance(value, cached_property) and attr not in self._untouched:
+                    # force-persist the value: _touch/_drop is the serialization contract and must hold even under
+                    # Settings.cache = False, where the getter would otherwise recompute without storing
+                    self.__dict__[attr] = getattr(self, attr)
 
 
 class MomentAwareDistribution(ProbabilityDistribution, ABC):
@@ -75,6 +1416,24 @@ class MarginalDistributions(Mapping, ABC):
     """
     Base class for marginal distributions.
     """
+
+    @staticmethod
+    def _correlation(cov, scale):
+        """
+        The correlation coefficient ``cov / scale``, for a scalar statistic and for a spectrum alike. Where the scale
+        vanishes the coefficient is undefined and ``nan`` is returned, matching the empirical estimator.
+
+        :param cov: The covariance of the two marginals.
+        :param scale: The product of their standard deviations.
+        :return: The correlation coefficient, of the shape of ``cov``.
+        """
+        if isinstance(scale, AbstractSpectrum):
+            s = np.asarray(scale.data, dtype=float)
+            c = np.asarray(cov.data if isinstance(cov, AbstractSpectrum) else cov, dtype=float)
+
+            return type(scale)(np.divide(c, s, out=np.full(s.shape, np.nan), where=s > 0))
+
+        return cov / scale if scale > 0 else float('nan')
 
     @abstractmethod
     @cached_property
@@ -118,9 +1477,17 @@ class MarginalDistributions(Mapping, ABC):
 class MarginalLocusDistributions(MarginalDistributions):
     """
     Marginal locus distributions.
+
+    The following example computes the mean tree height at the first of two loci.
+
+    ::
+
+        coal = pg.Coalescent(n=3, loci=2, recombination_rate=1)
+
+        height_0 = coal.tree_height.loci[0].mean
     """
 
-    def __init__(self, dist: 'PhaseTypeDistribution'):
+    def __init__(self, dist: 'PhaseTypeDistribution') -> None:
         """
         Initialize the distributions.
 
@@ -128,11 +1495,11 @@ class MarginalLocusDistributions(MarginalDistributions):
         """
         self.dist = dist
 
-    def __getitem__(self, item):
+    def __getitem__(self, item) -> 'Any':
         """
         Get the distribution for the given locus.
 
-        :param item: Deme name.
+        :param item: The locus index.
         :return: Distribution.
         """
         return self.loci[item]
@@ -154,9 +1521,9 @@ class MarginalLocusDistributions(MarginalDistributions):
         return len(self.loci)
 
     @cached_property
-    def loci(self) -> 'MarginalLocusDistributions':
+    def loci(self) -> dict:
         """
-        Distributions marginalized over loci.
+        The distribution restricted to each locus, keyed by locus index.
         """
         # get class of distribution but use PhaseTypeDistribution
         # if this is a TreeHeightDistribution as TreeHeightDistribution
@@ -168,9 +1535,9 @@ class MarginalLocusDistributions(MarginalDistributions):
         for locus in range(self.dist.locus_config.n):
             loci[locus] = cls(
                 state_space=self.dist.state_space,
-                tree_height=self.dist.tree_height,
+                tree_height=self.dist._tree_height,
                 demography=self.dist.demography,
-                reward=CombinedReward([self.dist.reward, LocusReward(locus)])
+                reward=RestrictedReward(self.dist.reward, locus=locus)
             )
 
         return loci
@@ -192,8 +1559,8 @@ class MarginalLocusDistributions(MarginalDistributions):
         return self.dist.moment(
             k=2,
             rewards=(
-                CombinedReward([self.dist.reward, LocusReward(locus1)]),
-                CombinedReward([self.dist.reward, LocusReward(locus2)])
+                RestrictedReward(self.dist.reward, locus=locus1),
+                RestrictedReward(self.dist.reward, locus=locus2)
             ),
             center=True
         )
@@ -213,12 +1580,13 @@ class MarginalLocusDistributions(MarginalDistributions):
 
         :param locus1: The first locus.
         :param locus2: The second locus.
-        :return: The correlation coefficient.
+        :return: The correlation coefficient, ``nan`` where either locus has zero variance and the coefficient is
+            undefined, matching the empirical estimator.
         """
         locus1 = int(locus1)
         locus2 = int(locus2)
 
-        return self.get_cov(locus1, locus2) / (self.loci[locus1].std * self.loci[locus2].std)
+        return self._correlation(self.get_cov(locus1, locus2), self.loci[locus1].std * self.loci[locus2].std)
 
     @cached_property
     def corr(self) -> np.ndarray:
@@ -229,13 +1597,53 @@ class MarginalLocusDistributions(MarginalDistributions):
 
         return np.array([[self.get_corr(i, j) for i in range(n_loci)] for j in range(n_loci)])
 
+    def joint(self, locus1: int, locus2: int) -> 'JointRewardDistribution':
+        """
+        Joint distribution of the distribution's reward accumulated at ``locus1`` and at ``locus2``, the pair behind
+        :meth:`MarginalLocusDistributions.get_cov() <phasegen.distributions.MarginalLocusDistributions.get_cov>`, as a
+        :class:`~phasegen.distributions.JointRewardDistribution`.
+
+        :param locus1: The first locus.
+        :param locus2: The second locus.
+        :return: The joint distribution across the two loci.
+        :raises ValueError: If either locus does not exist.
+        :raises NotImplementedError: If the distribution is a spectrum, whose joint distribution is taken per pair of
+            frequency classes, as by :meth:`TwoLocusSFSDistribution.joint()
+            <phasegen.distributions.TwoLocusSFSDistribution.joint>`.
+        """
+        locus1, locus2 = int(locus1), int(locus2)
+
+        if locus1 not in range(self.dist.locus_config.n) or locus2 not in range(self.dist.locus_config.n):
+            raise ValueError(f"Locus {locus1} or {locus2} does not exist.")
+
+        from .mutation_configs import SpectrumDistribution
+
+        if isinstance(self.dist, SpectrumDistribution):
+            raise NotImplementedError("The joint distribution across loci is defined for a scalar total. For a "
+                                      "spectrum, use the joint distribution of a pair of frequency classes.")
+
+        return self.dist.joint(
+            RestrictedReward(self.dist.reward, locus=locus1),
+            RestrictedReward(self.dist.reward, locus=locus2)
+        )
+
 
 class MarginalDemeDistributions(MarginalDistributions):
     """
     Marginal deme distributions.
+
+    The following example computes the mean total length of the branches residing in ``pop_0``.
+
+    ::
+
+        coal = pg.Coalescent(n={'pop_0': 2, 'pop_1': 1}, demography=pg.Demography(
+            pop_sizes={'pop_0': 1, 'pop_1': 1}, migration_rates={('pop_0', 'pop_1'): 0.5, ('pop_1', 'pop_0'): 0.5}
+        ))
+
+        length_0 = coal.total_branch_length.demes['pop_0'].mean
     """
 
-    def __init__(self, dist: 'PhaseTypeDistribution'):
+    def __init__(self, dist: 'PhaseTypeDistribution') -> None:
         """
         Initialize the distributions.
 
@@ -243,7 +1651,7 @@ class MarginalDemeDistributions(MarginalDistributions):
         """
         self.dist = dist
 
-    def __getitem__(self, item):
+    def __getitem__(self, item) -> 'Any':
         """
         Get the distribution for the given deme.
 
@@ -269,9 +1677,9 @@ class MarginalDemeDistributions(MarginalDistributions):
         return len(self.demes)
 
     @cached_property
-    def demes(self) -> 'MarginalDemeDistributions':
+    def demes(self) -> dict:
         """
-        Distributions marginalized over demes.
+        The distribution restricted to each deme, keyed by population name.
         """
         # get class of distribution but use PhaseTypeDistribution
         # if this is a TreeHeightDistribution as TreeHeightDistribution
@@ -283,9 +1691,9 @@ class MarginalDemeDistributions(MarginalDistributions):
         for pop in self.dist.lineage_config.pop_names:
             demes[pop] = cls(
                 state_space=self.dist.state_space,
-                tree_height=self.dist.tree_height,
+                tree_height=self.dist._tree_height,
                 demography=self.dist.demography,
-                reward=CombinedReward([self.dist.reward, DemeReward(pop)])
+                reward=RestrictedReward(self.dist.reward, pop=pop)
             )
 
         return demes
@@ -304,8 +1712,8 @@ class MarginalDemeDistributions(MarginalDistributions):
         return self.dist.moment(
             k=2,
             rewards=(
-                CombinedReward([self.dist.reward, DemeReward(pop1)]),
-                CombinedReward([self.dist.reward, DemeReward(pop2)])
+                RestrictedReward(self.dist.reward, pop=pop1),
+                RestrictedReward(self.dist.reward, pop=pop2)
             ),
             center=True
         )
@@ -325,9 +1733,10 @@ class MarginalDemeDistributions(MarginalDistributions):
 
         :param pop1: The first deme.
         :param pop2: The second deme.
-        :return: The correlation coefficient.
+        :return: The correlation coefficient, ``nan`` where either deme has zero variance and the coefficient is
+            undefined, matching the empirical estimator.
         """
-        return self.get_cov(pop1, pop2) / (self.demes[pop1].std * self.demes[pop2].std)
+        return self._correlation(self.get_cov(pop1, pop2), self.demes[pop1].std * self.demes[pop2].std)
 
     @cached_property
     def corr(self) -> np.ndarray:
@@ -339,122 +1748,10 @@ class MarginalDemeDistributions(MarginalDistributions):
         return np.array([[self.get_corr(p1, p2) for p1 in pops] for p2 in pops])
 
 
-class DensityAwareDistribution(MomentAwareDistribution, ABC):
+class DensityAwareDistribution(CallableDistributionFunctions, MomentAwareDistribution, ABC):
     """
-    Abstract base class for probability distributions for which moments and densities can be calculated.
+    Abstract base class for probability distributions for which moments and densities can be calculated. The
+    ``cdf`` / ``pdf`` / ``quantile`` are exposed as callable-and-plottable
+    :class:`~phasegen.distributions.DistributionFunction` objects, whose class depends on the distribution and which
+    carry the evaluation and the plot data.
     """
-
-    @abstractmethod
-    def cdf(self, t: float | Sequence[float]) -> float | np.ndarray:
-        """
-        Cumulative distribution function.
-
-        :param t: Value or values to evaluate the CDF at.
-        :return: CDF.
-        """
-        pass
-
-    @abstractmethod
-    def quantile(self, q: float) -> float:
-        """
-        Get the qth quantile.
-        """
-        pass
-
-    @abstractmethod
-    def pdf(self, t: float | Sequence[float], **kwargs: dict) -> float | np.ndarray:
-        """
-        Density function.
-
-        :param t: Value or values to evaluate the density function at.
-        :param kwargs: Additional keyword arguments.
-        :return: Density.
-        """
-        pass
-
-    def plot_cdf(
-            self,
-            ax: 'plt.Axes' = None,
-            t: np.ndarray = None,
-            show: bool = True,
-            file: str = None,
-            clear: bool = True,
-            label: str = None,
-            title: str = 'Tree height CDF'
-    ) -> 'plt.Axes':
-        """
-        Plot cumulative distribution function.
-
-        :param ax: Axes to plot on.
-        :param t: Values to evaluate the CDF at. By default, 200 evenly spaced values between 0 and the 99th percentile.
-        :param show: Whether to show the plot.
-        :param file: File to save the plot to.
-        :param clear: Whether to clear the plot before plotting.
-        :param label: Label for the plot.
-        :param title: Title of the plot.
-        :return: Axes.
-        """
-        from ..visualization import Visualization
-
-        if t is None:
-            t = np.linspace(0, self.quantile(0.99), 200)
-
-        return Visualization.plot(
-            ax=ax,
-            x=t,
-            y=self.cdf(t),
-            xlabel='t',
-            ylabel='F(t)',
-            label=label,
-            file=file,
-            show=show,
-            clear=clear,
-            title=title
-        )
-
-    def plot_pdf(
-            self,
-            ax: 'plt.Axes' = None,
-            t: np.ndarray = None,
-            show: bool = True,
-            file: str = None,
-            clear: bool = True,
-            label: str = None,
-            title: str = 'Tree height PDF',
-            dx: float = None
-    ) -> 'plt.Axes':
-        """
-        Plot density function.
-
-        :param ax: The axes to plot on.
-        :param t: Values to evaluate the density function at.
-            By default, 200 evenly spaced values between 0 and the 99th percentile.
-        :param show: Whether to show the plot.
-        :param file: File to save the plot to.
-        :param clear: Whether to clear the plot before plotting.
-        :param label: Label for the plot.
-        :param title: Title of the plot.
-        :param dx: Step size for numerical differentiation. By default, the 99th percentile divided by 1e10.
-        :return: Axes.
-        """
-        from ..visualization import Visualization
-
-        if dx is None:
-            dx = self.quantile(0.99) / 1e10
-
-        if t is None:
-            t = np.linspace(0, self.quantile(0.99), 200)
-
-        return Visualization.plot(
-            ax=ax,
-            x=t,
-            y=self.pdf(t, dx=dx),
-            xlabel='t',
-            ylabel='f(t)',
-            label=label,
-            file=file,
-            show=show,
-            clear=clear,
-            title=title
-        )
-

@@ -9,11 +9,6 @@ __date__ = "2024-02-12"
 from typing import Literal
 
 try:
-    import sys
-
-    # necessary to import local module
-    sys.path.append('.')
-
     testing = False
     mu = snakemake.params.mu
     Ne = snakemake.params.Ne

@@ -16,6 +16,17 @@ from testing import TestCase
 # configs = get_filenames("resources/configs")
 
 configs = [
+    # empirical (self-consistency) scenarios validated against PhaseGen's own sampler via a nested
+    # ``tolerance.empirical`` block. The ten with a demographic sibling carry that block on the sibling config
+    # itself (e.g. 1_epoch_n_4, 2_epoch_2_pops_n_4); these three have no sibling, and only the last two also carry
+    # msprime conditional checks
+    '1_epoch_2_pops_n_3_jsfs',
+    '4_epoch_up_down_n_4',
+    '5_epoch_beta_n_6',
+    # low-sample-size fast-suite equivalents of slow-marked scenarios (gradual decline; multi-epoch 2-loci loci-joint)
+    '2_epoch_n_2_decline',
+    '3_epoch_2_loci_n_2_r_1',
+    '2_epoch_2_loci_2_pops_n_3_unlinked_migration',
     '1_epoch_n_2_2_locus_sfs',
     '1_epoch_n_3_2_locus_sfs',
     '1_epoch_n_4_2_locus_sfs',
@@ -28,8 +39,8 @@ configs = [
     '1_epoch_n_3_large_r_2_locus_sfs',
     '1_epoch_n_5_2_locus_sfs',
     '1_epoch_n_6_2_locus_sfs',
-    '3_epoch_n_5_beta_2_locus_sfs',
-    '3_epoch_n_6_beta_2_locus_sfs',
+    '3_epoch_n_3_beta_2_locus_sfs',
+    '3_epoch_n_3_dirac_2_locus_sfs',
     '1_epoch_n_4_mu_1',
     '1_epoch_3_pops_n_7_mu_0_1',
     '1_epoch_2_pops_n_4_mu_1',
@@ -38,6 +49,7 @@ configs = [
     '1_epoch_n_4_mu_1_dirac',
     '1_epoch_n_10_mu_0_01',
     '1_epoch_n_4_large_N',
+    '1_epoch_n_5_tiny_N',
     '2_epoch_n_5_small_N',
     '1_epoch_migration_one_each_n_2',
     '1_epoch_n_2_early_end_time',
@@ -68,6 +80,9 @@ configs = [
     '1_epoch_2_loci_n_4_r_1_larger_N',
     '1_epoch_2_loci_n_2_r_1_larger_N',
     '1_epoch_migration_disparate_migration_sizes_2_each_n_6',
+    # migration slow against coalescence, so a lineage's deme of residence is informative about how many samples it
+    # subtends and the per-deme spectra discriminate how a frequency class is attributed to a deme
+    '1_epoch_migration_slow_asymmetric_2_each_n_6',
     '2_epoch_varying_migration_low_coalescence',
     '1_epoch_beta_n_2_alpha_1_5',
     '1_epoch_2_loci_n_3_r_1',
@@ -75,8 +90,13 @@ configs = [
     '1_epoch_migration_one_each_n_6',
     '1_epoch_2_loci_n_3_r_0',
     '1_epoch_2_loci_n_4_r_1',
+    '1_epoch_2_loci_n_6_r_1',
     '1_epoch_n_2',
     '1_epoch_n_4',
+    '2_epoch_n_4_growth',
+    '2_epoch_n_4_decline',
+    '2_epoch_n_10_growth',
+    '2_epoch_n_10_decline',
     '2_epoch_n_5',
     '2_epoch_n_2',
     '2_epoch_rapid_decline_n_5',
@@ -89,7 +109,6 @@ configs = [
     '2_epoch_2_pops_n_5',
     '2_epoch_varying_migration_barrier',
     '1_epoch_migration_zero_rates_n_6',
-    '1_epoch_n_2_test_size',
     '5_epoch_varying_migration_2_pops',
     '5_epoch_beta_varying_migration_2_pops',
     '4_epoch_up_down_n_2',
@@ -99,15 +118,17 @@ configs = [
     '1_epoch_migration_disparate_pop_size_one_each_n_2',
     '1_epoch_migration_disparate_pop_size_one_all_n_2',
     '1_epoch_dirac_n_6_psi_1_c_1',
-    '1_epoch_dirac_n_6_psi_0_5_c_0',
     '1_epoch_dirac_n_5_psi_1_c_50',
-    '1_epoch_dirac_n_2_psi_0_5_c_0',
     '1_epoch_beta_n_6_alpha_1_1',
     '5_epoch_dirac_n_10',
     '5_epoch_beta_n_10',
+    '7_epoch_oscillating_n_3',
     '1_epoch_beta_n_20',
     '1_epoch_dirac_n_20',
     '5_epoch_n_20',
+    # a large sample size, restricted to the statistics whose state space stays linear in n (tree height, total
+    # branch length): the guard against a distribution path that quietly ignores the sparse/dense configuration
+    '2_epoch_n_100',
     '7_epoch_beta_migration_disparate_migration_sizes_2_each_n_6',
     '7_epoch_beta_migration_disparate_migration_sizes_2_each_n_6_early_end_time',
     '7_epoch_dirac_migration_disparate_migration_sizes_2_each_n_6_psi_0_7_c_5',
@@ -118,6 +139,8 @@ configs = [
     '1_epoch_2_pops_n_6_asym_jsfs',
     '1_epoch_beta_2_pops_n_4_jsfs',
     '1_epoch_dirac_2_pops_n_4_jsfs',
+    '3_epoch_beta_2_pops_n_4_jsfs',
+    '3_epoch_dirac_2_pops_n_4_jsfs',
     '1_epoch_2_pops_n_4_moments_jsfs',
     '1_epoch_2_pops_n_8_jsfs',
     '3_epoch_3_pops_n_5_jsfs',
@@ -125,18 +148,16 @@ configs = [
     '1_epoch_4_pops_tree_n_2',
     '1_epoch_4_pops_tree_n_4',
     '1_epoch_4_pops_tree_beta',
-]
-
-configs_suspended = [
-    '7_epoch_beta_migration_disparate_migration_sizes_n_10',  # takes a long time
-    '1_epoch_2_loci_2_pops_n_4_r_1',  # takes a bit longer
-    '1_epoch_2_loci_n_10_r_1',  # takes a bit longer
-    '5_epoch_2_loci_2_pops_n_4_r_1',  # takes about 10 minutes
-    '1_epoch_beta_n_6_alpha_1_999',
-    '1_epoch_beta_n_2_alpha_1_999',
-    '1_epoch_beta_2_loci_n_2_r_1_alpha_1_5',  # not implemented
-    '1_epoch_beta_2_loci_n_4_r_1_alpha_1_5',  # not implemented
-    '1_epoch_beta_2_loci_n_3_r_1_alpha_1_5',  # not implemented
+    '7_epoch_beta_migration_disparate_migration_sizes_n_10',
+    '1_epoch_2_loci_2_pops_n_4_r_1',
+    '1_epoch_2_loci_n_10_r_1',
+    '5_epoch_2_loci_2_pops_n_4_r_1',
+    '1_epoch_beta_n_6_alpha_1_99',
+    '1_epoch_beta_n_2_alpha_1_99',
+    '1_epoch_beta_2_loci_n_2_r_1_alpha_1_5',
+    '1_epoch_beta_2_loci_n_4_r_1_alpha_1_5',
+    '1_epoch_beta_2_loci_n_3_r_1_alpha_1_5',
+    '1_epoch_dirac_2_loci_n_3_r_1_psi_0_5_c_1',
 ]
 
 
@@ -146,6 +167,17 @@ class ScenariosTestCase(TestCase):
     """
     #: Whether assert that compared statistics are within specified tolerance
     do_assertion: bool = True
+
+    #: Tolerance key every comparison is restricted to, from ``--compare-only``. ``None`` compares every leaf.
+    compare_only: str = None
+
+
+@pytest.fixture(autouse=True)
+def _compare_only(request):
+    """Apply ``--compare-only`` to the scenarios of this module."""
+    ScenariosTestCase.compare_only = request.config.getoption('--compare-only')
+
+    yield
 
 
 def get_filenames(path) -> List[str]:
@@ -175,6 +207,7 @@ def generate_tests(config: str):
         c = Comparison.from_file(f"results/comparisons/serialized/{config}.json")
 
         c.do_assertion = ScenariosTestCase.do_assertion
+        c.only = ScenariosTestCase.compare_only
         c.visualize = True
         #c.figure_path = f"results/graphs/comparisons/{config}"
         c.show_title = True
@@ -184,43 +217,63 @@ def generate_tests(config: str):
     return run_test
 
 
-# scenarios that take several seconds to run. Unlike ``configs_suspended`` (which are not run at all), these are
-# still collected but marked ``slow`` so they can be deselected with ``-m "not slow"`` to keep the regular suite fast.
+# scenarios with a long comparison runtime. These are still collected but marked ``slow`` so they can be deselected with
+# ``-m "not slow"`` to keep the regular suite fast.
 slow_configs = [
-    '1_epoch_n_3_2_locus_sfs',
-    '1_epoch_n_4_2_locus_sfs',
-    '2_epoch_n_3_2_locus_sfs',
-    '3_epoch_n_3_2_locus_sfs',
-    '1_epoch_n_3_beta_2_locus_sfs',
-    '1_epoch_n_3_dirac_2_locus_sfs',
-    '1_epoch_n_3_r_0_2_locus_sfs',
-    '1_epoch_n_3_large_r_2_locus_sfs',
-    '1_epoch_n_5_2_locus_sfs',
-    '1_epoch_n_6_2_locus_sfs',
-    '3_epoch_n_5_beta_2_locus_sfs',
-    '3_epoch_n_6_beta_2_locus_sfs',
+    # scenario dist comparisons whose measured comparison runtime exceeds ~40s (multi-epoch / sharp-density cosine
+    # inversions and the multi-epoch loci-joint), kept out of the fast suite
+    '3_epoch_2_loci_n_4_r_1',
+    '4_epoch_up_down_n_10',
+    '2_epoch_rapid_decline_n_5',
+    '2_epoch_n_4_decline',
+    '2_epoch_n_10_growth',
+    '2_epoch_n_10_decline',
+    '3_epoch_extreme_bottleneck_n_5',
+    # the joint-SFS comparison builds the joint state space and runs the COS / de Hoog joint distribution per bin
+    # pair at test time -- several seconds, and much more for multiple epochs / larger state spaces -- so the jSFS
+    # scenarios below run in the slow suite. The n=2+2 jSFS configs (standard/Beta/Dirac, the three-epoch Beta and
+    # Dirac ones restricted to one representative bin pair) and 1_epoch_2_pops_n_8_jsfs stay in the fast suite, so
+    # the msprime jSFS joint distribution is covered there across coalescent models and epochs.
+    '3_epoch_2_pops_n_4_jsfs',
+    '1_epoch_3_pops_n_3_jsfs',
+    '1_epoch_2_pops_n_6_asym_jsfs',
+    '1_epoch_2_pops_n_4_moments_jsfs',
     '1_epoch_2_pops_n_6_jsfs',
-    '1_epoch_2_pops_n_8_jsfs',
     '2_epoch_n_8_tajima',
     '7_epoch_beta_migration_disparate_migration_sizes_2_each_n_6',
     '7_epoch_dirac_migration_disparate_migration_sizes_2_each_n_6_psi_0_7_c_5',
     '3_epoch_3_pops_n_5_jsfs',
     '7_epoch_beta_migration_disparate_migration_sizes_2_each_n_6_early_end_time',
     '7_epoch_migration_disparate_migration_sizes_2_each_n_6',
-    '1_epoch_dirac_n_20',
-    '1_epoch_beta_n_20',
     '1_epoch_migration_disparate_migration_sizes_2_each_n_6',
     '7_epoch_beta_migration_disparate_migration_sizes_2_each_n_6_large_N',
-    '1_epoch_4_pops_tree_n_2',
-    '1_epoch_4_pops_tree_n_4',
-    '1_epoch_4_pops_tree_beta',
 ]
+
+def configs_asserting(*keys: str) -> List[str]:
+    """
+    The configs whose tolerance block contains any of ``keys``, i.e. whose scenario asserts that kind of leaf. Used to
+    mark the scenarios a numerical setting reaches, so its cost and accuracy can be measured on those alone rather
+    than on the whole suite.
+
+    :param keys: The tolerance keys, e.g. ``cosine``.
+    :return: Config names, in the order of ``configs``.
+    """
+    return [c for c in configs if any(f'{key}:' in Path(f'resources/configs/{c}.yaml').read_text() for key in keys)]
+
+
+#: Scenarios asserting a curve obtained by the Fourier-cosine inversion, which is what ``Settings.cos_terms``
+#: governs: the ``cosine`` groups, the conditional ``grid_moments`` and ``dehoog`` checks and the atom-conditional
+#: cdf / pdf / quantile. Select them with ``pytest -m cosine``.
+cosine_configs = configs_asserting('cosine', 'grid_moments', 'dehoog', 'atom')
 
 for config in configs:
     test = generate_tests(config)
 
     if config in slow_configs:
         test = pytest.mark.slow(test)
+
+    if config in cosine_configs:
+        test = pytest.mark.cosine(test)
 
     setattr(ScenariosTestCase, f'test_{config}', test)
 

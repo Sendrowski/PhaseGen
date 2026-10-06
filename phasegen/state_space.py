@@ -1,6 +1,17 @@
-"""
-State space classes and utilities. The two main state space classes are
-:class:`LineageCountingStateSpace` and :class:`BlockCountingStateSpace`.
+r"""
+State space classes and utilities. All state spaces derive from
+:class:`~phasegen.state_space.StateSpace`. The concrete variants are
+:class:`~phasegen.state_space.LineageCountingStateSpace`,
+:class:`~phasegen.state_space.BlockCountingStateSpace`,
+:class:`~phasegen.state_space.JointBlockCountingStateSpace`, and
+:class:`~phasegen.state_space.TwoLocusBlockCountingStateSpace`.
+
+Each state space enumerates the states of a coalescent Markov jump process and assembles its intensity matrix
+:math:`\mathbf{S}`, with the notation of :class:`~phasegen.distributions.PhaseTypeDistribution`. The off-diagonal
+entry :math:`s_{xy}` is the rate of the coalescence, migration, or recombination event taking state :math:`x` to
+state :math:`y`, and the diagonal is fixed by the zero-row-sum convention :math:`s_{xx} = -\sum_{y \ne x} s_{xy}`.
+The absorption-rate vector is :math:`\mathbf{q} = -\mathbf{T}\mathbf{e}_T` for the transient block
+:math:`\mathbf{T}`. The positive rates are supplied by the :class:`~phasegen.coalescent_models.CoalescentModel`.
 """
 
 import logging
@@ -11,54 +22,97 @@ from itertools import product
 from typing import List, Tuple, Dict, Callable, cast
 
 import numpy as np
+from .errors import ModelError
 import scipy.sparse as sp
 from tqdm import tqdm
 
 from .coalescent_models import CoalescentModel, StandardCoalescent, BetaCoalescent, DiracCoalescent
 from .settings import Settings
 from .demography import Epoch
+from .initial import InitialDistribution
 from .lineage import LineageConfig
 from .locus import LocusConfig
-from .state_space_numba import HAS_NUMBA, build_rate_matrix
-from .state_space_old import StateSpace as OldStateSpace, LineageCountingStateSpace as OldLineageCountingStateSpace, \
-    BlockCountingStateSpace as OldBlockCountingStateSpace
+from .state_space_numba import build_rate_matrix
 
 logger = logging.getLogger('phasegen')
+
+#: The coalescent models whose rates the numba kernels implement.
+_NUMBA_MODELS = (StandardCoalescent, BetaCoalescent, DiracCoalescent)
 
 
 def _numba_model_params(model: CoalescentModel) -> Tuple[int, float, float, float]:
     """
     Pack a coalescent model into ``(model_id, alpha, psi, c)`` for the numba kernels (0 standard, 1 beta, 2 dirac).
+
+    :param model: Coalescent model.
+    :return: The model parameters of the kernels.
+    :raises NotImplementedError: If the kernels do not implement the rates of the model's type.
     """
-    if isinstance(model, BetaCoalescent):
+    if type(model) is StandardCoalescent:
+        return 0, 0.0, 0.0, 0.0
+
+    if type(model) is BetaCoalescent:
         return 1, model.alpha, 0.0, 0.0
 
-    if isinstance(model, DiracCoalescent):
+    if type(model) is DiracCoalescent:
         return 2, 0.0, model.psi, model.c
 
-    return 0, 0.0, 0.0, 0.0
+    raise NotImplementedError(
+        f"The numba state-space construction implements the rates of StandardCoalescent, BetaCoalescent and "
+        f"DiracCoalescent only, got {type(model).__name__}."
+    )
 
 
 class StateSpace(ABC):
+    r"""
+    Abstract base class for coalescent state spaces.
+
+    Each state is an integer array indexed by locus, deme, and lineage block. Transitions are enumerated by
+    breadth-first search from the initial state, and the intensity matrix :math:`\mathbf{S}` is assembled with
+    off-diagonal rates :math:`s_{xy}` and the zero-row-sum diagonal :math:`s_{xx} = -\sum_{y \ne x} s_{xy}`. The
+    absorbing states form a closed set, between whose members lineages may still migrate, and the absorption rates
+    are :math:`\mathbf{q} = -\mathbf{T}\mathbf{e}_T` for the transient block :math:`\mathbf{T}`, with the notation of
+    :class:`~phasegen.distributions.PhaseTypeDistribution`. The initial distribution over states is
+    :math:`\boldsymbol{\alpha}` (:attr:`alpha`). Concrete subclasses differ in what a lineage block records: the
+    lineage-counting space (:class:`LineageCountingStateSpace`) tracks only the number of ancestral lineages per deme,
+    whereas the block-counting spaces (:class:`BlockCountingStateSpace`, :class:`JointBlockCountingStateSpace`,
+    :class:`TwoLocusBlockCountingStateSpace`) resolve the descendant composition of each lineage. Positive merger
+    rates are supplied by the :class:`~phasegen.coalescent_models.CoalescentModel`.
     """
-    State space.
-    """
+
+    #: Whether the states and rate matrices are built by the numba kernel, fixed by the first call of :meth:`_use_numba`
+    _numba: bool | None = None
+
+    #: Initial distribution over lineage configurations, ``None`` for the single configuration :attr:`lineage_config`
+    lineage_distribution: InitialDistribution | None = None
+
+    #: Initial distribution over locus configurations, ``None`` for the single configuration :attr:`locus_config`
+    locus_distribution: InitialDistribution | None = None
+
+    #: Rate matrix of the epoch left last, keyed by that epoch, restored by :meth:`update_epoch` on returning to it
+    _previous_S: Dict[Epoch, np.ndarray] = {}
 
     def __init__(
             self,
-            lineage_config: LineageConfig,
-            locus_config: LocusConfig = None,
+            lineage_config: LineageConfig | InitialDistribution,
+            locus_config: LocusConfig | InitialDistribution = None,
             model: CoalescentModel = None,
             epoch: Epoch = None
-    ):
+    ) -> None:
         """
-        Create a rate matrix.
+        Initialize the state space. The states and the rate matrix are constructed on first access.
 
-        :param lineage_config: Population configuration.
-        :param locus_config: Locus configuration. One locus is used by default.
+        :param lineage_config: Population configuration, or an initial distribution over population configurations,
+            whose first component is used to construct the states.
+        :param locus_config: Locus configuration, or an initial distribution over locus configurations, whose first
+            component is used to construct the states. One locus is used by default.
         :param model: Coalescent model. By default, the standard coalescent is used.
         :param epoch: The epoch.
+        :raises ValueError: If the number of unlinked lineages exceeds the number of lineages.
         """
+        lineage_config, self.lineage_distribution = InitialDistribution._split(lineage_config)
+        locus_config, self.locus_distribution = InitialDistribution._split(locus_config)
+
         if locus_config is None:
             locus_config = LocusConfig()
 
@@ -80,10 +134,21 @@ class StateSpace(ABC):
         #: Locus configuration
         self.locus_config: LocusConfig = locus_config
 
+        # neither config can check this alone: the locus configuration does not know the sample size, and a state
+        # space built directly with more unlinked lineages than there are lineages has no initial state, which
+        # surfaces only once the lazy ``alpha`` is touched, as all-NaN or as a silently oversized space
+        n_unlinked = max(c.n_unlinked for _, _, c in self._initial_components())
+
+        if n_unlinked > lineage_config.n:
+            raise ValueError(
+                f"The number of unlinked lineages ({n_unlinked}) must not exceed the number of "
+                f"lineages ({lineage_config.n})."
+            )
+
         #: Epoch
         self.epoch: Epoch = epoch
 
-        #: Cached rate matrices
+        #: Transitions and states per epoch of the pure-Python construction
         self._cache: Dict[Epoch, Tuple[Dict[Tuple['State', 'State'], Tuple[float, str]], List['State']]] = {}
 
         # time in seconds to compute original rate matrix
@@ -92,25 +157,27 @@ class StateSpace(ABC):
     @cached_property
     def states(self) -> List['State']:
         """
-        The states.
+        The states of the space, in the row order of :attr:`StateSpace.S <phasegen.state_space.StateSpace.S>`.
+
+        :raises ModelError: If a population size of the current epoch is not positive.
         """
+        # both constructions evaluate the rates of the current epoch
+        self._assert_positive_sizes(self.epoch)
+
         start = time.time()
 
-        # The construction is guarded against a prohibitively large (out-of-memory) state space by an abort cap in
-        # the builder (``Settings.max_state_space_size``), which raises before memory is exhausted — this works for
-        # every state-space type, without needing an a-priori size formula. After a successful build the actual
-        # count is warned about (escalating with size), again for every type.
+        # The builder aborts with a MemoryError once the number of states exceeds ``Settings.max_state_space_size``,
+        # for every state-space type and without an a-priori size formula. The cap bounds the number of states, not
+        # the memory, which grows with the width of a state, so the joint block-counting space of several demes can
+        # exhaust memory below it. After a successful build the actual count is warned about (escalating with size),
+        # again for every type.
         if self._use_numba():
             states, S = self._construct_numba()
             # the states are epoch-independent, but prime the current epoch's rate matrix to avoid rebuilding it
             self.__dict__.setdefault('S', S)
         else:
-            # get all possible transitions
             transitions, states = self.get_transitions()
-
-            # cache rate matrix if specified
-            if Settings.cache_epochs:
-                self._cache[self.epoch] = (transitions, states)
+            self._cache[self.epoch] = (transitions, states)
 
         # record time to compute rate matrix
         self.time = time.time() - start
@@ -119,60 +186,34 @@ class StateSpace(ABC):
 
         return states
 
-    def _warn_if_large(self, n_states: int):
+    def _warn_if_large(self, n_states: int) -> None:
         """
-        Warn once, at the appropriate severity, if the state space is large; computation time (and the dense
-        rate-matrix memory, which grows as ``n_states**2``) grow steeply with the number of states. The size is
-        already known here, so a single warning at the highest crossed threshold is emitted (not one per threshold).
+        Warn once, at the highest severity whose threshold the number of states reaches. Means stay fast at any size,
+        while the cost of second-order statistics grows steeply with the number of states.
+
+        :param n_states: The number of states.
         """
-        for threshold, level in ((25000, 'extremely slow'), (5000, 'very slow'), (1000, 'slow')):
+        for threshold, level in ((50000, 'extremely slow'), (15000, 'very slow'), (5000, 'slow')):
             if n_states >= threshold:
-                self._logger.warning(f'State space is large ({n_states} states). Computations may be {level}.')
+                self._logger.warning(
+                    "State space is large (%d states). Second-order statistics such as var and cov may be %s.",
+                    n_states, level
+                )
                 break
 
     @cached_property
     def lineages(self) -> np.ndarray:
         """
-        The lineage configurations. Each configuration describes the lineages per block, deme and locus, i.e.,
-        ``[[[a_ijk]]]`` for block ``i``, deme ``j`` and locus ``k``.
+        The lineage configurations, an array indexed ``[state, locus, deme, block]``.
         """
         return np.array([s.lineages for s in self.states])
 
     @cached_property
     def linked(self) -> np.ndarray:
         """
-        The linked lineages per block, deme and locus.
-        :return:
+        The linked lineages, an array indexed ``[state, locus, deme, block]``.
         """
         return np.array([s.linked for s in self.states])
-
-    @cached_property
-    def unlinked(self) -> np.ndarray:
-        """
-        Unlinked lineages.
-        """
-        return self.lineages - self.linked
-
-    @abstractmethod
-    def _get_old(self) -> OldStateSpace:
-        """
-        Get the old state space.
-        """
-        pass
-
-    def _get_old_ordering(self) -> List[int]:
-        """
-        Get the ordering of the states in the old state space relative to the new state space.
-
-        :return: Ordering of the states in the old state space.
-        """
-        old = self._get_old()
-
-        # reorder the states of s2 to match s1
-        return cast(List[int], [
-            np.where(((old.states == self.lineages[i]) & (old.linked == self.linked[i])).all(axis=(1, 2, 3)))[0][0]
-            for i in range(self.k)
-        ])
 
     @staticmethod
     def _get_partitions(n: int, k: int) -> List[List[int]]:
@@ -198,9 +239,9 @@ class StateSpace(ABC):
 
     def get_transitions(self) -> Tuple[Dict[Tuple['State', 'State'], Tuple[float, str]], List['State']]:
         """
-        Get all possible transitions from the given state.
+        Enumerate the state space by breadth-first search from the initial state.
 
-        :return: All possible transitions from the given state.
+        :return: The transitions, keyed by (source, target) pair with their rate and kind, and the list of states.
         """
         sources = [self._get_initial()]
         transitions = {}
@@ -263,33 +304,70 @@ class StateSpace(ABC):
 
     @cached_property
     def e(self) -> np.ndarray:
-        """
-        Vector with ones of size ``k``.
+        r"""
+        The all-ones column vector :math:`\mathbf{e}` of length :attr:`k`, the number of states. Contracting with it on
+        the right sums a row, so :math:`\mathbf{S}\mathbf{e} = \mathbf{0}`.
         """
         return np.ones(self.k)
 
     @cached_property
     def S(self) -> np.ndarray:
+        r"""
+        Intensity matrix (generator) :math:`\mathbf{S}` for the current epoch. Off-diagonal entry :math:`s_{xy}` is
+        the rate of the event taking state :math:`x` to state :math:`y`. The diagonal follows the zero-row-sum
+        convention :math:`s_{xx} = -\sum_{y \ne x} s_{xy}`, so :math:`\mathbf{S}\mathbf{e} = \mathbf{0}`, and the
+        absorption rates are :math:`\mathbf{q} = -\mathbf{T}\mathbf{e}_T` for the transient block :math:`\mathbf{T}`.
+
+        :raises ModelError: If a population size of the epoch is not positive.
         """
-        Intensity matrix.
-        """
+        self._assert_positive_sizes(self.epoch)
         return self._get_rate_matrix()
+
+    def _initial_components(self) -> List[Tuple[float, LineageConfig, LocusConfig]]:
+        """
+        The components of the initial distribution, each pairing a lineage with a locus configuration, weighted by
+        the product of their weights in :attr:`lineage_distribution` and :attr:`locus_distribution`.
+
+        :return: Triples ``(weight, lineage_config, locus_config)`` with weights summing to one.
+        """
+        lineages = [(1.0, self.lineage_config)] if self.lineage_distribution is None else self.lineage_distribution
+        loci = [(1.0, self.locus_config)] if self.locus_distribution is None else self.locus_distribution
+
+        return [(w_a * w_b, a, b) for w_a, a in lineages for w_b, b in loci]
+
+    @staticmethod
+    def _assert_initial_mass(alpha: np.ndarray, lineage_config: LineageConfig, locus_config: LocusConfig) -> None:
+        """
+        Raise if no state matches a component of the initial distribution.
+
+        :param alpha: The unnormalized initial vector of the component.
+        :param lineage_config: Lineage configuration of the component.
+        :param locus_config: Locus configuration of the component.
+        :raises ValueError: If ``alpha`` has no positive entry.
+        """
+        if not alpha.any():
+            raise ValueError(
+                f"No state of the state space matches the initial configuration with lineages "
+                f"{lineage_config.lineage_dict} and {locus_config.n_unlinked} unlinked lineages."
+            )
 
     @cached_property
     def alpha(self) -> np.ndarray:
-        """
-        Initial state vector.
-        """
-        pops = self.lineage_config._get_initial_states(self)
-        loci = self.locus_config._get_initial_states(self)
+        r"""
+        Initial distribution :math:`\boldsymbol{\alpha}` over the states, normalized to sum to one. A component of
+        the initial distribution spreads its weight uniformly over the states it admits, and the components are
+        summed.
 
-        # combine initial states
-        alpha = pops * loci
+        :raises ValueError: If no state matches a component of the initial distribution.
+        """
+        alpha = np.zeros(self.k)
 
-        # return normalized vector
-        # normalization ensures that the initial state vector is a probability distribution
-        # as we may have multiple initial states
-        return alpha / alpha.sum()
+        for weight, lineage_config, locus_config in self._initial_components():
+            states = lineage_config._get_initial_states(self) * locus_config._get_initial_states(self, lineage_config)
+            self._assert_initial_mass(states, lineage_config, locus_config)
+            alpha += weight * (states / states.sum())
+
+        return alpha
 
     @cached_property
     def k(self) -> int:
@@ -301,30 +379,29 @@ class StateSpace(ABC):
     @cached_property
     def absorbing(self) -> np.ndarray:
         """
-        Boolean mask over :attr:`states` marking the absorbing states, using the state-space absorption predicate
-        (:meth:`_is_absorbing`). Subclasses with a non-default condition — e.g. the two-locus space, where the
-        unlinked dual-MRCA state ``(n, 0) + (0, n)`` is absorbing although :meth:`State.is_absorbing` does not see
-        it — are then classified consistently everywhere (moment paths, occupation times, sampling). Epoch-
-        independent (depends only on the state topology), so it is safe to cache across :meth:`update_epoch`.
+        Boolean mask over :attr:`StateSpace.states <phasegen.state_space.StateSpace.states>` marking the absorbing
+        states. In the two-locus space, the state ``(n, 0) + (0, n)``, in which both loci have reached their MRCA on
+        separate lineages, is absorbing. The mask does not depend on the epoch.
         """
-        return np.array([self._is_absorbing(s) for s in self.states])
+        return self._absorbing_mask(self.lineages)
 
     @cached_property
     def transition(self) -> 'Transition':
         """
-        Transition.
+        The :class:`~phasegen.state_space.Transition` that enumerates the transitions out of a state of this space.
         """
         return Transition(self)
 
-    def update_epoch(self, epoch: Epoch):
+    def update_epoch(self, epoch: Epoch) -> None:
         """
-        Update the epoch.
+        Switch the rate matrix to the given epoch. The states do not depend on the epoch.
 
         :param epoch: Epoch.
-        :return: State space.
+        :raises ModelError: If a population size of the epoch is not positive.
         """
         # only remove cached properties if epoch has changed
         if self.epoch != epoch:
+            self._assert_positive_sizes(epoch)
 
             # update S by rescaling if already cached, provided there is only one population and one locus
             if (
@@ -335,24 +412,49 @@ class StateSpace(ABC):
                 self.S *= self._get_scaling_factor(self.epoch, epoch)
 
             else:
-                self.drop_S()
+                # keep the rate matrix of the epoch being left, and restore that of the epoch entered if it was the
+                # one left last
+                previous = self._previous_S
+                self._previous_S = {self.epoch: self.__dict__.pop('S')} if 'S' in self.__dict__ else {}
+
+                if epoch in previous:
+                    self.__dict__['S'] = previous[epoch]
 
         self.epoch = epoch
 
+    @staticmethod
+    def _assert_positive_sizes(epoch: Epoch) -> None:
+        """
+        Raise if a population size of ``epoch`` is not positive, since the coalescence rates divide by it. A decaying
+        trajectory may reach zero, which a simulation accepts, but the exact computation needs a positive size in
+        every epoch it reaches.
+
+        :param epoch: Epoch.
+        :raises ModelError: If a population size is not positive.
+        """
+        for pop, size in epoch.pop_sizes.items():
+            if not size > 0:
+                raise ModelError(
+                    f"The population size of {pop} is {size} in the epoch starting at {epoch.start_time:g}, but the "
+                    f"exact computation needs a positive size in every epoch it reaches. Floor the trajectory at a "
+                    f"small positive size."
+                )
+
     def _get_scaling_factor(self, epoch_prev: Epoch, epoch_next: Epoch) -> float:
         """
-        Get the scaling factor for the rate matrix when changing epochs.
+        Get the scaling factor for the rate matrix of the single sampled population when changing epochs.
 
         :param epoch_prev: Previous epoch.
         :param epoch_next: Next epoch.
         :return: Scaling factor.
         """
-        pop_prev = epoch_prev.pop_sizes[epoch_prev.pop_names[0]]
-        pop_next = epoch_next.pop_sizes[epoch_next.pop_names[0]]
+        pop = self.lineage_config.pop_names[0]
+        pop_prev = epoch_prev.pop_sizes[pop]
+        pop_next = epoch_next.pop_sizes[pop]
 
         return self.model._get_timescale(pop_prev) / self.model._get_timescale(pop_next)
 
-    def __eq__(self, other):
+    def __eq__(self, other) -> bool:
         """
         Check if two state spaces are equal. We do not check for equivalence of the epochs as we can
         update the epoch of a state space dynamically.
@@ -364,10 +466,12 @@ class StateSpace(ABC):
                 self.__class__ == other.__class__ and
                 self.lineage_config == other.lineage_config and
                 self.locus_config == other.locus_config and
+                self.lineage_distribution == other.lineage_distribution and
+                self.locus_distribution == other.locus_distribution and
                 self.model == other.model
         )
 
-    def drop_S(self):
+    def drop_S(self) -> None:
         """
         Drop the current rate matrix.
         """
@@ -377,16 +481,17 @@ class StateSpace(ABC):
         except AttributeError:
             pass
 
-    def drop_cache(self):
+    def drop_cache(self) -> None:
         """
-        Drop the rate matrix cache and current rate matrix.
+        Drop the rate matrix cache, the current rate matrix and that of the epoch left last.
         """
         self.drop_S()
 
+        self._previous_S = {}
         self._cache = {}
 
     @abstractmethod
-    def _get_initial(self):
+    def _get_initial(self) -> 'State':
         """
         Get the initial state.
         """
@@ -394,35 +499,58 @@ class StateSpace(ABC):
 
     def _is_absorbing(self, state: 'State') -> bool:
         """
-        Whether the given state is absorbing. By default this is the single-process absorbing condition (a single
-        remaining lineage); state spaces with a different notion of absorption (e.g. two loci, which are absorbed
-        once both have reached their MRCA) override this.
+        Whether the given state is absorbing, see ``_absorbing_mask``.
 
         :param state: State.
         :return: Whether the state is absorbing.
         """
-        return state.is_absorbing()
+        return bool(self._absorbing_mask(state.lineages[None])[0])
+
+    def _absorbing_mask(self, lineages: np.ndarray) -> np.ndarray:
+        """
+        Which of the lineage configurations are absorbing. By default this is the single-process absorbing condition,
+        a single remaining lineage at every locus. State spaces with a different notion of absorption (e.g. two loci,
+        which are absorbed once both have reached their MRCA) override this.
+
+        :param lineages: Lineage configurations, indexed ``[state, locus, deme, block]``.
+        :return: Boolean mask over the configurations.
+        """
+        return np.all(lineages.sum(axis=(2, 3)) == 1, axis=1)
 
     def _use_numba(self) -> bool:
         """
-        Whether numba-accelerated construction applies: numba is available and enabled, there is a single locus, and
-        the state space is one of the supported types (the 2-locus recombination path stays on the Python
-        construction).
+        Whether numba-accelerated construction applies: it is enabled, the coalescent model is a
+        :class:`~phasegen.coalescent_models.StandardCoalescent`, :class:`~phasegen.coalescent_models.BetaCoalescent`
+        or :class:`~phasegen.coalescent_models.DiracCoalescent`, and the state space is one of the supported
+        types -- the single-locus lineage/block/joint spaces, the two-locus lineage-counting space (recombination),
+        and the two-locus block-counting space (recombination). The two constructions order the states differently,
+        so the path is fixed at the first call, and every rate matrix of the state space is built in the order of its
+        :attr:`states` whatever :attr:`Settings.use_numba <phasegen.settings.Settings.use_numba>` is set to later.
+        The deprecated pure-Python construction is logged as a warning when it is chosen.
         """
-        if not (HAS_NUMBA and Settings.use_numba):
-            return False
+        if self._numba is None:
+            self._numba = bool(Settings.use_numba and type(self.model) in _NUMBA_MODELS and (
+                # lineage-counting: single locus (kernel kind 0) or two loci with recombination (kind 3)
+                (type(self) is LineageCountingStateSpace and self.locus_config.n in (1, 2)) or
+                # the single-locus block-/joint-counting spaces (kind 1)
+                (self.locus_config.n == 1 and type(self) in (BlockCountingStateSpace, JointBlockCountingStateSpace)) or
+                # the two-locus block-counting space (recombination, kind 2)
+                type(self) is TwoLocusBlockCountingStateSpace
+            ))
 
-        # the single-locus state spaces (numbered 0/1); the two-locus space is handled separately below
-        if self.locus_config.n == 1 and type(self) in (
-                LineageCountingStateSpace, BlockCountingStateSpace, JointBlockCountingStateSpace):
-            return True
+            if not self._numba:
+                self._logger.warning(
+                    "Building the %s with the pure-Python construction, which is deprecated. It is used when "
+                    "Settings.use_numba is False or the state space or coalescent model has no numba kernel.",
+                    type(self).__name__
+                )
 
-        # the two-locus block-counting state space (recombination)
-        return type(self) is TwoLocusBlockCountingStateSpace
+        return self._numba
 
     def _numba_kind(self) -> int:
         """
-        Kernel selector: 0 lineage-counting, 1 block-/joint-counting, 2 two-locus block-counting.
+        Kernel selector: 0 lineage-counting, 1 block-/joint-counting, 2 two-locus block-counting, 3 two-locus
+        lineage-counting.
         """
         return 1
 
@@ -430,7 +558,7 @@ class StateSpace(ABC):
         """
         Recombination parameters for the kernel: ``(recombination_rate, recomb0, recomb1)`` where ``recomb_l[b]`` is
         the block index that block ``b`` contributes to locus ``l`` when it recombines. Only the two-locus state
-        space uses these; by default there is no recombination.
+        spaces use these; by default there is no recombination.
         """
         return 0.0, None, None
 
@@ -441,15 +569,29 @@ class StateSpace(ABC):
         """
         return np.arange(1, n_blocks + 1, dtype=np.int64).reshape(-1, 1)
 
+    def _numba_n_blocks(self, init: 'State') -> int:
+        """Number of blocks per deme in the kernel state vector (default: the state's block dimension)."""
+        return init.lineages.shape[2]
+
+    def _numba_initial(self, init: 'State') -> np.ndarray:
+        """Flatten the initial state into the kernel's ``(n_demes * n_blocks,)`` lineage vector."""
+        return init.lineages.reshape(-1)
+
+    def _numba_to_state(self, row: np.ndarray, init: 'State') -> 'State':
+        """Rebuild a :class:`State` from a kernel row (default: reshape into the lineage array; linkage is static)."""
+        return State((row.reshape(init.lineages.shape).astype(init.lineages.dtype), init.linked.copy()))
+
     def _construct_numba(self) -> Tuple[List['State'], np.ndarray]:
         """
         Build the states and rate matrix for the current epoch via the numba kernel.
 
-        :return: The states (in kernel discovery order) and the dense intensity matrix.
+        :return: The states (in kernel discovery order) and the intensity matrix, a :class:`scipy.sparse.csr_matrix`
+            from :attr:`Settings.dense_rate_matrix_max_states <phasegen.settings.Settings.dense_rate_matrix_max_states>`
+            states on and dense below.
         """
         init = self._get_initial()
         n_demes = init.lineages.shape[1]
-        n_blocks = init.lineages.shape[2]
+        n_blocks = self._numba_n_blocks(init)
         pops = self.lineage_config.pop_names
 
         mig = np.zeros((n_demes, n_demes))
@@ -463,7 +605,7 @@ class StateSpace(ABC):
         recomb_rate, recomb0, recomb1 = self._numba_recombination()
 
         rows, S = build_rate_matrix(
-            initial=init.lineages.reshape(-1),
+            initial=self._numba_initial(init),
             kind=self._numba_kind(),
             n_demes=n_demes,
             n_blocks=n_blocks,
@@ -481,11 +623,7 @@ class StateSpace(ABC):
             dense_max_states=Settings.dense_rate_matrix_max_states,
         )
 
-        lin_shape = init.lineages.shape
-        lin_dtype = init.lineages.dtype
-        linked = init.linked  # all-zero for a single locus
-
-        states = [State((row.reshape(lin_shape).astype(lin_dtype), linked.copy())) for row in rows]
+        states = [self._numba_to_state(row, init) for row in rows]
 
         return states, S
 
@@ -493,26 +631,23 @@ class StateSpace(ABC):
         """
         Get the rate matrix.
 
-        TODO don’t compute transitions twice for disabled caching
-
         :return: The rate matrix.
         """
         if self._use_numba():
+            start = time.time()
             states, S = self._construct_numba()
-            self.__dict__.setdefault('states', states)
+            # materialising S before .states makes this the first construction: record the time and warn about a large
+            # space here too, since the states cached_property (which otherwise owns that bookkeeping) will not run.
+            if 'states' not in self.__dict__:
+                self.__dict__['states'] = states
+                self.time = time.time() - start
+                self._warn_if_large(len(states))
             return S
 
-        # check if epoch is in cache
-        if Settings.cache_epochs and self.epoch in self._cache:
-            transitions, states = self._cache[self.epoch]
+        if self.epoch not in self._cache:
+            self._cache[self.epoch] = self.get_transitions()
 
-        else:
-            # get all possible transitions
-            transitions, states = self.get_transitions()
-
-            # cache rate matrix if specified
-            if Settings.cache_epochs:
-                self._cache[self.epoch] = (transitions, states)
+        transitions, states = self._cache[self.epoch]
 
         return self._graph_to_matrix(transitions, states)
 
@@ -542,16 +677,6 @@ class StateSpace(ABC):
 
         return S
 
-    def get_sparsity(self) -> float:
-        """
-        Get the sparsity of the rate matrix.
-
-        :return: The sparsity.
-        """
-        S = self.S
-        nnz = S.nnz if sp.issparse(S) else np.count_nonzero(S)
-        return 1 - nnz / (S.shape[0] * S.shape[1])
-
     def _get_color_state(self, i: int) -> str:
         """
         Get color of the state indexed by `i`.
@@ -573,9 +698,9 @@ class StateSpace(ABC):
             ratio: float = 0.6,
             background_color: str = 'white',
             extension: str = 'png',
-            format_state: Callable[[np.array], str] = None,
-            format_transition: Callable[['Transition'], str] = None
-    ):
+            format_state: Callable[[Tuple[np.ndarray, np.ndarray]], str] = None,
+            format_transition: Callable[[float, str], str] = None
+    ) -> None:
         """
         Plot the rate matrix using graphviz. Note that graphviz must be installed which is an external dependency.
 
@@ -586,8 +711,8 @@ class StateSpace(ABC):
         :param ratio: Aspect ratio.
         :param background_color: Background color.
         :param extension: File format.
-        :param format_state: Function to format state with state array as argument.
-        :param format_transition: Function to format transition with transition as argument.
+        :param format_state: Function formatting a state, called with its ``(lineages, linked)`` array pair.
+        :param format_transition: Function formatting a transition, called with its rate and kind.
         """
         import graphviz
 
@@ -648,8 +773,20 @@ class StateSpace(ABC):
 
 
 class LineageCountingStateSpace(StateSpace):
-    """
-    Default rate matrix where there is one state per number of lineages for each deme and locus.
+    r"""
+    Lineage-counting state space: each state records only the number of ancestral lineages per deme and locus, not
+    their descendant composition. For a single population this gives states :math:`E = \{1, \dots, n\}` and hence
+    :math:`|E| = n`. It underlies tree-height and total-branch-length statistics. Merger rates between lineage counts
+    are supplied by the :class:`~phasegen.coalescent_models.CoalescentModel` (per unit of the deme's timescale).
+
+    The following example retrieves the states and the intensity matrix of the lineage-counting state space of four
+    lineages.
+
+    ::
+
+        space = pg.Coalescent(n=4).lineage_counting_state_space
+
+        states, S = space.states, space.S
     """
 
     def _get_initial(self) -> 'State':
@@ -663,40 +800,86 @@ class LineageCountingStateSpace(StateSpace):
 
     def _numba_kind(self) -> int:
         """
-        Lineage-counting kernel.
+        Lineage-counting kernel: 0 for a single locus, 3 for the two-locus (recombination) space.
         """
-        return 0
+        return 3 if self.locus_config.n == 2 else 0
 
     def _numba_block_vectors(self, n_blocks: int) -> np.ndarray:
         """
-        Lineage counting has a single block; the label is unused by the lineage kernel.
+        Single-locus lineage counting has one (unlabelled) block. The two-locus space has three linkage categories --
+        linked (ancestral at both loci), unlinked at locus 0, unlinked at locus 1 -- labelled by their per-locus
+        ancestral-material presence ``(1, 1)`` / ``(1, 0)`` / ``(0, 1)``.
         """
+        if self.locus_config.n == 2:
+            return np.array([[1, 1], [1, 0], [0, 1]], dtype=np.int64)
         return np.array([[1]], dtype=np.int64)
 
-    def _get_old(self) -> OldLineageCountingStateSpace:
-        """
-        Get the old state space.
-        """
-        return OldLineageCountingStateSpace(
-            lineage_config=self.lineage_config,
-            locus_config=self.locus_config,
-            model=self.model,
-            epoch=self.epoch
-        )
+    def _numba_n_blocks(self, init: 'State') -> int:
+        """Three linkage categories per deme for two loci; otherwise the single lineage block."""
+        return 3 if self.locus_config.n == 2 else init.lineages.shape[2]
+
+    def _numba_recombination(self) -> Tuple[float, np.ndarray, np.ndarray]:
+        """A linked lineage (block 0, ancestral at both loci) splits into the locus-0-only (block 1) and
+        locus-1-only (block 2) categories, at rate ``r`` per linked lineage."""
+        if self.locus_config.n != 2:
+            return 0.0, None, None
+        recomb0 = np.array([1, 0, 0], dtype=np.int64)
+        recomb1 = np.array([2, 0, 0], dtype=np.int64)
+        return self.locus_config.recombination_rate, recomb0, recomb1
+
+    def _numba_initial(self, init: 'State') -> np.ndarray:
+        """Encode the initial state as per-deme ``[linked, unlinked-at-locus-0, unlinked-at-locus-1]`` category
+        counts (the kernel's two-locus lineage-counting state); single-locus uses the default flattening."""
+        if self.locus_config.n != 2:
+            return init.lineages.reshape(-1)
+        n_demes = init.lineages.shape[1]
+        vec = np.zeros(n_demes * 3, dtype=np.int64)
+        for d in range(n_demes):
+            n_linked = int(init.linked[0, d, 0])
+            vec[d * 3 + 0] = n_linked
+            vec[d * 3 + 1] = int(init.lineages[0, d, 0]) - n_linked  # unlinked at locus 0
+            vec[d * 3 + 2] = int(init.lineages[1, d, 0]) - n_linked  # unlinked at locus 1
+        return vec
+
+    def _numba_to_state(self, row: np.ndarray, init: 'State') -> 'State':
+        """Decode a kernel row of per-deme ``[linked, unlinked0, unlinked1]`` category counts back into a two-locus
+        :class:`State` (lineages ancestral at each locus, and the shared linked count); single-locus uses the default."""
+        if self.locus_config.n != 2:
+            return State((row.reshape(init.lineages.shape).astype(init.lineages.dtype), init.linked.copy()))
+        n_demes = init.lineages.shape[1]
+        lineages = np.zeros((2, n_demes, 1), dtype=init.lineages.dtype)
+        linked = np.zeros((2, n_demes, 1), dtype=init.linked.dtype)
+        for d in range(n_demes):
+            n_linked, u0, u1 = int(row[d * 3 + 0]), int(row[d * 3 + 1]), int(row[d * 3 + 2])
+            lineages[0, d, 0] = n_linked + u0
+            lineages[1, d, 0] = n_linked + u1
+            linked[0, d, 0] = n_linked
+            linked[1, d, 0] = n_linked
+        return State((lineages, linked))
 
 
 class BlockCountingStateSpace(StateSpace):
     r"""
-    Rate matrix for block-counting state space where there is one state per sample configuration:
+    Block-counting state space. Each state augments the lineage count to an :math:`n`-tuple
+    :math:`\mathbf{a} = (a_1, \dots, a_n)`, where :math:`a_i` is the number of lineages subtending exactly :math:`i`
+    samples in the coalescent tree:
 
-    A block-counting state is a vector of length ``n`` where each element represents the number of lineages
-    subtending ``i`` lineages in the coalescent tree.
+    .. math::
+        E = \Big\{ \mathbf{a} \in \mathbb{Z}_{\ge 0}^n : \sum_{i=1}^{n} i\,a_i = n \Big\}, \qquad |E| = p(n),
 
-        .. math::
-            (a_1,...,a_n) \in \mathbb{Z}_+^n : \sum_{i=1}^{n} i a_i = n.
+    the number of integer partitions of :math:`n` (per deme and per locus). The absorbing state is
+    :math:`(0, \dots, 0, 1)`. Merger rates between block configurations are those of the
+    :class:`~phasegen.coalescent_models.CoalescentModel`, evaluated by the numba state-space kernel. Resolving these
+    branch classes lets the space distinguish tree topologies, so it underlies the statistics based on the SFS.
 
-    per deme and per locus. This state space can distinguish between different tree topologies
-    and is thus used when computing statistics based on the SFS.
+    The following example retrieves the states and the intensity matrix of the block-counting state space of four
+    lineages.
+
+    ::
+
+        space = pg.Coalescent(n=4).block_counting_state_space
+
+        states, S = space.states, space.S
     """
 
     def __init__(
@@ -705,9 +888,9 @@ class BlockCountingStateSpace(StateSpace):
             locus_config: LocusConfig = None,
             model: CoalescentModel = None,
             epoch: Epoch = None
-    ):
+    ) -> None:
         """
-        Create a rate matrix.
+        Initialize the state space. The states and the rate matrix are constructed on first access.
 
         :param lineage_config: Population configuration.
         :param locus_config: Locus configuration. One locus is used by default.
@@ -715,7 +898,7 @@ class BlockCountingStateSpace(StateSpace):
         :param epoch: The epoch
         """
         # currently only one locus is supported, due to a very complex state space for multiple loci
-        if locus_config is not None and locus_config.n > 1:
+        if locus_config is not None and InitialDistribution._split(locus_config)[0].n > 1:
             raise NotImplementedError('Block-counting state space only supports one locus.')
 
         super().__init__(
@@ -785,7 +968,8 @@ class BlockCountingStateSpace(StateSpace):
         State probabilities conditioned on the number of lineages, from the embedded jump chain (``row / -diag``),
         used to flatten the block-counting state space onto the lineage-counting one. Valid only for the
         single-population, single-locus standard coalescent (any number of epochs, since a uniform rescaling of the
-        generator leaves the jump chain unchanged); not for multiple-merger coalescents. See ``_flattening_applies``.
+        generator leaves the jump chain unchanged); not for multiple-merger coalescents. See
+        :meth:`~phasegen.distributions._moments.MomentEvaluator._flattening_applies`.
 
         :return: State probabilities conditioned on the number of lineages.
         """
@@ -801,32 +985,21 @@ class BlockCountingStateSpace(StateSpace):
 
         return probs
 
-    def _get_old(self) -> OldBlockCountingStateSpace:
-        """
-        Get the old state space.
-        """
-        return OldBlockCountingStateSpace(
-            lineage_config=self.lineage_config,
-            locus_config=self.locus_config,
-            model=self.model,
-            epoch=self.epoch
-        )
-
 
 class JointBlockCountingStateSpace(StateSpace):
     r"""
-    Rate matrix for the joint (multi-population) site-frequency spectrum.
+    Block-counting state space for the joint (multi-population) site-frequency spectrum.
 
     This is a generalization of :class:`BlockCountingStateSpace`. In the block-counting state space a block is a
-    single *size class* ``i`` (the number of sampled lineages a lineage subtends), which discards the information of
-    *which* population those descendants came from. The joint SFS bins mutations by their allele frequency in each
-    population simultaneously, so each block must instead be the **descendant vector**
+    single size class ``i`` (the number of sampled lineages a lineage subtends), which discards the population those
+    descendants came from. The joint SFS bins mutations by their allele frequency in each population simultaneously,
+    so each block here is the descendant vector
 
         .. math::
             v = (v_0, \dots, v_{P-1}), \quad 0 \le v_p \le n_p, \quad 1 \le \sum_p v_p \le n,
 
     i.e. the number of descendants a lineage subtends from each population ``p`` (its "deme of origin"
-    composition). A state then counts, per locus and per *current* deme of residence, how many lineages carry each
+    composition). A state then counts, per locus and per current deme of residence, how many lineages carry each
     descendant vector.
 
     .. note::
@@ -834,6 +1007,16 @@ class JointBlockCountingStateSpace(StateSpace):
         (``n_blocks = prod(n_p + 1) - 1``) and grows the number of reachable states combinatorially, much faster
         than the single-population block-counting space. This state space is therefore only practical for small
         per-population sample sizes. Only one locus is supported.
+
+    The following example retrieves the number of states of the joint block-counting state space of two demes.
+
+    ::
+
+        coal = pg.Coalescent(n={'pop_0': 2, 'pop_1': 1}, demography=pg.Demography(
+            pop_sizes={'pop_0': 1, 'pop_1': 1}, migration_rates={('pop_0', 'pop_1'): 0.5, ('pop_1', 'pop_0'): 0.5}
+        ))
+
+        k = coal.joint_block_counting_state_space.k
     """
 
     def __init__(
@@ -842,9 +1025,9 @@ class JointBlockCountingStateSpace(StateSpace):
             locus_config: LocusConfig = None,
             model: CoalescentModel = None,
             epoch: Epoch = None
-    ):
+    ) -> None:
         """
-        Create a rate matrix.
+        Initialize the state space. The states and the rate matrix are constructed on first access.
 
         :param lineage_config: Population configuration.
         :param locus_config: Locus configuration. One locus is used by default.
@@ -852,7 +1035,7 @@ class JointBlockCountingStateSpace(StateSpace):
         :param epoch: The epoch.
         """
         # the joint state space tracks descendant vectors which do not extend to multiple loci
-        if locus_config is not None and locus_config.n > 1:
+        if locus_config is not None and InitialDistribution._split(locus_config)[0].n > 1:
             raise NotImplementedError('Joint block-counting state space only supports one locus.')
 
         super().__init__(
@@ -862,15 +1045,22 @@ class JointBlockCountingStateSpace(StateSpace):
             epoch=epoch
         )
 
+        # the block types are the descendant vectors, bounded by the number of lineages per population
+        if any(not np.array_equal(c.lineages, self.lineage_config.lineages) for _, c, _ in self._initial_components()):
+            raise ValueError(
+                "The joint block-counting state space depends on the number of lineages per population, which must "
+                "agree between the components of an initial distribution."
+            )
+
     @cached_property
-    def block_configs(self) -> List[Tuple[int, ...]]:
+    def block_configs(self) -> Tuple[Tuple[int, ...], ...]:
         """
-        Ordered list of all descendant vectors (block types). A descendant vector ``(v_0,...,v_{P-1})`` has
-        ``0 <= v_p <= n_p`` and at least one non-zero entry.
+        Ordered descendant vectors (block types). A descendant vector ``(v_0,...,v_{P-1})`` has ``0 <= v_p <= n_p``
+        and at least one non-zero entry. The vectors are returned as a tuple.
         """
         sizes = [int(n_p) for n_p in self.lineage_config.lineages]
 
-        return [c for c in product(*[range(s + 1) for s in sizes]) if sum(c) >= 1]
+        return tuple(c for c in product(*[range(s + 1) for s in sizes]) if sum(c) >= 1)
 
     @cached_property
     def block_index(self) -> Dict[Tuple[int, ...], int]:
@@ -900,10 +1090,13 @@ class JointBlockCountingStateSpace(StateSpace):
         """
         return len(self.block_configs)
 
-    def _get_initial(self) -> 'State':
+    def _get_initial(self, locus_config: LocusConfig = None) -> 'State':
         """
         Get the initial state. Each of the ``n_p`` lineages sampled from population ``p`` starts in deme ``p`` with
         descendant vector ``e_p`` (the unit vector subtending a single sample from population ``p``).
+
+        :param locus_config: Locus configuration of the initial state, that of the state space by default. Only a
+            single locus is supported, so it does not change the initial state.
         """
         data = tuple(
             np.zeros((self.locus_config.n, self.lineage_config.n_pops, self.n_blocks), dtype=int)
@@ -920,38 +1113,49 @@ class JointBlockCountingStateSpace(StateSpace):
     @cached_property
     def alpha(self) -> np.ndarray:
         """
-        Initial state vector. There is a single, origin-aware initial state (see :meth:`_get_initial`), so this is
-        its indicator vector.
-        """
-        initial = self._get_initial()
+        Initial state vector. Each component of the initial distribution has a single initial state, in which every
+        sampled lineage resides in its population of origin, so this is the weighted sum of their indicator vectors.
 
-        return np.array([s == initial for s in self.states], dtype=float)
+        :raises ValueError: If the initial state of a component is not a state of the state space.
+        """
+        alpha = np.zeros(self.k)
 
-    def _get_old(self) -> OldStateSpace:
-        """
-        The joint block-counting state space has no legacy equivalent.
-        """
-        raise NotImplementedError('The joint block-counting state space has no legacy equivalent.')
+        for weight, lineage_config, locus_config in self._initial_components():
+            initial = self._get_initial(locus_config)
+            states = np.array([s == initial for s in self.states], dtype=float)
+            self._assert_initial_mass(states, lineage_config, locus_config)
+            alpha += weight * states
+
+        return alpha
 
 
 class TwoLocusBlockCountingStateSpace(JointBlockCountingStateSpace):
     r"""
-    Block-counting state space for two loci separated by recombination, used to compute the two-locus SFS.
+    Block-counting state space for two loci separated by recombination, underlying the two-locus SFS.
 
     Each physical ancestral lineage is described by a vector ``(a_0, a_1)`` giving the number of sampled lineages it
     subtends at locus 0 and locus 1 (``a_l = 0`` meaning it is not ancestral at locus ``l``). This is the same
-    representation as the joint (multi-population) state space, with **locus** playing the role of **population**, so
-    coalescence is again vector addition (and reuses the model-agnostic merger rates, supporting Beta/Dirac too).
-    The new ingredient is **recombination**: a linked lineage ``(a_0, a_1)`` with ``a_0 > 0`` and ``a_1 > 0`` splits
-    into ``(a_0, 0)`` and ``(0, a_1)`` at rate ``r`` per linked lineage. The process is absorbed once both loci have
-    reached their MRCA.
+    representation as the joint (multi-population) state space, with the locus in the role of the population, so
+    coalescence is again vector addition with the model-agnostic merger rates, which supports the Beta and Dirac
+    coalescents. In addition, a linked lineage ``(a_0, a_1)`` with ``a_0 > 0`` and ``a_1 > 0`` recombines into
+    ``(a_0, 0)`` and ``(0, a_1)`` at rate ``r`` per linked lineage, the recombination rate of the locus configuration.
+    The process is absorbed once both loci have reached their MRCA.
 
-    A single population is currently supported (no migration), so the state shape collapses to ``(1, 1, n_blocks)``;
-    linkage is encoded in the block vector itself, so the ``linked`` array is unused.
+    Only a single population is supported (no migration), so the state shape collapses to ``(1, 1, n_blocks)``.
+    Linkage is encoded in the block vector itself, so the ``linked`` array is unused.
 
     .. note::
         ``n_blocks = (n + 1)^2 - 1`` and the number of reachable states grows quickly, so this is only practical for
         small sample sizes.
+
+    The following example retrieves the states and the intensity matrix of the two-locus block-counting state space of
+    two lineages.
+
+    ::
+
+        space = pg.Coalescent(n=2, loci=2, recombination_rate=1).two_locus_block_counting_state_space
+
+        states, S = space.states, space.S
     """
 
     def __init__(
@@ -960,19 +1164,19 @@ class TwoLocusBlockCountingStateSpace(JointBlockCountingStateSpace):
             locus_config: LocusConfig = None,
             model: CoalescentModel = None,
             epoch: Epoch = None
-    ):
+    ) -> None:
         """
         Create the two-locus block-counting state space.
 
-        :param lineage_config: Population configuration (a single population is currently supported).
-        :param locus_config: Locus configuration; must specify exactly two loci.
+        :param lineage_config: Population configuration with a single population.
+        :param locus_config: Locus configuration with exactly two loci.
         :param model: Coalescent model. By default, the standard coalescent is used.
         :param epoch: The epoch.
         """
-        if locus_config is None or locus_config.n != 2:
+        if locus_config is None or InitialDistribution._split(locus_config)[0].n != 2:
             raise ValueError('The two-locus block-counting state space requires exactly two loci.')
 
-        if lineage_config.n_pops != 1:
+        if InitialDistribution._split(lineage_config)[0].n_pops != 1:
             raise NotImplementedError('The two-locus block-counting state space currently supports a single '
                                       'population (no migration).')
 
@@ -980,22 +1184,25 @@ class TwoLocusBlockCountingStateSpace(JointBlockCountingStateSpace):
         StateSpace.__init__(self, lineage_config=lineage_config, locus_config=locus_config, model=model, epoch=epoch)
 
     @cached_property
-    def block_configs(self) -> List[Tuple[int, ...]]:
+    def block_configs(self) -> Tuple[Tuple[int, ...], ...]:
         """
-        Ordered list of all two-locus descendant vectors ``(a_0, a_1)`` with ``0 <= a_l <= n`` and at least one
-        non-zero entry.
+        Ordered two-locus descendant vectors ``(a_0, a_1)`` with ``0 <= a_l <= n``, the two-locus form of
+        :attr:`JointBlockCountingStateSpace.block_configs
+        <phasegen.state_space.JointBlockCountingStateSpace.block_configs>`.
         """
         n = int(self.lineage_config.n)
 
-        return [c for c in product(range(n + 1), range(n + 1)) if sum(c) >= 1]
+        return tuple(c for c in product(range(n + 1), range(n + 1)) if sum(c) >= 1)
 
-    def _get_initial(self) -> 'State':
+    def _get_initial(self, locus_config: LocusConfig = None) -> 'State':
         """
         Get the initial state: ``n - n_unlinked`` lineages of type ``(1, 1)`` (linked across both loci) plus, for
         each of the ``n_unlinked`` initially unlinked samples, a ``(1, 0)`` and a ``(0, 1)`` lineage.
+
+        :param locus_config: Locus configuration of the initial state, that of the state space by default.
         """
         n = int(self.lineage_config.n)
-        n_unlinked = int(self.locus_config.n_unlinked)
+        n_unlinked = int((self.locus_config if locus_config is None else locus_config).n_unlinked)
         n_linked = max(n - n_unlinked, 0)
 
         data = tuple(np.zeros((1, 1, self.n_blocks), dtype=int) for _ in range(2))
@@ -1009,15 +1216,16 @@ class TwoLocusBlockCountingStateSpace(JointBlockCountingStateSpace):
 
         return State(data)
 
-    def _is_absorbing(self, state: 'State') -> bool:
+    def _absorbing_mask(self, lineages: np.ndarray) -> np.ndarray:
         """
         A two-locus state is absorbing once both loci have reached their MRCA, i.e. exactly one lineage carries
         ancestral material at locus 0 and exactly one carries it at locus 1 (covering both the single linked
         grand-MRCA ``(n, n)`` and the unlinked pair ``(n, 0) + (0, n)``).
-        """
-        lineages = state.lineages[0, 0]
 
-        return all(int(lineages[self.block_vectors[:, locus] > 0].sum()) == 1 for locus in range(2))
+        :param lineages: Lineage configurations, indexed ``[state, locus, deme, block]``.
+        :return: Boolean mask over the configurations.
+        """
+        return np.all(lineages[:, 0, 0] @ (self.block_vectors > 0) == 1, axis=1)
 
     def _numba_kind(self) -> int:
         """
@@ -1065,7 +1273,7 @@ class Transition:
     def __init__(
             self,
             state_space: StateSpace
-    ):
+    ) -> None:
         """
         Initialize a transition.
 
@@ -1095,7 +1303,7 @@ class Transition:
         return targets
 
     @staticmethod
-    def add_target(targets: Dict['State', Tuple[float, str]], target: 'State', rate: float, kind: str):
+    def add_target(targets: Dict['State', Tuple[float, str]], target: 'State', rate: float, kind: str) -> None:
         """
         Add a target state to the list of targets.
 
@@ -1147,76 +1355,69 @@ class Transition:
                     'Coalescence with recombination is only implemented for LineageCountingStateSpace.'
                 )
 
-            if not isinstance(self.state_space.model, StandardCoalescent):
-                raise NotImplementedError('Coalescence with recombination is only implemented for StandardCoalescent.')
-
-            bins = dict(
-                linked=source.linked[0],
-                unlinked1=source.unlinked[0],
-                unlinked2=source.unlinked[1]
-            )
+            # Coalescence over the three linkage categories per deme -- linked (ancestral at both loci), unlinked at
+            # locus 0, unlinked at locus 1 -- via the model's general merger machinery (``_get_rate_block_counting``),
+            # exactly as :meth:`_coalesce_joint` does for the block-counting space. This supports multiple-merger
+            # models (Beta/Dirac) in addition to the standard coalescent: the model returns rate 0 for the mergers it
+            # does not allow (e.g. any k > 2 under the standard coalescent), so those combinations are skipped and the
+            # Kingman case reduces to the pairwise linked / unlinked / mixed / locus coalescences. The block-triangular
+            # LU ordering is unaffected (coalescence still strictly reduces the total lineage count, so the generator
+            # stays acyclic / orderable -- the ordering is recomputed from the sparsity pattern).
+            model = self.state_space.model
 
             for deme in range(source.n_demes):
 
-                time_scale = self.state_space.model._get_timescale(pop_sizes[deme])
+                time_scale = model._get_timescale(pop_sizes[deme])
 
-                for ((class1, counts1), (class2, counts2)) in product(bins.items(), repeat=2):
+                # category counts in this deme: [linked, unlinked at locus 0, unlinked at locus 1]
+                cats = np.array([source.linked[0, deme, 0], source.unlinked[0, deme, 0], source.unlinked[1, deme, 0]])
+                present = np.where(cats > 0)[0]
+                total = int(cats.sum())
+
+                # enumerate how many lineages merge from each present category (at least two in total)
+                for comb in product(*[range(int(cats[i]) + 1) for i in present]):
+                    comb = np.array(comb)
+                    if comb.sum() < 2:
+                        continue
+
+                    mask = comb > 0
+                    rate = model._get_rate_block_counting(n=total, b=cats[present][mask], k=comb[mask])
+
+                    # skip combinations the model does not support (e.g. k > 2 under the standard coalescent)
+                    if rate == 0:
+                        continue
+
+                    merge = np.zeros(3, dtype=int)
+                    merge[present] = comb
+                    n_linked, n_unlinked1, n_unlinked2 = (int(x) for x in merge)
+
+                    # the merged lineage is ancestral at locus 0 if any merging lineage was (linked or unlinked-1),
+                    # and at locus 1 if any was (linked or unlinked-2)
+                    anc0 = n_linked + n_unlinked1 > 0
+                    anc1 = n_linked + n_unlinked2 > 0
 
                     target = source.copy()
+                    # remove the merging lineages
+                    target.lineages[0, deme, 0] -= n_linked + n_unlinked1
+                    target.lineages[1, deme, 0] -= n_linked + n_unlinked2
+                    target.linked[0, deme, 0] -= n_linked
+                    target.linked[1, deme, 0] -= n_linked
+                    # add the single merged lineage back, in its resulting category
+                    if anc0 and anc1:  # ancestral at both loci -> linked
+                        target.lineages[0, deme, 0] += 1
+                        target.lineages[1, deme, 0] += 1
+                        target.linked[0, deme, 0] += 1
+                        target.linked[1, deme, 0] += 1
+                        kind = 'locus_coalescence' if n_linked == 0 else \
+                            ('mixed_coalescence' if n_unlinked1 or n_unlinked2 else 'linked_coalescence')
+                    elif anc0:  # ancestral at locus 0 only -> unlinked-1
+                        target.lineages[0, deme, 0] += 1
+                        kind = 'unlinked_coalescence'
+                    else:  # ancestral at locus 1 only -> unlinked-2
+                        target.lineages[1, deme, 0] += 1
+                        kind = 'unlinked_coalescence'
 
-                    # linked or unlinked coalescence
-                    if class1 == class2:
-                        # we need at least 2 lineages to coalesce
-                        if np.any(counts1[deme] < 2):
-                            continue
-
-                        # if the classes are the same, the counts are the same
-                        rate = self.state_space.model._get_rate(b=counts1[deme, 0], k=2)
-
-                        # unlinked coalescence in locus 1
-                        if 'unlinked1' in class1:
-
-                            target.lineages[0, deme] -= 1
-                            self.add_target(targets, target, rate / time_scale, 'unlinked_coalescence')
-
-                        # unlinked coalescence in locus 2
-                        elif 'unlinked2' in class1:
-
-                            target.lineages[1, deme] -= 1
-                            self.add_target(targets, target, rate / time_scale, 'unlinked_coalescence')
-
-                        # linked coalescence in both loci
-                        elif np.all(source.linked[:, deme] > 0):
-
-                            target.lineages[:, deme] -= 1
-                            target.linked[:, deme] -= 1
-                            self.add_target(targets, target, rate / time_scale, 'linked_coalescence')
-
-                    # mixed or locus coalescence
-                    # use lower than operator to ensure we only consider each case once
-                    elif class1 < class2:
-                        if counts1[deme] < 1 or counts2[deme] < 1:
-                            continue
-
-                        rate = counts1[deme, 0] * counts2[deme, 0]
-
-                        # mixed coalescence of linked and unlinked lineages
-                        if 'linked' in (class1, class2) and ('unlinked' in class1 or 'unlinked' in class2):
-                            locus = 0 if '1' in class1 or '1' in class2 else 1
-
-                            # condition already checked above
-                            if target.lineages[locus, deme, 0] > 1:
-                                target.lineages[locus, deme, 0] -= 1
-
-                                self.add_target(targets, target, rate / time_scale, 'mixed_coalescence')
-
-                        # locus coalescence of unlinked lineages
-                        else:
-                            # make sure we have unlinked lineages in both loci
-                            if np.all(source.unlinked[:, deme, 0] > 0):
-                                target.linked[:, deme, 0] += 1
-
-                                self.add_target(targets, target, rate / time_scale, 'locus_coalescence')
+                    self.add_target(targets, target, rate / time_scale, kind)
 
             return targets
 
@@ -1415,19 +1616,8 @@ class State:
     """
     State utility class.
     """
-    #: Axis for linkage.
-    LINKAGE = 0
 
-    #: Axis for loci.
-    LOCUS = 1
-
-    #: Axis for demes.
-    DEME = 2
-
-    #: Axis for lineage blocks.
-    BLOCK = 3
-
-    def __init__(self, data: (np.ndarray, np.ndarray)):
+    def __init__(self, data: (np.ndarray, np.ndarray)) -> None:
         """
         Initialize a state.
 
@@ -1499,26 +1689,26 @@ class State:
     @property
     def lineages(self) -> np.ndarray:
         """
-        Get the number of lineages.
+        The number of lineages per locus, deme and block.
 
-        :return: The number of lineages.
+        :return: An array indexed ``[locus, deme, block]``.
         """
         return self.data[0]
 
     @property
     def linked(self) -> np.ndarray:
         """
-        Get the number of linked lineages.
+        The number of linked lineages per locus, deme and block.
 
-        :return: The number of linked lineages.
+        :return: An array indexed ``[locus, deme, block]``.
         """
         return self.data[1]
 
     @property
     def unlinked(self) -> np.ndarray:
         """
-        Get the number of unlinked lineages.
+        The number of unlinked lineages per locus, deme and block.
 
-        :return: The number of unlinked lineages.
+        :return: An array indexed ``[locus, deme, block]``.
         """
         return self.lineages - self.linked

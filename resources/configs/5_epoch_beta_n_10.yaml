@@ -1,6 +1,9 @@
 n:
   pop_0: 10
 num_replicates: 1000000
+simulate_mutations: true
+mutation_rate: 0.05
+mass_threshold: 0.9
 pop_sizes:
   pop_0:
     0: 2
@@ -10,14 +13,29 @@ pop_sizes:
     7.5: 2.3
 model: beta
 alpha: 1.5
+seed: 42
 comparisons:
   tolerance:
     tree_height:
-      pdf: 0.02
-      mean: 0.01
-      var: 0.05
+      pdf: 0.004
+      mean: 0.0027
+      var: 0.018
+      cdf: 0.002
+      quantile: 0.004
     total_branch_length:
-      mean: 0.01
-      var: 0.05
+      mean: 0.0016
+      var: 0.013
+      cosine:
+        pdf: 0.004
+        cdf: 0.002
+        quantile: 0.004
+    fsfs:
+      mutation_configs: 0.004
     sfs:
-      mean: 0.02
+      mutation_configs: 0.004
+      mean: 0.013
+      '[1, 4, 9]':
+        cosine:
+          pdf: 0.004
+          cdf: 0.002
+          quantile: 0.004

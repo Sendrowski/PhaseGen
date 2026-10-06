@@ -5,18 +5,28 @@ pop_sizes:
     0: 1
     1: 0.001
 model: standard
+seed: 42
 comparisons:
   tolerance:
     # hard to compare PDF and CDF here
     tree_height:
-      pdf: 0.1
-      cdf: 0.02
-      mean: 0.01
-      var: 0.01
+      pdf: 0.0048
+      cdf: 0.002
+      mean: 0.0024
+      var: 0.0032
+      quantile: 0.004
     total_branch_length:
-      mean: 0.01
-      var: 0.01
+      mean: 0.0024
+      var: 0.0032
+      cosine:
+        pdf: 0.03
+        cdf: 0.025
+        quantile: 0.004
     sfs:
-      mean: 0.01
-      cov: 0.01
-      corr: 0.02
+      mean: 0.0024
+      cov: 0.0032
+      corr: 0.0005
+      cosine:
+        pdf: 0.03
+        cdf: 0.025
+        quantile: 0.004

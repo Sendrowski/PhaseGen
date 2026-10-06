@@ -16,11 +16,6 @@ from matplotlib import pyplot as plt
 from tqdm import tqdm
 
 try:
-    import sys
-
-    # necessary to import local module
-    sys.path.append('.')
-
     testing = False
     out = snakemake.output[0]
 except NameError:
@@ -96,7 +91,9 @@ def plot_heatmap(
         xticklabels=D,
         yticklabels=N,
         cmap='viridis',
-        norm=mpl.colors.LogNorm(),
+        # shared, fixed colour scale across panels so absolute runtimes are comparable and only genuinely slow
+        # cells read as "hot"; without fixed bounds each panel auto-scales and paints its own slowest cell hot
+        norm=mpl.colors.LogNorm(vmin=1e-3, vmax=20),
         cbar=False
     )
 
@@ -107,7 +104,7 @@ def plot_heatmap(
     ax.set_box_aspect(1)
 
 
-fig, ax = plt.subplots(2, 2, figsize=(9, 8))
+fig, ax = plt.subplots(1, 4, figsize=(16, 4.2))
 
 # warm start
 _ = pg.Coalescent(
@@ -115,7 +112,7 @@ _ = pg.Coalescent(
 ).tree_height.mean
 
 plot_heatmap(
-    ax=ax[0, 0],
+    ax=ax[0],
     N=np.arange(2, 13, 1),
     D=np.arange(1, 4),
     callback=lambda coal: coal.tree_height.mean,
@@ -123,7 +120,7 @@ plot_heatmap(
 )
 
 plot_heatmap(
-    ax=ax[0, 1],
+    ax=ax[1],
     N=np.arange(2, 11, 1),
     D=np.arange(1, 4),
     callback=lambda coal: coal.sfs.mean,
@@ -131,7 +128,7 @@ plot_heatmap(
 )
 
 plot_heatmap(
-    ax=ax[1, 0],
+    ax=ax[2],
     N=np.arange(2, 7, 1),
     D=np.arange(1, 3),
     callback=lambda coal: coal.tree_height.mean,
@@ -141,7 +138,7 @@ plot_heatmap(
 
 # mean two-locus SFS (the recombination-aware 2-SFS); single population
 plot_heatmap(
-    ax=ax[1, 1],
+    ax=ax[3],
     N=np.arange(2, 7, 1),
     D=np.arange(1, 2),
     callback=lambda coal: coal.sfs2.mean,

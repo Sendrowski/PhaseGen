@@ -6,7 +6,6 @@ dependencies:
   - dadi
   - numba
   - graphviz
-  - tensorflow
   - python-graphviz
   - r-base
   - r-reticulate
@@ -23,4 +22,7 @@ dependencies:
     - pytest-cov
     - pytest-sugar
     - pytest-pycharm
-    - -r requirements_testing.txt
+    # paths relative to .snakemake/conda, where snakemake copies this file before creating the env (--use-conda)
+    # and where a copy must be placed to create or update the env by hand
+    - -r ../../envs/requirements_testing.txt
+    - -e ../..

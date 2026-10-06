@@ -2,8 +2,6 @@ import os
 from pathlib import Path
 from typing import List
 
-import pandas as pd
-
 def get_filenames(path) -> List[str]:
     """
     Get all filenames in a directory.
@@ -13,27 +11,17 @@ def get_filenames(path) -> List[str]:
     """
     return [os.path.splitext(file.name)[0] for file in Path(path).glob('*') if file.is_file()]
 
-def get_dirnames(path) -> List[str]:
-    """
-    Get all directory names in a directory.
-
-    :param path: Path to directory
-    :return: Directory names
-    """
-    return [file.name for file in Path(path).glob('*') if file.is_dir()]
-
 
 configs = get_filenames("resources/configs")
 
 wildcard_constraints:
-    opts=r'[^/]*'  # match several optional options not separated by /
+    opts=r'[^/]*',  # match several optional options not separated by /
+    page=r'[^/.]+'  # a User Guide page name
 
 rule all:
     input:
         (
-            expand("results/graphs/comp/{config}.png", config=get_dirnames("results/graphs/comparisons")),
             #expand("results/graphs/MMC_inference/Kingman.{n}.{n_runs}.{n_bootstraps}.{n_bins}.png",n=10,n_runs=20,n_bootstraps=100,n_bins=30),
-            #"docs/_build"
             expand("results/comparisons/serialized/{config}.json",config=configs),
             #expand("results/graphs/transitions/{name}.png",name=[
             #    'coalescent_4_lineages_lineage_counting',
@@ -53,8 +41,6 @@ rule all:
             #"results/graphs/execution_times.png",
             #"results/graphs/state_space_sizes.png",
             #"results/benchmarks/state_space/all.csv",
-            #expand("results/drosophila/2sfs/rice/{chr}/d={d}.folded.txt",chr="2L",d=10),
-            #expand("results/drosophila/2sfs/{chr}/n={n}.d={d}.folded.txt",chr="2L",n=[10, 20, 40, 100],d=[10, 100]),
             #expand("results/2sfs/simulations/{model}/replicate={replicate}/mu={mu}/Ne={Ne}/n={n}/L={L}/r={r}/{folded}/d={d}.txt",
             #    mu=[1e-6],Ne=[1e4],n=[40],L=[1e6],r=[1e-7],folded=["folded"],d=[100],
             #    model=['standard'], replicate=[1,2,3]),
@@ -70,6 +56,24 @@ rule all:
         )
 
 # create comparisons
+# Rebuild EVERY comparison fixture from scratch:
+#
+#   snakemake -F -j8 --use-conda --keep-going regenerate_fixtures
+#
+# Needed whenever the library changes what is *cached* into a fixture (a new cache_* call, or a change to the meaning
+# of a cached curve). A fixture declares only its config YAML as an input, so a library change never invalidates it.
+#
+# `-F` is required: mtime is not a working trigger here (a config newer than its fixture still reports "Nothing to be
+# done"), and a shell `touch` on the configs does not help. Use snakemake's own `--touch` to mark outputs current.
+#
+# Exactly ONE layer of parallelism. The msprime simulation parallelises internally, so either turn that off and fan out
+# over fixtures (PG_PARALLELIZE=0 with -j8, several times faster for this mostly-small-n suite), or keep it and build
+# one fixture at a time (-j1). Combining -j8 with the internal parallelism thrashes; combining PG_PARALLELIZE=0 with
+# -j1 leaves no parallelism at all and runs the whole suite on a single core.
+rule regenerate_fixtures:
+    input:
+        expand("results/comparisons/serialized/{config}.json", config=configs)
+
 rule create_comparison:
     input:
         "resources/configs/{config}.yaml"
@@ -80,33 +84,57 @@ rule create_comparison:
     script:
         "scripts/create_comparison.py"
 
-# create joint-SFS comparisons (the jsfs-specific caching that create_comparison cannot handle)
-rule create_jsfs_comparison:
+# Cheaply re-embed a config's comparison tolerances / statistic selection into its EXISTING serialized fixture,
+# reusing the cached msprime ground truth (no re-simulation). The fixture is read and rewritten outside the DAG, so it
+# must already exist. The touch-marker output makes snakemake re-run this whenever the config YAML changes (the rerun
+# trigger), so a tolerance edit is synced with `snakemake results/comparisons/serialized/.<config>.tolerances_synced`.
+# Use create_comparison instead when a simulation parameter changed or a check needs ground truth the fixture does not
+# cache (the script aborts then).
+rule update_tolerances:
     input:
-        "resources/configs/{config}_jsfs.yaml"
+        "resources/configs/{config}.yaml"
     output:
-        "results/comparisons/serialized/{config}_jsfs.json"
+        touch("results/comparisons/serialized/.{config}.tolerances_synced")
     conda:
         "envs/dev.yaml"
     script:
-        "scripts/generate_jsfs_fixtures.py"
+        "scripts/update_tolerances.py"
 
-# prefer the jsfs-specific rule for *_jsfs fixtures (both rules match the same output)
-ruleorder: create_jsfs_comparison > create_comparison
+def get_scan_fixtures(w):
+    """
+    Serialized fixtures for the non-slow scenario suite (the single source of truth is
+    testing.test_scenarios: all ``configs`` minus ``slow_configs``). The two lists are read from the
+    module source, so the snakemake driver needs neither phasegen nor its test dependencies.
+    """
+    import ast
+    lists = {}
+    for node in ast.parse(Path("testing/test_scenarios.py").read_text()).body:
+        if isinstance(node, ast.Assign) and len(node.targets) == 1 and getattr(node.targets[0], 'id', None) in (
+                'configs', 'slow_configs'):
+            lists[node.targets[0].id] = ast.literal_eval(node.value)
+    return [f"results/comparisons/serialized/{c}.json" for c in lists['configs'] if c not in lists['slow_configs']]
 
-# create two-locus-SFS comparisons (the sfs2-specific caching that create_comparison cannot handle)
-rule create_2locus_comparison:
+# render every non-slow scenario's diff plots (Agg, low DPI) and a manifest tying each comparison to its PNG
+rule render_scenario_scan:
     input:
-        "resources/configs/{config}_2_locus_sfs.yaml"
+        get_scan_fixtures
     output:
-        "results/comparisons/serialized/{config}_2_locus_sfs.json"
+        "results/comparisons/scan/manifest.json"
     conda:
         "envs/dev.yaml"
     script:
-        "scripts/generate_2locus_fixtures.py"
+        "scripts/render_scenario_scan.py"
 
-# prefer the two-locus-specific rule for *_2_locus_sfs fixtures (both rules match the same output)
-ruleorder: create_2locus_comparison > create_comparison
+# build the self-contained, click-to-inspect HTML comparison-scan report from the manifest + rendered PNGs
+rule scenario_scan_report:
+    input:
+        "results/comparisons/scan/manifest.json"
+    output:
+        "results/comparisons/scan/report.html"
+    conda:
+        "envs/dev.yaml"
+    shell:
+        "python scripts/build_scan_report.py results/comparisons/scan"
 
 # generate an independent joint-SFS reference using the moments package (runs in the dev env which provides moments)
 rule generate_jsfs_reference:
@@ -141,36 +169,11 @@ rule merge_benchmarks:
     script:
         "scripts/merge_benchmarks.py"
 
-def get_input_combine_plots(w):
-    """
-    Get input files for the combine_plots rule.
-    """
-    return Path(f"results/graphs/comparisons/{w.config}").glob('*')
-
-# combine msprime comparison plots
-rule combine_comparisons:
-    input:
-        get_input_combine_plots
-    output:
-        "results/graphs/comp/{config}.png"
-    conda:
-        "envs/base.yaml"
-    params:
-        dpi=1000,
-        titles=lambda w: [
-            f.replace('sfs', 'SFS').replace('pdf', 'PDF').replace('cdf', 'CDF').replace('_', ' ')
-            for f in get_filenames(f"results/graphs/comparisons/{w.config}")
-        ]
-    script:
-        "scripts/combine_plots.py"
-
 # update dependencies
 rule update_dependencies:
     output:
         base="envs/requirements.txt",
-        base_snakemake=".snakemake/conda/requirements.txt",
         testing="envs/requirements_testing.txt",
-        testing_snakemake=".snakemake/conda/requirements_testing.txt",
         docs="docs/requirements.txt"
     conda:
         "envs/build.yaml"
@@ -179,118 +182,15 @@ rule update_dependencies:
             poetry self add poetry-plugin-export
             poetry update
             poetry export -f requirements.txt --without-hashes -o {output.base}
-            poetry export -f requirements.txt --without-hashes -o {output.base_snakemake}
             poetry export --with dev -f requirements.txt --without-hashes -o {output.testing}
-            poetry export --with dev -f requirements.txt --without-hashes -o {output.testing_snakemake}
             poetry export --with dev -f requirements.txt --without-hashes -o {output.docs}
-            mamba env update -f envs/dev.yaml
+            # envs/dev.yaml resolves its pip paths from .snakemake/conda, where snakemake creates its envs
+            mkdir -p .snakemake/conda
+            cp envs/dev.yaml .snakemake/conda/dev-phasegen.yaml
+            mamba env update -f .snakemake/conda/dev-phasegen.yaml
             mamba env update -f envs/testing.yaml
             mamba env update -f envs/base.yaml
         """
-
-# download DPGP3 VCF
-rule download_DPGP3_VCF:
-    output:
-        protected("resources/dpgp3/data/dpgp3_sequences.tar")
-    params:
-        url="http://pooldata.genetics.wisc.edu/dpgp3_sequences.tar.bz2"
-    shell:
-        "curl {params.url} -o {output} -L"
-
-# extract chromosome archive from archive
-rule extract_DPGP3_chrom_from_archive:
-    input:
-        "resources/dpgp3/data/dpgp3_sequences.tar"
-    output:
-        temp("resources/dpgp3/data/{chr}.tar")
-    shell:
-        "tar -O -zxvf {input} dpgp3_sequences/dpgp3_Chr{wildcards.chr}.tar > {output}"
-
-# extract sequence from chromosome archive
-rule extract_DPGP3_chrom:
-    input:
-        "resources/dpgp3/data/{chr_drosophila}.tar"
-    output:
-        temp("resources/dpgp3/data/{chr_drosophila}/{name}_Chr{chr_drosophila}.seq")
-    shell:
-        "tar -O -xvf {input} {wildcards.name}_Chr{wildcards.chr_drosophila}.seq > {output}"
-
-
-def sample_files_dpgp3(chr: str, n: int) -> List[str]:
-    """
-    Get files for the n first samples of the DPGP3 data.
-
-    :param n: Number of samples
-    :param chr: Chromosome
-    :return: List of file names
-    """
-    names = pd.read_csv(f"resources/rice/data/DPGP3/inversions/noninverted_Chr{chr}.txt",header=None).head(n)[0]
-
-    return expand(rules.extract_DPGP3_chrom.output,name=names,allow_missing=True)
-
-
-# merge component VCFs
-rule merge_sequences_DPGP3:
-    input:
-        lambda w: sample_files_dpgp3(w.chr_drosophila,int(w.n))
-    output:
-        "results/drosophila/data/{chr_drosophila}_{n}.csv"
-    conda:
-        "envs/dev.yaml"
-    script:
-        "scripts/merge_seqs_dpgp3.py"
-
-# calculate 2-SFS from the data that Rice et al. prepared
-rule calculate_2sfs_data_rice:
-    input:
-        counts="resources/rice/data/DPGP3/minor_allele_counts/Chr{chr}.mac.txt.gz",
-        fourfold="resources/rice/data/dmel-4Dsites.txt.gz"
-    output:
-        data="results/drosophila/2sfs/rice/{chr}/d={d}.{folded}.txt",
-        image="results/graphs/drosophila/2sfs/rice/{chr}/d={d}.{folded}.png"
-    params:
-        n_proj=100,
-        d=lambda w: int(w.d),
-        filter_4fold=True,
-        filter_boundaries=True,
-        boundaries={
-            '2L': (1e6, 17e6),
-            '2R': (6e6, 19e6),
-            '3L': (1e6, 17e6),
-            '3R': (10e6, 26e6)
-        },
-        chrom="{chr}",
-        folded=lambda w: w.folded == 'folded',
-    conda:
-        "envs/dev.yaml"
-    script:
-        "scripts/calculate_2sfs.py"
-
-# calculate 2-SFS from the DPGP3 data
-rule calculate_2sfs_data_DPGP3:
-    input:
-        counts="results/drosophila/data/{chr}_{n}.csv",
-        fourfold="resources/rice/data/dmel-4Dsites.txt.gz"
-    output:
-        data="results/drosophila/2sfs/{chr}/n={n}.d={d}.{folded}.txt",
-        image="results/graphs/drosophila/2sfs/{chr}/n={n}.d={d}.{folded}.png"
-    params:
-        n_proj=lambda w: int(w.n),
-        d=lambda w: int(w.d),
-        filter_4fold=True,
-        filter_boundaries=True,
-        boundaries={
-            '2L': (1e6, 17e6),
-            '2R': (6e6, 19e6),
-            '3L': (1e6, 17e6),
-            '3R': (10e6, 26e6)
-        },
-        chrom="{chr}",
-        folded=lambda w: w.folded == 'folded',
-    conda:
-        "envs/dev.yaml"
-    script:
-        "scripts/calculate_2sfs.py"
 
 # simulate sequence
 rule simulate_sequence:
@@ -339,6 +239,24 @@ rule plot_execution_time:
     script:
         "scripts/plot_heatmap_execution_times.py"
 
+# plot vectorized-sampling time for the same scenarios (for comparison with the exact-computation times)
+rule plot_sampling_time:
+    output:
+        "results/graphs/sampling_times.png"
+    conda:
+        "envs/dev.yaml"
+    script:
+        "scripts/plot_heatmap_sampling_times.py"
+
+# copy a generated graph into the docs image directory (so the docs figures are refreshed automatically)
+rule copy_graph_to_docs:
+    input:
+        "results/graphs/{name}.png"
+    output:
+        "docs/images/{name}.png"
+    shell:
+        "cp {input} {output}"
+
 # plot state space sizes
 rule plot_state_space_sizes:
     output:
@@ -359,46 +277,110 @@ rule plot_transitions:
     script:
         "scripts/plot_transitions.py"
 
-# documentation notebooks to re-execute (embedding fresh cell outputs)
-python_notebooks = [p.stem for p in Path("docs/reference/Python").glob("*.ipynb")]
-r_notebooks = [p.stem for p in Path("docs/reference/R").glob("*.ipynb")]
+# User Guide pages, each written as one source (docs/source/{page}.md) holding the prose and the code of both languages
+doc_pages = [p.stem for p in Path("docs/source").glob("*.md")]
 
-# re-execute a Python documentation notebook in place
-rule reexecute_python_notebook:
+# resolution of the User Guide figures in dots per inch
+DOCS_FIGURE_DPI = 300
+
+# sources of the Python package, which envs/docs.yaml installs in editable mode, so that a change re-executes the pages
+phasegen_sources = ["pyproject.toml"] + [str(p) for p in Path("phasegen").rglob("*.py")]
+
+# split a User Guide source into its Python and R notebooks
+rule split_page:
     input:
-        "docs/reference/Python/{name}.ipynb"
+        "docs/source/{page}.md"
     output:
-        touch("results/notebooks/Python/{name}.executed")
+        python="results/docs/Python/{page}.ipynb",
+        r="results/docs/R/{page}.ipynb"
+    params:
+        dpi=DOCS_FIGURE_DPI
     conda:
-        "envs/dev.yaml"
-    shell:
-        "jupyter nbconvert --to notebook --execute --inplace --ExecutePreprocessor.timeout=-1 {input}"
+        "envs/docs.yaml"
+    script:
+        "docs/split_page.py"
 
-# re-execute an R documentation notebook in place (uses the r-irkernel kernel from the R env)
-rule reexecute_r_notebook:
+# install the repository's R package into the User Guide env and register its R kernel inside that env
+rule install_r_package:
     input:
-        "docs/reference/R/{name}.ipynb"
+        "DESCRIPTION",
+        "NAMESPACE",
+        [str(p) for p in Path("R").glob("*.R")]
     output:
-        touch("results/notebooks/R/{name}.executed")
+        touch("results/docs/R/phasegen.installed")
     conda:
-        "envs/r.yaml"
+        "envs/docs.yaml"
     shell:
-        "jupyter nbconvert --to notebook --execute --inplace --ExecutePreprocessor.timeout=-1 {input}"
+        """
+        R CMD INSTALL --no-docs . > /dev/null
+        Rscript -e 'IRkernel::installspec(name = "ir-phasegen", displayname = "R (phasegen)", user = FALSE,
+                                          prefix = Sys.getenv("CONDA_PREFIX"))'
+        """
 
-# re-execute all documentation notebooks
-rule reexecute_notebooks:
+# execute the Python notebook of a page, collapsing the stored stream frames
+rule execute_python_page:
     input:
-        expand("results/notebooks/Python/{name}.executed", name=python_notebooks),
-        expand("results/notebooks/R/{name}.executed", name=r_notebooks)
-
-# update the documentation
-rule update_docs:
+        notebook="results/docs/Python/{page}.ipynb",
+        python_sources=phasegen_sources
     output:
-        directory("docs/_build")
+        "results/docs/Python/{page}.executed.ipynb"
     conda:
-        "envs/dev.yaml"
+        "envs/docs.yaml"
     shell:
-        "make html -C docs"
+        """
+        jupyter nbconvert --to notebook --execute --ExecutePreprocessor.timeout=-1 \
+            --output {wildcards.page}.executed.ipynb {input.notebook}
+        python docs/coalesce_streams.py {output}
+        """
+
+# execute the R notebook of a page on the Python interpreter of the same env, collapsing the stored stream frames
+rule execute_r_page:
+    input:
+        notebook="results/docs/R/{page}.ipynb",
+        python_sources=phasegen_sources,
+        r_installed="results/docs/R/phasegen.installed"
+    output:
+        "results/docs/R/{page}.executed.ipynb"
+    conda:
+        "envs/docs.yaml"
+    shell:
+        """
+        export RETICULATE_PYTHON="$CONDA_PREFIX/bin/python"
+        jupyter nbconvert --to notebook --execute --ExecutePreprocessor.timeout=-1 \
+            --output {wildcards.page}.executed.ipynb {input.notebook}
+        python docs/coalesce_streams.py {output}
+        """
+
+# merge the executed Python and R notebooks of a page into the User Guide page with language tabs
+rule merge_page:
+    input:
+        python="results/docs/Python/{page}.executed.ipynb",
+        r="results/docs/R/{page}.executed.ipynb"
+    output:
+        "docs/reference/{page}.ipynb"
+    params:
+        dpi=DOCS_FIGURE_DPI
+    conda:
+        "envs/docs.yaml"
+    script:
+        "docs/merge_notebooks.py"
+
+# write the outputs displayed from the executed notebook of a page in one language to docs/outputs/{page}
+rule extract_page_outputs:
+    input:
+        "results/docs/{language}/{page}.executed.ipynb"
+    output:
+        touch("results/docs/{language}/{page}.outputs.written")
+    conda:
+        "envs/docs.yaml"
+    script:
+        "docs/extract_outputs.py"
+
+# build all User Guide pages from their sources and write their outputs
+rule doc_pages:
+    input:
+        expand("docs/reference/{page}.ipynb", page=doc_pages),
+        expand("results/docs/{language}/{page}.outputs.written", language=["Python", "R"], page=doc_pages)
 
 # setup inference
 rule setup_inference:

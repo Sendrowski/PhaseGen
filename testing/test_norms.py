@@ -42,6 +42,107 @@ class NormTestCase(unittest.TestCase):
         expected_result = np.linalg.norm(a - b, ord=np.inf)
         self.assertEqual(pg.LInfNorm().compute(a, b), expected_result)
 
+    def test_L2Norm_2d_is_elementwise_not_spectral(self):
+        """
+        Regression test for bug #13: on 2-D input the L2 norm must be the element-wise
+        Euclidean distance sqrt(sum((a-b)**2)) (flattened vector norm), not the matrix
+        (spectral / largest-singular-value) norm np.linalg.norm(a-b).
+        """
+        a = np.array([[3., 0., 0.], [0., 4., 0.]])
+        b = np.zeros((2, 3))
+
+        # element-wise Euclidean distance: sqrt(3**2 + 4**2) = 5.0
+        expected_elementwise = np.sqrt(np.sum((a - b) ** 2))
+        self.assertAlmostEqual(expected_elementwise, 5.0, places=12)
+
+        # pre-fix behaviour was np.linalg.norm(a - b) == 4.0 (the largest singular value)
+        matrix_norm = np.linalg.norm(a - b, ord=2)
+        self.assertAlmostEqual(matrix_norm, 4.0, places=12)
+        self.assertNotAlmostEqual(matrix_norm, expected_elementwise, places=6)
+
+        self.assertAlmostEqual(pg.L2Norm().compute(a, b), expected_elementwise, places=12)
+
+    def test_L1Norm_2d_is_elementwise_not_max_column_sum(self):
+        """
+        Regression test for bug #13: on 2-D input the L1 norm must be the element-wise
+        Manhattan distance sum(|a-b|) (flattened vector norm), not the matrix 1-norm
+        (max column sum).
+        """
+        a = np.ones((2, 2))
+        b = np.zeros((2, 2))
+
+        # element-wise Manhattan distance: sum of four ones = 4.0
+        expected_elementwise = np.sum(np.abs(a - b))
+        self.assertAlmostEqual(expected_elementwise, 4.0, places=12)
+
+        # pre-fix behaviour was np.linalg.norm(a - b, ord=1) == 2.0 (max column sum)
+        matrix_norm = np.linalg.norm(a - b, ord=1)
+        self.assertAlmostEqual(matrix_norm, 2.0, places=12)
+        self.assertNotAlmostEqual(matrix_norm, expected_elementwise, places=6)
+
+        self.assertAlmostEqual(pg.L1Norm().compute(a, b), expected_elementwise, places=12)
+
+    def test_LInfNorm_2d_is_elementwise_not_max_row_sum(self):
+        """
+        Regression test for bug #13: on 2-D input the L-infinity norm must be the
+        element-wise Chebyshev distance max(|a-b|) (flattened vector norm), not the
+        matrix inf-norm (max row sum).
+        """
+        a = np.ones((2, 2))
+        b = np.zeros((2, 2))
+
+        # element-wise Chebyshev distance: max abs element = 1.0
+        expected_elementwise = np.max(np.abs(a - b))
+        self.assertAlmostEqual(expected_elementwise, 1.0, places=12)
+
+        # pre-fix behaviour was np.linalg.norm(a - b, ord=np.inf) == 2.0 (max row sum)
+        matrix_norm = np.linalg.norm(a - b, ord=np.inf)
+        self.assertAlmostEqual(matrix_norm, 2.0, places=12)
+        self.assertNotAlmostEqual(matrix_norm, expected_elementwise, places=6)
+
+        self.assertAlmostEqual(pg.LInfNorm().compute(a, b), expected_elementwise, places=12)
+
+    def test_norms_scalar_and_1d_unchanged(self):
+        """
+        Regression test for bug #13: scalar and 1-D inputs must be unaffected by the
+        flatten fix (1-D vector norm == matrix/vector norm of the same input).
+        """
+        a = np.array([1., 2., 3.])
+        b = np.array([4., 5., 6.])
+
+        self.assertAlmostEqual(pg.L2Norm().compute(a, b), np.linalg.norm(a - b, ord=2), places=12)
+        self.assertAlmostEqual(pg.L1Norm().compute(a, b), np.linalg.norm(a - b, ord=1), places=12)
+        self.assertAlmostEqual(pg.LInfNorm().compute(a, b), np.linalg.norm(a - b, ord=np.inf), places=12)
+
+        # scalars
+        self.assertAlmostEqual(pg.L2Norm().compute(3.0, 7.0), 4.0, places=12)
+        self.assertAlmostEqual(pg.L1Norm().compute(3.0, 7.0), 4.0, places=12)
+        self.assertAlmostEqual(pg.LInfNorm().compute(3.0, 7.0), 4.0, places=12)
+
+    def test_LNorm_passes_order_to_numpy_unchanged(self):
+        """
+        ``LNorm`` must use a fractional or negative infinite order as given. The order was truncated to an integer,
+        so ``LNorm(1.5)`` computed the L1 norm and ``LNorm(0.5)`` counted nonzero entries, and ``-inf`` became
+        ``+inf``.
+        """
+        a = np.array([1.0, 4.0, 2.0])
+        b = np.array([0.0, 1.0, 1.5])
+
+        for p in [1.5, 0.5, -np.inf, np.inf, 2]:
+            self.assertAlmostEqual(np.linalg.norm(a - b, ord=p), pg.LNorm(p).compute(a, b), places=12)
+
+    def test_shape_mismatch_raises_value_error(self):
+        """
+        Observed and modelled values of different shapes must raise ValueError. A length-1 observation was
+        broadcast against a longer modelled spectrum and gave a finite, meaningless loss.
+        """
+        for compute in [pg.PoissonLikelihood().compute, pg.MultinomialLikelihood().compute, pg.L2Norm().compute]:
+            with self.assertRaises(ValueError):
+                compute([5.], [1., 2., 3.])
+
+            with self.assertRaises(ValueError):
+                compute([1., 2., 3.], [5.])
+
     def test_poisson_likelihood(self):
         """
         Test the Poisson likelihood.
@@ -70,8 +171,8 @@ class NormTestCase(unittest.TestCase):
         """
         Test the Poisson likelihood.
         """
-        observed = pg.SFS2([[2, 3], [4, 5]])
-        modelled = pg.SFS2([[2.5, 3.5], [4.5, 5.5]])
+        observed = pg.TwoSFS([[2, 3], [4, 5]])
+        modelled = pg.TwoSFS([[2.5, 3.5], [4.5, 5.5]])
 
         expected_result = stats.poisson.logpmf(observed.data, modelled.data).sum()
         actual_result = pg.PoissonLikelihood().compute(observed, modelled)
@@ -104,3 +205,18 @@ class NormTestCase(unittest.TestCase):
         actual_result = pg.MultinomialLikelihood().compute(observed, [2, 3, 5])
 
         self.assertAlmostEqual(expected_result, actual_result, places=7)
+
+    def test_likelihood_sign_validation(self):
+        """
+        A negative modelled value within round-off is clamped to zero, a larger one raises ModelError, and a
+        negative observed count raises ValueError. All three gave NaN with a numpy warning, or a silent value.
+        """
+        for compute in [pg.PoissonLikelihood().compute, pg.MultinomialLikelihood().compute]:
+            with np.errstate(all='raise'):
+                self.assertEqual(compute([2, 3, 0], [2., 3., -1e-18]), compute([2, 3, 0], [2., 3., 0.]))
+
+            with self.assertRaises(pg.ModelError):
+                compute([2, 3, 0], [2., 3., -1e-3])
+
+            with self.assertRaises(ValueError):
+                compute([2, -3, 0], [2., 3., 1.])

@@ -7,7 +7,7 @@ import copy
 import logging
 from collections import defaultdict
 from .caching import cached_property
-from typing import Dict, Tuple, Callable, Any, List, Literal, Iterable, Optional
+from typing import Dict, Tuple, Callable, Any, List, Literal, Iterable, Optional, TYPE_CHECKING
 
 import dill
 import numpy as np
@@ -18,22 +18,65 @@ from tqdm import tqdm
 
 from .demography import Demography
 from .distributions import Coalescent
+from .errors import ModelError
 from .serialization import Serializable
+from .settings import Settings
 from .state_space import StateSpace
 from .utils import parallelize
 
+if TYPE_CHECKING:
+    from matplotlib import pyplot as plt
+    from .visualization import _CurveData
+
 logger = logging.getLogger('phasegen')
+
+#: Finite penalty substituted for a non-finite loss, large enough that any genuine loss wins the minimisation.
+_LOSS_PENALTY = 1e100
+
+#: The methods of `scipy.optimize.minimize` that honour bounds and need no analytic Jacobian.
+_BOUNDED_METHODS = ('nelder-mead', 'powell', 'l-bfgs-b', 'tnc', 'slsqp', 'cobyla', 'cobyqa', 'trust-constr')
 
 
 class Inference(Serializable):
-    """
+    r"""
     Gradient-based parameter inference with respect to a specified loss function,
     summary statistics, and a :class:`~phasegen.distributions.Coalescent` distribution.
-    The optimization is performed via the BFGS algorithm from scipy.
+    The optimization minimises the loss over the parameters :math:`\theta` (the entries of ``x0``,
+    constrained to ``bounds``),
+
+    .. math::
+        \hat{\theta} = \arg\min_{\theta} L\big(\mathrm{coal}(\theta),\, y\big),
+
+    where :math:`L` is the user-supplied ``loss`` function (any scalar objective, not necessarily a likelihood),
+    :math:`\mathrm{coal}(\theta)` the coalescent distribution returned by the ``coal`` callback, and :math:`y` the
+    observation. The minimisation is performed with a gradient-based scipy optimizer (L-BFGS-B by default),
+    restarted from several initial points.
+
+    The following example infers the population size of a single deme from an observed site-frequency spectrum.
+
+    ::
+
+        inf = pg.Inference(
+            bounds={'Ne': (0.1, 10)}, observation=pg.SFS([0, 8, 4, 3, 2, 0]),
+            coal=lambda Ne: pg.Coalescent(n=5, demography=pg.Demography(pop_sizes={'pop_0': Ne})),
+            loss=lambda coal, obs: pg.PoissonLikelihood().compute(obs.polymorphic, coal.sfs.mean.polymorphic)
+        )
+        inf.run()
     """
     #: Default options passed to the optimization algorithm.
     #: See https://docs.scipy.org/doc/scipy/reference/optimize.minimize-lbfgsb.html#optimize-minimize-lbfgsb
     default_opts = dict()
+
+    #: Static for backward compatibility with serialized objects that lack the attribute.
+    _entropy: int | None = None
+
+    #: Static for backward compatibility with serialized objects whose initial guess was not materialized.
+    _x0: Dict[str, float] | None = None
+
+    #: Whether this object is a bootstrap replicate created by :meth:`create_bootstrap`, whose run records a replicate
+    #: without an estimate with NaN parameters, as :meth:`bootstrap` does. Static for backward compatibility with
+    #: serialized objects that lack the attribute.
+    _is_bootstrap: bool = False
 
     def __init__(
             self,
@@ -52,24 +95,26 @@ class Inference(Serializable):
             cache: bool = True,
             opts: Dict = None,
             method_mle: str = 'L-BFGS-B'
-    ):
+    ) -> None:
         """
-        Initialize the class with the provided parameters.
+        Configure the inference.
 
         :param bounds: Dictionary of tuples representing the bounds for each
             parameter in x0.
         :param coal: Callback returning the configured coalescent distribution on which
-            the inference is based on. The parameters specified in ``x0`` and ``bounds``
+            the inference is based. The parameters specified in ``x0`` and ``bounds``
             are passed as keyword arguments.
-        :param loss: The loss function. This function must return a single numerical
+        :param loss: The loss function, evaluating :math:`L(\\theta)`. This function must return a single numerical
             value that is to be minimized. It receives as first argument the coalescent
-            distribution returned by the ``dist`` callback, and as second argument the
-            observation passed to the ``observation`` argument (if any).
+            distribution returned by the ``coal`` callback, and as second argument the
+            observation passed to the ``observation`` argument (if any). A typical choice aggregates a
+            :class:`~phasegen.norms.Norm` or :class:`~phasegen.norms.Likelihood` over observed and modelled
+            summary statistics (e.g. the :class:`~phasegen.norms.PoissonLikelihood` for site-frequency-spectrum counts).
         :param x0: Dictionary of initial numeric guesses for parameters to optimize.
         :param observation: The observed summary statistic the inference is based on.
-            This is passed as second argument to the ``loss`` function, and is only required
-            if you want to use automatic bootstrapping.
-        :param resample: Callback that is used to resample the observation. This is
+            This is passed as second argument to the ``loss`` function. It is required for
+            automatic bootstrapping.
+        :param resample: Callback that resamples the observation. This is
             required for automatic bootstrapping. The resample function must accept
             the observation as first argument and a random number generator as second
             argument, and must return a resampled observation.
@@ -77,31 +122,50 @@ class Inference(Serializable):
         :param n_bootstraps: Number of bootstrap replicates.
         :param do_bootstrap: Whether to perform automatic bootstrapping.
         :param parallelize: Whether to parallelize the computations across available CPU cores.
+            ``Settings.parallelize = False`` overrides it.
 
             .. note:: Parallelization across multiple CPU cores is not always faster than single-threaded execution.
                 It can also lead to hanging processes due to pickling issues, depending on how the
                 provided callback function is defined. For more scalable parallelization, consider using the
-                :meth:`create_run` and :meth:`create_bootstrap` methods to create new `Inference` objects that can be
+                :meth:`create_run` and :meth:`create_bootstrap` methods to create new :class:`Inference` objects that can be
                 run independently, and whose results can be merged subsequently.
         :param pbar: Whether to show a progress bar.
         :param seed: Seed for the random number generator.
-        :param cache: Whether to cache the state spaces across the given optimization iterations given
-            that they are equivalent. The can significantly speed up the optimization as we do not
-            require to recompute the complete state spaces for each iteration. This only leads to
-            performance improvements if optimizing demographic parameters such as population sizes
-            or migration rates.
+        :param cache: Whether to reuse the state spaces of :attr:`Coalescent.state_spaces
+            <phasegen.distributions.Coalescent.state_spaces>` across optimization iterations when they are equivalent,
+            so that only their rate matrices are rebuilt.
+            This speeds up optimizations over demographic parameters such as population sizes or migration rates.
         :param opts: Additional options passed to the optimization algorithm.
             See https://docs.scipy.org/doc/scipy/reference/optimize.minimize-lbfgsb.html#optimize-minimize-lbfgsb
-        :param method_mle: Method to use for optimization. See `scipy.optimize.minimize` for available methods.
+        :param method_mle: Method to use for optimization, a method of `scipy.optimize.minimize` that honours bounds
+            without an analytic Jacobian: Nelder-Mead, Powell, L-BFGS-B, TNC, SLSQP, COBYLA, COBYQA or trust-constr.
+        :raises ValueError: If a lower bound exceeds its upper bound, ``x0`` lies outside the bounds or does not specify
+            exactly the parameters in ``bounds``, ``method_mle`` is not one of the supported methods, or ``n_runs`` or
+            ``n_bootstraps`` is less than 1.
         """
         if do_bootstrap and (observation is None or resample is None):
             raise ValueError('Observation and resample arguments must be provided for automatic bootstrapping.')
 
+        if int(n_runs) < 1 or int(n_bootstraps) < 1:
+            raise ValueError(f'n_runs and n_bootstraps must be at least 1, got {n_runs} and {n_bootstraps}.')
+
+        reversed_bounds = [key for key, (lower, upper) in bounds.items() if not lower <= upper]
+        if reversed_bounds:
+            raise ValueError(f'The lower bound exceeds the upper bound for parameters {reversed_bounds}.')
+
+        try:
+            opt.show_options(solver='minimize', method=method_mle, disp=False)
+        except ValueError:
+            raise ValueError(f'Unknown optimization method {method_mle!r}, see scipy.optimize.minimize.') from None
+
+        if method_mle.lower() not in _BOUNDED_METHODS:
+            raise ValueError(
+                f'Optimization method {method_mle!r} does not honour bounds without an analytic Jacobian. Use one '
+                f'of {list(_BOUNDED_METHODS)}.'
+            )
+
         #: The logger instance
         self._logger = logger.getChild(self.__class__.__name__)
-
-        #: Dictionary of initial numeric guesses for parameters to optimize.
-        self._x0: Dict[str, float] | None = x0
 
         #: Dictionary of tuples representing the bounds for each parameter in x0.
         self.bounds: Dict[str, Tuple[float, float]] = bounds
@@ -136,18 +200,20 @@ class Inference(Serializable):
         #: Seed for the random number generator.
         self.seed: int | None = None if seed is None else int(seed)
 
+        #: Entropy of the random number generator, from which the generators of created runs and bootstraps derive.
+        self._entropy: int = np.random.SeedSequence(self.seed).entropy
+
         #: Random number generator.
-        self._rng: np.random.Generator = np.random.default_rng(seed)
+        self._rng: np.random.Generator = np.random.default_rng(np.random.SeedSequence(self._entropy))
+
+        #: Dictionary of initial numeric guesses for parameters to optimize, sampled within the bounds if not given.
+        self._x0: Dict[str, float] = self._sample() if x0 is None else x0
 
         #: Whether to cache the state spaces
         self.cache: bool = cache
 
-        if opts is None:
-            #: Optimization options
-            self.opts: Dict = self.default_opts
-        else:
-            #: Optimization options
-            self.opts: Dict = self.default_opts | opts
+        #: Optimization options
+        self.opts: Dict = self.default_opts | (opts or {})
 
         #: Optimization method
         self.method_mle: str = method_mle
@@ -161,9 +227,6 @@ class Inference(Serializable):
         #: Loss of the best optimization run
         self.loss_inferred: float | None = None
 
-        # losses for the `n_runs` independent optimization runs
-        self.loss_runs: np.ndarray = np.array([])
-
         #: Coalescent distribution of best run
         self.dist_inferred: Coalescent | None = None
 
@@ -173,7 +236,12 @@ class Inference(Serializable):
         #: Initial optimization runs
         self.runs: pd.DataFrame = self.bootstraps.copy()
 
-    def _check_x0_within_bounds(self):
+        # an explicit start point outside the box wastes its run, so reject it here rather than at ``create_run``.
+        # A sampled x0 is drawn inside the bounds by construction, so this only validates what the caller passed.
+        if self._x0 is not None:
+            self._check_x0_within_bounds()
+
+    def _check_x0_within_bounds(self) -> None:
         """
         Check if the initial parameters are within the specified bounds.
         """
@@ -187,12 +255,28 @@ class Inference(Serializable):
         """
         return list(self.bounds.keys())
 
-    @cached_property
+    @property
     def x0(self) -> Dict[str, float]:
         """
-        Initial parameters.
+        Initial parameters, sampled within the bounds when none were given.
         """
-        return self._x0 if self._x0 is not None else self._sample()
+        if self._x0 is None:
+            self._x0 = self._sample()
+
+        # x0 must cover every bounds parameter: `_sample()`-generated runs always span all bounds keys, so a partial
+        # x0 would make the first run optimize a lower-dimensional subspace than the rest (a ragged run set that
+        # crashes or mislabels params). Fail early rather than silently drop the missing dimensions.
+        missing = [key for key in self.bounds.keys() if key not in self._x0]
+        if missing:
+            raise ValueError(f"x0 must specify every parameter in bounds; missing: {missing}.")
+
+        unknown = [key for key in self._x0 if key not in self.bounds]
+        if unknown:
+            raise ValueError(f"x0 must specify only parameters in bounds, got unknown parameters {unknown}.")
+
+        # canonicalize to `bounds` key order so that every run's `result.x` (ordered by the passed x0's keys) lines
+        # up with `self.x0.keys()` and the DataFrame columns; `_sample()`-generated runs are already in bounds order
+        return {key: self._x0[key] for key in self.bounds.keys()}
 
     def __getstate__(self) -> dict:
         """
@@ -201,8 +285,12 @@ class Inference(Serializable):
         The ``coal``, ``loss`` and ``resample`` callables are serialized with ``dill`` (they are typically
         lambdas/closures that the standard pickler and ``copy.deepcopy`` cannot handle reliably, especially
         once they have themselves been restored from a previous ``dill`` round-trip). They are dumped
-        directly from ``self`` rather than deep-copied first; only the remaining state is deep-copied so the
-        live object is left untouched.
+        directly from ``self`` without a prior deep copy. Only the remaining state is deep-copied, so the live object
+        is left untouched.
+
+        The dump is recursive, so that the module-level names a callable references (the package alias, the
+        observation, helper functions) travel with it. A restored callable therefore evaluates against the
+        namespace it was written with, in a worker process started by ``spawn`` and in a later session alike.
 
         :return: State of the object.
         """
@@ -210,18 +298,26 @@ class Inference(Serializable):
 
         state = copy.deepcopy({key: value for key, value in self.__dict__.items() if key not in callables})
 
+        # a plain dict, as jsonpickle encodes the instance dictionary of an OptimizeResult as an additional item
+        if state['result'] is not None:
+            state['result'] = dict(state['result'])
+
         for key in callables:
-            state[f'{key}_pickled'] = dill.dumps(self.__dict__[key])
+            state[f'{key}_pickled'] = dill.dumps(self.__dict__[key], recurse=True)
 
         return state
 
-    def __setstate__(self, state: dict):
+    def __setstate__(self, state: dict) -> None:
         """
         Restore the state of the object from a serialized state.
 
         :param state: State of the object.
         """
         self.__dict__.update(state)
+
+        # jsonpickle restores the instance dictionary of an encoded OptimizeResult as an item named '__dict__'
+        if self.result is not None:
+            self.result = OptimizeResult({k: v for k, v in dict(self.result).items() if k != '__dict__'})
 
         for key in ['coal', 'loss', 'resample']:
             setattr(self, key, dill.loads(state[f'{key}_pickled']))
@@ -231,41 +327,39 @@ class Inference(Serializable):
         """
         Get the (possibly cached) coalescent distribution.
 
-        :param kwargs: Keyword arguments passed to the callback specified as ``dist`.
+        :param kwargs: Keyword arguments passed to the callback specified as ``coal``.
         :return: Coalescent distribution.
         """
         coal = self.coal(**kwargs)
 
-        # if state space caching is enabled, replace each state space by the cached one if it matches
+        # if state space caching is enabled, replace each state space by the cached one if it matches, set to the
+        # first epoch of this coalescent as a freshly built state space is
         if self.cache:
 
-            for name, cached in self._state_spaces.items():
+            try:
+                spaces = self._state_spaces
+            except ModelError:
+                # the model is invalid at x0, so the state spaces of this coalescent are the ones reused
+                spaces = coal.state_spaces
+
+                if Settings.cache:
+                    self.__dict__['_state_spaces'] = spaces
+
+            for name, cached in spaces.items():
                 if getattr(coal, name) == cached:
+                    cached.update_epoch(coal.demography.get_epoch(0))
                     coal.__dict__[name] = cached
 
         return coal
 
-    #: The coalescent state spaces to cache and reuse across loss evaluations, by attribute name on the coalescent.
-    _state_space_names: Tuple[str, ...] = (
-        'lineage_counting_state_space',
-        'block_counting_state_space',
-        'joint_block_counting_state_space',
-    )
-
     @cached_property
     def _state_spaces(self) -> Dict[str, StateSpace]:
         """
-        The coalescent state spaces (built once from ``x0``) that are reused across loss evaluations when caching is
-        enabled. Keyed by their attribute name on the coalescent. The (config-dependent) state and transition
-        structure is reused; only the (epoch-dependent) rate matrix is recomputed per evaluation.
+        The state spaces of the coalescent at ``x0``, reused across loss evaluations when caching is enabled. Only the
+        rate matrices are recomputed per evaluation. If the model is invalid at ``x0``, :meth:`get_coal` sets them to
+        those of the first coalescent it builds.
         """
-        coal = self.coal(**self.x0)
-
-        spaces = {}
-        for name in self._state_space_names:
-            spaces[name] = getattr(coal, name)
-
-        return spaces
+        return self.coal(**self.x0).state_spaces
 
     @staticmethod
     def _get_loss_function(
@@ -298,18 +392,26 @@ class Inference(Serializable):
             # convert the list of parameters back into a dictionary
             params_dict = dict(zip(x0.keys(), params))
 
-            # get the coalescent distribution
-            dist = get_dist(**params_dict)
+            # a model the parameters make invalid, such as a demography that cannot absorb on a bound of zero
+            # migration, counts as a non-finite loss, so the optimizer steps away rather than the run being lost
+            try:
+                loss = get_loss(get_dist(**params_dict), observation)
+            except (ModelError, np.linalg.LinAlgError) as e:
+                logger.warning('The model raised "%s" for %s; substituting a large finite penalty', e, params_dict)
+                loss = _LOSS_PENALTY
 
-            # return the value of the loss function
-            loss = get_loss(dist, observation)
+            # a non-finite loss (NaN or +/-inf) fed to the optimizer poisons its finite-difference gradient and
+            # steps it to invalid parameters; substitute a large finite penalty so it stays in a valid region
+            if np.ndim(loss) != 0 or not np.isfinite(loss):
+                logger.warning(f'Loss function returned invalid value "{loss}" for {params_dict}; '
+                               f'substituting a large finite penalty')
+                loss = _LOSS_PENALTY
+
+            loss = float(loss)
 
             data = params_dict | {'loss': loss}
 
             logger.debug(f"Current iteration: ({', '.join([f'{k}={v:.4f}' for k, v in data.items()])})")
-
-            if not np.isscalar(loss) or np.isnan(loss):
-                logger.warning(f'Loss function returned invalid value "{loss}" for {params_dict}')
 
             if pbar is not None:
                 pbar.update()
@@ -341,6 +443,7 @@ class Inference(Serializable):
         :param get_dist: Callback returning the configured coalescent distribution.
         :param get_loss: Loss function.
         :param opts: Additional options passed to the optimization algorithm.
+        :param method_mle: Method of `scipy.optimize.minimize` used for the optimization.
         :param logger: Logger.
         :return: Result of the optimization procedure.
         """
@@ -396,18 +499,25 @@ class Inference(Serializable):
             :param x0: Initial parameters.
             :return: Bootstrap sample.
             """
-            # perform the optimization
-            return self._optimize(
-                observation=observation,
-                x0=x0,
-                bounds=bounds,
-                show_pbar=False,
-                get_dist=get_dist,
-                get_loss=get_loss,
-                opts=opts,
-                method_mle=method_mle,
-                logger=logger
-            )
+            # isolate a single run's failure so one bad start point (an ill-conditioned demography, a raising
+            # model evaluation) does not abort the whole multi-start; the non-converged sentinel is dropped by the
+            # finite-loss filter in _run
+            try:
+                return self._optimize(
+                    observation=observation,
+                    x0=x0,
+                    bounds=bounds,
+                    show_pbar=False,
+                    get_dist=get_dist,
+                    get_loss=get_loss,
+                    opts=opts,
+                    method_mle=method_mle,
+                    logger=logger
+                )
+            except Exception as e:
+                logger.warning(f'Optimization run from x0={x0} failed and was skipped: {e}')
+                return OptimizeResult(x=np.array(list(x0.values()), dtype=float), fun=np.inf, success=False,
+                                      message=str(e))
 
         results = parallelize(
             func=run_sample,
@@ -425,8 +535,41 @@ class Inference(Serializable):
                 f'Only {n_success} out of {self.n_runs} optimization runs converged.'
             )
 
-        # get the best result
-        self.result = min(results, key=lambda result: result.fun)
+        # get the best result, ignoring runs whose loss is non-finite (a NaN loss would otherwise never be
+        # displaced by `min`, since both `x < NaN` and `NaN < x` are False)
+        finite = [result for result in results if np.isfinite(result.fun)]
+
+        # a bootstrap replicate whose optimization raised in every run has no estimate, as in bootstrap()
+        if not finite and self._is_bootstrap:
+            self._logger.warning('Bootstrap replicate failed and its parameters are NaN: %s', results[0].message)
+
+            self.result = OptimizeResult(x=np.full(len(self.x0), np.nan), fun=np.inf, success=False,
+                                         message=results[0].message)
+            self.params_inferred = dict(zip(self.x0.keys(), self.result.x))
+            self.loss_inferred = self.result.fun
+            self.dist_inferred = None
+            self.runs = pd.DataFrame(
+                [list(result.x) + [result.fun, str(result)] for result in results],
+                columns=list(self.x0.keys()) + ['loss', 'result']
+            )
+
+            return self.result
+
+        if not finite:
+            raise RuntimeError(
+                'None of the optimization runs returned a finite loss. The loss function raised or returned a '
+                'non-finite value at every evaluated point; the preceding warnings name the parameters and the '
+                'underlying error.'
+            )
+
+        self.result = min(finite, key=lambda result: result.fun)
+
+        # every evaluation hit the penalty of the loss wrapper, so the reported estimate is the start point
+        if self.result.fun >= _LOSS_PENALTY:
+            self._logger.warning(
+                'The loss was invalid at every evaluated point, so the reported parameters are the start point '
+                'rather than an estimate. The preceding warnings name the parameters and the underlying error.'
+            )
 
         # fetch optimized params
         self.params_inferred = dict(zip(list(self.x0.keys()), self.result.x))
@@ -454,26 +597,42 @@ class Inference(Serializable):
         Sample initial parameters by using the provided bounds.
 
         :return: Sampled parameters.
+        :raises ValueError: If a bound is not finite.
         """
+        unbounded = [key for key, bounds in self.bounds.items() if not np.all(np.isfinite(bounds))]
+
+        if unbounded:
+            raise ValueError(
+                f'Start points cannot be sampled for parameters with a non-finite bound: {unbounded}. Pass x0 and '
+                f'use a single run, or give finite bounds.'
+            )
+
         return {key: self._rng.uniform(*bounds) for key, bounds in self.bounds.items()}
 
-    def run(self):
+    def run(self) -> None:
         """
-        Execute the optimization.
+        Minimize the loss from ``n_runs`` start points, store the best estimate in :attr:`Inference.params_inferred
+        <phasegen.inference.Inference.params_inferred>` and every run in :attr:`Inference.runs
+        <phasegen.inference.Inference.runs>`, and bootstrap when ``do_bootstrap`` is set.
         """
         self._run()
 
         if self.do_bootstrap:
             self.bootstrap()
 
-    def bootstrap(self):
+    def bootstrap(self) -> None:
         """
-        Perform bootstrapping.
+        Perform bootstrapping to estimate parameter uncertainty. For each of :attr:`n_bootstraps` replicates the
+        observation :math:`y` is resampled to :math:`y^{*}` via the ``resample`` callback and the inference is rerun,
+        yielding :math:`\\hat{\\theta}^{*} = \\arg\\min_{\\theta} L(\\mathrm{coal}(\\theta),\\, y^{*})`. The spread of the
+        replicate estimates :math:`\\{\\hat{\\theta}^{*}_b\\}` estimates the sampling distribution of :math:`\\hat{\\theta}`.
+        Each replicate starts from :math:`\\hat{\\theta}`, and the replicates are stored in
+        :attr:`Inference.bootstraps <phasegen.inference.Inference.bootstraps>`.
 
-        :return: Bootstrap replicates.
+        :raises RuntimeError: If :meth:`Inference.run() <phasegen.inference.Inference.run>` has not been called.
         """
-        if self.params_inferred is None:
-            raise RuntimeError('The main optimization must be run first (call the `run` method).')
+        if not self.params_inferred:
+            raise RuntimeError('The main optimization must be run first (call run()).')
 
         x0 = self.params_inferred
         bounds = self.bounds
@@ -488,20 +647,23 @@ class Inference(Serializable):
             Run a single bootstrap sample.
 
             :param observation: Observation.
-            :return: Bootstrap sample.
+            :return: Bootstrap sample, with NaN parameters and an infinite loss if the optimization raised.
             """
-            # run the optimization
-            return Inference._optimize(
-                observation=observation,
-                x0=x0,
-                bounds=bounds,
-                show_pbar=False,
-                get_dist=get_dist,
-                get_loss=get_loss,
-                opts=opts,
-                method_mle=method_mle,
-                logger=logger
-            )
+            try:
+                return Inference._optimize(
+                    observation=observation,
+                    x0=x0,
+                    bounds=bounds,
+                    show_pbar=False,
+                    get_dist=get_dist,
+                    get_loss=get_loss,
+                    opts=opts,
+                    method_mle=method_mle,
+                    logger=logger
+                )
+            except Exception as e:
+                logger.warning('Bootstrap replicate failed and its parameters are NaN: %s', e)
+                return OptimizeResult(x=np.full(len(x0), np.nan), fun=np.inf, success=False, message=str(e))
 
         results = parallelize(
             func=run_sample,
@@ -511,6 +673,20 @@ class Inference(Serializable):
             desc='Bootstrapping',
             dtype=object
         )
+
+        # a replicate whose every evaluation hit the penalty of the loss wrapper has no estimate
+        n_penalty = 0
+        for result in results:
+            if _LOSS_PENALTY <= result.fun < np.inf:
+                self._invalidate(result)
+                n_penalty += 1
+
+        if n_penalty > 0:
+            self._logger.warning(
+                'The loss was invalid at every evaluated point of %d out of %d bootstrap replicates, so their '
+                'parameters are NaN. The preceding warnings name the parameters and the underlying error.',
+                n_penalty, self.n_bootstraps
+            )
 
         # count successful optimizations
         n_success = sum([result.success for result in results])
@@ -536,6 +712,76 @@ class Inference(Serializable):
             )
         )
 
+    @staticmethod
+    def _invalidate(result: OptimizeResult) -> OptimizeResult:
+        """
+        Mark a result whose loss was invalid at every evaluated point as not converged, with NaN parameters.
+
+        :param result: Result of the optimization procedure, modified in place.
+        :return: The same result.
+        """
+        result.success = False
+        result.message = 'The loss was invalid at every evaluated point.'
+        result.x = np.full(len(result.x), np.nan)
+
+        return result
+
+    @property
+    def _bootstrap_values(self) -> np.ndarray:
+        """
+        Bootstrapped parameter values, of shape ``(n_bootstraps, n_params)``, with columns in the order of
+        :attr:`param_names`.
+        """
+        return self.bootstraps[self.param_names].to_numpy(dtype=float)
+
+    @property
+    def _bootstrap_demographies(self) -> List[Demography]:
+        """
+        The demography of each bootstrap replicate with an estimate.
+
+        :return: One demography per row of :attr:`_bootstrap_values` without NaN.
+        """
+        return [
+            self.get_coal(**dict(zip(self.param_names, row))).demography
+            for row in self._bootstrap_values if not np.isnan(row).any()
+        ]
+
+    def _plot_demography_data(
+            self,
+            t: np.ndarray = None,
+            kind: Literal['all', 'pop_sizes', 'migration'] = 'all',
+            include_bootstraps: bool = True
+    ) -> Tuple['_CurveData', List['_CurveData']]:
+        """
+        Trajectories of the inferred demography and of the demography of each bootstrap replicate, as drawn by
+        :meth:`plot_demography`, :meth:`plot_pop_sizes` and :meth:`plot_migration`.
+
+        :param t: Times at which to evaluate the trajectories. By default, :attr:`Settings.plot_inference_n_grid`
+            points up to the :attr:`Settings.plot_inference_quantile` quantile of the inferred tree height, or up to
+            the end time of a windowed coalescent.
+        :param kind: The trajectories to include, ``'pop_sizes'``, ``'migration'`` or ``'all'``.
+        :param include_bootstraps: Whether to include the bootstrap replicates.
+        :return: The inferred trajectories, and the trajectories of each bootstrap replicate.
+        :raises RuntimeError: If the main optimization has not been run.
+        """
+        if self.dist_inferred is None:
+            raise RuntimeError('The main optimization must be run first (call run()).')
+
+        if t is None:
+            tree_height = self.dist_inferred.tree_height
+
+            # a windowed coalescent has no tree-height quantile, so its end time bounds the plot
+            if tree_height._windowed:
+                t_end = tree_height.t_max
+            else:
+                t_end = tree_height.quantile(Settings.plot_inference_quantile)
+
+            t = np.linspace(0, t_end, Settings.plot_inference_n_grid)
+
+        bootstraps = self._bootstrap_demographies if include_bootstraps else []
+
+        return self.dist_inferred.demography._plot_data(t, kind), [d._plot_data(t, kind) for d in bootstraps]
+
     def plot_bootstraps(
             self,
             title: str | List[str] = None,
@@ -557,21 +803,26 @@ class Inference(Serializable):
         :param ax: Axes or list of axes.
         :param kwargs: Additional keyword arguments passed to the pandas plot function.
         :return: Axes or list of axes.
+        :raises RuntimeError: If no bootstraps are available, or if ``kind`` is ``'kde'`` and a parameter has fewer
+            than two finite replicates.
         """
         from .visualization import Visualization
-        import matplotlib.pyplot as plt
 
         if kwargs is None:
             kwargs = {}
 
-        if self.bootstraps is None:
+        if self.bootstraps.empty:
             raise RuntimeError('No bootstraps available.')
+
+        if kind == 'kde':
+            n_finite = np.isfinite(self.bootstraps[self.param_names].to_numpy(dtype=float)).sum(axis=0)
+            few = [name for name, k in zip(self.param_names, n_finite) if k < 2]
+            if few:
+                raise RuntimeError(f"A kernel density estimate needs at least two finite replicates per parameter, "
+                                   f"which {', '.join(few)} lack.")
 
         if kind == 'hist':
             kwargs = {'bins': 20} | kwargs
-
-        # avoid empty plots
-        # plt.close()
 
         ax = self.bootstraps[self.param_names].plot(
             ax=ax,
@@ -582,11 +833,9 @@ class Inference(Serializable):
         )
 
         # make layout tight
-        plt.tight_layout()
+        np.ravel(ax)[0].figure.tight_layout()
 
-        Visualization.show_and_save(show=show, file=file)
-
-        return ax
+        return Visualization.show_and_save(ax, show=show, file=file)
 
     def plot_demography(
             self,
@@ -595,19 +844,21 @@ class Inference(Serializable):
             show: bool = True,
             file: str = None,
             kwargs: dict = None,
-            ax: List['plt.Axes'] | None = None
-    ) -> List['plt.Axes']:
+            ax: Optional['plt.Axes'] = None
+    ) -> 'plt.Axes':
         """
         Plot inferred demography.
 
-        :param t: Time points. By default, 100 time points are used that extend
-            from 0 to the 99th percentile of the tree height distribution.
+        :param t: Time points. By default, :attr:`Settings.plot_inference_n_grid
+            <phasegen.settings.Settings.plot_inference_n_grid>` points up to the
+            :attr:`Settings.plot_inference_quantile <phasegen.settings.Settings.plot_inference_quantile>` quantile of
+            the inferred tree height, or up to the end time of a windowed coalescent.
         :param include_bootstraps: Whether to include bootstraps.
         :param show: Whether to show the plot.
         :param file: File to save the plot.
         :param kwargs: Additional keyword arguments passed to the plot function.
-        :param ax: List of axes to plot on.
-        :return: List of axes.
+        :param ax: Axes to plot on.
+        :return: Axes.
         """
         return self._plot_demography(
             t=t,
@@ -631,13 +882,15 @@ class Inference(Serializable):
         """
         Plot inferred population sizes.
 
-        :param t: Time points. By default, 100 time points are used that extend
-            from 0 to the 99th percentile of the tree height distribution.
+        :param t: Time points. By default, :attr:`Settings.plot_inference_n_grid
+            <phasegen.settings.Settings.plot_inference_n_grid>` points up to the
+            :attr:`Settings.plot_inference_quantile <phasegen.settings.Settings.plot_inference_quantile>` quantile of
+            the inferred tree height, or up to the end time of a windowed coalescent.
         :param show: Whether to show the plot.
         :param include_bootstraps: Whether to include bootstraps.
         :param file: File to save the plot.
         :param kwargs: Additional keyword arguments passed to the plot function.
-        :param ax: List of axes to plot on.
+        :param ax: Axes to plot on.
         :return: Axes.
         """
         return self._plot_demography(
@@ -647,7 +900,7 @@ class Inference(Serializable):
             file=file,
             kwargs=kwargs,
             ax=ax,
-            kind='pop_size'
+            kind='pop_sizes'
         )
 
     def plot_migration(
@@ -662,13 +915,15 @@ class Inference(Serializable):
         """
         Plot inferred migration rates.
 
-        :param t: Time points. By default, 100 time points are used that extend
-            from 0 to the 99th percentile of the tree height distribution.
+        :param t: Time points. By default, :attr:`Settings.plot_inference_n_grid
+            <phasegen.settings.Settings.plot_inference_n_grid>` points up to the
+            :attr:`Settings.plot_inference_quantile <phasegen.settings.Settings.plot_inference_quantile>` quantile of
+            the inferred tree height, or up to the end time of a windowed coalescent.
         :param show: Whether to show the plot.
         :param file: File to save the plot.
         :param include_bootstraps: Whether to include bootstraps.
         :param kwargs: Additional keyword arguments passed to the plot function.
-        :param ax: List of axes to plot on.
+        :param ax: Axes to plot on.
         :return: Axes.
         """
         return self._plot_demography(
@@ -687,18 +942,18 @@ class Inference(Serializable):
             show: bool,
             include_bootstraps: bool,
             ax: Optional['plt.Axes'],
-            kind: Literal['pop_size', 'migration', 'all'],
+            kind: Literal['pop_sizes', 'migration', 'all'],
             file: str = None,
             kwargs: dict = None
     ) -> 'plt.Axes':
         """
-        Plot inferred population sizes, migration rates, or both.
+        Plot the trajectories of :meth:`_plot_demography_data`.
 
-        :param t: Time points. By default, 100 time points are used that extend
-            from 0 to the 99th percentile of the tree height distribution.
+        :param t: Time points, ``None`` for the default of :meth:`_plot_demography_data`.
         :param show: Whether to show the plot.
         :param include_bootstraps: Whether to include bootstraps.
         :param ax: Axes to plot on.
+        :param kind: The trajectories to include.
         :param file: File to save the plot.
         :param kwargs: Additional keyword arguments passed to the plot function.
         :return: Axes.
@@ -709,81 +964,89 @@ class Inference(Serializable):
         if kwargs is None:
             kwargs = {}
 
-        if self.dist_inferred is None:
-            raise RuntimeError('The main optimization must be run first (call the `run` method).')
-
-        if t is None:
-            t = np.linspace(0, self.dist_inferred.tree_height.quantile(0.99), 100)
-
-        # mapping of kind to plot function
-        funcs = dict(
-            all='plot',
-            pop_size='plot_pop_sizes',
-            migration='plot_migration'
-        )
+        inferred, bootstraps = self._plot_demography_data(t, kind, include_bootstraps)
 
         if ax is None:
-            plt.close()
-            ax = plt.gca()
+            ax = plt.subplots()[1]
 
-        def plot(d: Demography, kwargs2: dict) -> 'plt.Axes':
-            """
-            Plot inferred demography.
+        Visualization.plot_rates(ax=ax, data=inferred, show=False, kwargs=kwargs)
 
-            :param d: Demography.
-            :param kwargs2: Additional keyword arguments passed to the plot function.
-            :return: Axes.
-            """
-            getattr(d, funcs[kind])(
-                t=t,
-                ax=ax,
-                show=False,
-                kwargs=kwargs2 | kwargs
-            )
+        # each bootstrap trajectory in the colour of its series, without a legend entry of its own
+        colors = [line.get_color() for line in ax.lines[-len(inferred.labels):]]
 
-            return ax
+        for data in bootstraps:
+            for y, color in zip(data.y, colors):
+                style = {'color': color, 'alpha': 0.3} | kwargs
+                ax.plot(data.x, y, drawstyle='steps-post', label='_nolegend_', **style)
 
-        plot(self.dist_inferred.demography, {'color': 'C0'})
+        return Visualization.show_and_save(ax, show=show, file=file)
 
-        # plot bootstrapped demography
-        if include_bootstraps:
-            for i, row in self.bootstraps[self.param_names].iterrows():
-                plot(self.get_coal(**row.to_dict()).demography, {'color': 'C0', 'alpha': 0.3})
-
-        Visualization.show_and_save(show=show, file=file)
-
-        return ax
-
-    def create_run(self, x0: Dict[str, float] = None) -> 'Inference':
+    def _spawn(self, index: int | None) -> 'Inference':
         """
-        Create a new Inference object which can be run independently. This is useful when parallelizing runs on a
-        cluster. You can add performed runs by using the `add_run` method.
+        Copy this Inference object with an independent random number generator.
 
-        :param x0: Initial parameters.
+        :param index: Index of the copy. Copies with distinct indices have independent generators that are
+            reproducible from :attr:`seed`, or from the entropy drawn at construction if no seed was given. ``None``
+            draws fresh entropy.
         :return: Inference object.
         """
         other = copy.deepcopy(self)
+        other.__dict__.pop('_state_spaces', None)
+        other.__dict__.pop('_is_bootstrap', None)
 
-        other._x0 = x0
-        other._check_x0_within_bounds()
+        # the spawned object performs a single optimization whose result is merged back with ``add_run``, which reads
+        # only the main result; bootstrapping it would repeat ``n_bootstraps`` fits per job and discard every one
+        other.do_bootstrap = False
 
-        # generate a new random seed if seeded
-        if other.seed is not None:
-            other.seed = self._rng.integers(0, 2 ** 32 - 1)
-            other._rng = np.random.default_rng(other.seed)
+        # the copy starts unfitted, so merging it back before it has run is rejected
+        other.result = None
+        other.params_inferred = {}
+        other.loss_inferred = None
+        other.dist_inferred = None
+        other.bootstraps = self.bootstraps.iloc[0:0].copy()
+        other.runs = self.runs.iloc[0:0].copy()
+
+        if index is None:
+            sequence = np.random.SeedSequence()
+        else:
+            # the entropy of a seeded generator is its seed
+            entropy = self.seed if self._entropy is None else self._entropy
+            sequence = np.random.SeedSequence(entropy, spawn_key=(int(index),))
+
+        other.seed = int(sequence.generate_state(1)[0])
+        other._entropy = other.seed
+        other._rng = np.random.default_rng(np.random.SeedSequence(other._entropy))
 
         return other
 
-    def add_run(self, inference: 'Inference'):
+    def create_run(self, x0: Dict[str, float] = None, index: int = None) -> 'Inference':
         """
-        Merge the main optimization result from another Inference object into the current Inference object. We only
-        store the result of the run with the lowest loss.
+        Create a new Inference object which performs a single optimization run independently. This is useful when
+        parallelizing runs on a cluster. You can add performed runs by using the :meth:`add_run` method.
+
+        :param x0: Initial parameters. By default, they are sampled within the bounds.
+        :param index: Index of the run, such as a cluster job index. Runs with distinct indices sample independent
+            start points, reproducibly from :attr:`seed` and across reloads of a saved Inference object. By default,
+            each call draws fresh entropy.
+        :return: Inference object.
+        """
+        other = self._spawn(index)
+        other._x0 = other._sample() if x0 is None else x0
+        other._check_x0_within_bounds()
+        other.n_runs = 1
+
+        return other
+
+    def add_run(self, inference: 'Inference') -> None:
+        """
+        Append the run of another Inference object to :attr:`Inference.runs <phasegen.inference.Inference.runs>`,
+        and adopt its estimate when its loss is lower than the current one.
 
         :param inference: Inference object.
-        :raises RuntimeError: If the main optimization has not been run yet.
+        :raises RuntimeError: If ``inference`` has not been run.
         """
         if inference.loss_inferred is None:
-            raise RuntimeError('The provided Inference object must be run first (call the `run` method).')
+            raise RuntimeError('The provided Inference object must be run first (call run()).')
 
         # add the loss of the new run to the list of losses
         self.runs.loc[len(self.runs)] = (
@@ -797,49 +1060,85 @@ class Inference(Serializable):
             self.loss_inferred = inference.loss_inferred
             self.dist_inferred = inference.dist_inferred
 
-    def add_runs(self, inferences: Iterable['Inference']):
+    def add_runs(self, inferences: Iterable['Inference']) -> None:
         """
-        Merge the main optimization results from an iterable of Inference objects with the current Inference object. We
-        only store the result of the run with the lowest loss.
+        Merge the main optimization results from an iterable of Inference objects by calling
+        :meth:`Inference.add_run() <phasegen.inference.Inference.add_run>` on each.
 
         :param inferences: Iterable of Inference objects.
         """
         for inference in inferences:
             self.add_run(inference)
 
-    def create_bootstrap(self, n_runs: int = 1) -> 'Inference':
+    def create_bootstrap(self, n_runs: int = 1, index: int = None) -> 'Inference':
         """
-        Resample the observation and return a new Inference object with the resampled observation.
+        Resample the observation and return a new Inference object with the resampled observation, whose optimization
+        starts from the estimate :attr:`params_inferred` as in :meth:`bootstrap`.
         This is useful when parallelizing bootstraps on a cluster. You can add performed bootstraps
-        by using the `add_bootstrap` method.
+        by using the :meth:`add_bootstrap` method. A replicate whose optimization raises in every run is recorded with
+        NaN parameters and an infinite loss, as in :meth:`bootstrap`.
 
-        :return: Resampled observation.
+        :param n_runs: Number of optimization runs. The first run starts from the estimate and any further runs from
+            start points sampled within the bounds.
+        :param index: Index of the bootstrap replicate, such as a cluster job index. Replicates with distinct indices
+            resample independently, reproducibly from :attr:`seed` and across reloads of a saved Inference object. By
+            default, each call draws fresh entropy.
+        :return: Inference object with the resampled observation.
+        :raises RuntimeError: If :meth:`Inference.run() <phasegen.inference.Inference.run>` has not been called.
+        :raises ValueError: If ``n_runs`` is less than 1.
         """
-        other = copy.deepcopy(self)
+        if not self.params_inferred:
+            raise RuntimeError('The main optimization must be run first (call run()).')
 
-        other.observation = self.resample(other.observation, self._rng)
+        if int(n_runs) < 1:
+            raise ValueError(f'n_runs must be at least 1, got {n_runs}.')
+
+        other = self._spawn(index)
+        other._x0 = dict(self.params_inferred)
+        other.observation = self.resample(self.observation, other._rng)
         other.n_runs = n_runs
+        other._is_bootstrap = True
 
         return other
 
-    def add_bootstrap(self, bootstrap: 'Inference'):
+    def add_bootstrap(self, bootstrap: 'Inference' | Dict[str, float]) -> None:
         """
         Add main optimization result from another Inference object as a bootstrap to the current Inference object.
 
-        :param bootstrap: Either an Inference object or a dictionary of inferred parameters.
-        :raises RuntimeError: If the main optimization has not been run yet.
+        :param bootstrap: Either an Inference object or a dictionary of inferred parameters. A dictionary is added
+            with a missing loss and result. An Inference object whose loss was invalid at every evaluated point, or
+            whose optimization raised in every run, is added with NaN parameters, as in :meth:`bootstrap`.
+        :raises RuntimeError: If the provided Inference object has not been run yet.
+        :raises ValueError: If the dictionary keys differ from the parameter names.
         """
-        if bootstrap.loss_inferred is None:
-            raise RuntimeError('The provided Inference object must be run first (call the `run` method).')
+        if isinstance(bootstrap, Inference):
+            if bootstrap.loss_inferred is None:
+                raise RuntimeError('The provided Inference object must be run first (call run()).')
 
-        # add bootstrap parameters
-        self.bootstraps.loc[len(self.bootstraps)] = (
-                bootstrap.params_inferred | dict(loss=bootstrap.loss_inferred, result=str(bootstrap.result))
-        )
+            params, result = bootstrap.params_inferred, bootstrap.result
 
-    def add_bootstraps(self, data: Iterable['Inference'] | Iterable[Dict[str, float]]):
+            # a replicate whose every evaluation hit the penalty of the loss wrapper has no estimate, as in bootstrap()
+            if _LOSS_PENALTY <= bootstrap.loss_inferred < np.inf:
+                self._logger.warning(
+                    'The loss of the bootstrap replicate was invalid at every evaluated point, so its parameters '
+                    'are NaN.'
+                )
+                params = dict.fromkeys(params, np.nan)
+                result = self._invalidate(OptimizeResult(result))
+
+            row = params | dict(loss=bootstrap.loss_inferred, result=str(result))
+        else:
+            if set(bootstrap.keys()) != set(self.param_names):
+                raise ValueError(f'Bootstrap parameters {list(bootstrap.keys())} must match {self.param_names}.')
+
+            row = dict(bootstrap) | dict(loss=np.nan, result=None)
+
+        self.bootstraps.loc[len(self.bootstraps)] = row
+
+    def add_bootstraps(self, data: Iterable['Inference'] | Iterable[Dict[str, float]]) -> None:
         """
-        Add bootstraps from an iterable of Inference objects.
+        Add bootstraps from an iterable of Inference objects or dictionaries of inferred parameters by calling
+        :meth:`Inference.add_bootstrap() <phasegen.inference.Inference.add_bootstrap>` on each.
 
         :param data: Iterable of Inference objects or dictionaries of inferred parameters.
         """
@@ -848,16 +1147,32 @@ class Inference(Serializable):
 
 
 class WeightedLoss:  # pragma: no cover
-    """
-    Weigh components of the loss function based on the average of the observed and modelled values.
+    r"""
+    Combination of loss components normalized by their running averages. For components :math:`c` with values
+    :math:`L_c`, weights :math:`w_c` and running averages :math:`\bar{L}_c` over the most recent values passed to
+    :meth:`WeightedLoss.compute() <phasegen.inference.WeightedLoss.compute>`, the combined loss is
+
+    .. math::
+
+        \sum_c L_c\, \frac{w_c / \bar{L}_c}{\sum_{c'} w_{c'} / \bar{L}_{c'}},
+
+    so that each component contributes in proportion to its weight irrespective of its scale.
+
+    The following example combines two loss components, weighting the second twice as much as the first.
+
+    ::
+
+        loss = pg.inference.WeightedLoss({'sfs': 1, 'fst': 2})
+
+        total = loss.compute({'sfs': 0.3, 'fst': 0.01})
     """
 
-    def __init__(self, weights: Dict[str, float], n_max: int | None = 100):
+    def __init__(self, weights: Dict[str, float], n_max: int | None = 100) -> None:
         """
         Initialize the class with the provided parameters.
 
-        :param weights: Dictionary of weights for each component of the loss function.
-        :param n_max: Maximum recent values to consider for the average. Use `None` to consider all values.
+        :param weights: Dictionary of weights :math:`w_c` for each component of the loss function.
+        :param n_max: Maximum number of recent values in the running averages. Use ``None`` to consider all values.
         """
         #: Weights for each component of the loss function.
         self.weights: Dict[str, float] = weights
@@ -875,9 +1190,10 @@ class WeightedLoss:  # pragma: no cover
         self._logger = logger.getChild(self.__class__.__name__)
 
     @property
-    def average(self):
-        """
-        Average of the cached values.
+    def average(self) -> Dict[str, float]:
+        r"""
+        Running average :math:`\bar{L}_c` of each loss component over its most recent ``n_max`` values, keyed by
+        component.
         """
         return {key: np.mean(self.cache[key][-self.n_max:]) for key in self.keys}
 

@@ -2,10 +2,10 @@
 Test StateSpace class.
 """
 import itertools
-import shutil
-import sys
 from collections import defaultdict
 from testing import TestCase
+from testing import state_space_old
+from testing.state_space_parity import build_old, old_ordering
 
 import numpy as np
 import pytest
@@ -35,12 +35,72 @@ class StateSpaceTestCase(TestCase):
                                                   [0., 0., -1., 1.],
                                                   [0., 0., 0., -0.]]))
 
+    def test_rate_matrix_first_still_records_time_and_primes_states(self):
+        """Materialising ``S`` before ``states`` must still record the construction time and prime ``states`` -- the
+        bookkeeping the ``states`` cached_property otherwise owns, so the large-space warning is not skipped and
+        ``time`` is recorded. Regression for the numba ``_get_rate_matrix`` bypassing the cached_property."""
+        s = pg.LineageCountingStateSpace(
+            lineage_config=pg.LineageConfig(n=6),
+            model=pg.StandardCoalescent(),
+            epoch=pg.Epoch()
+        )
+
+        if not s._use_numba():
+            self.skipTest("the bookkeeping bypass only affects the numba construction path")
+
+        assert s.time is None
+        _ = s.S  # materialise the rate matrix before ever touching .states
+
+        assert s.time is not None and s.time >= 0
+        assert 'states' in s.__dict__  # states primed, so its cached_property will not rebuild
+
+    def test_numba_python_equivalence_two_locus_lineage_counting(self):
+        """The numba kernel (kind 3) builds the same two-locus lineage-counting state space -- states and rate matrix
+        -- as the pure-Python construction, across the standard / Beta / Dirac models and single- and multi-population
+        configurations (with recombination, and migration in the multi-population case)."""
+        cases = [
+            (pg.StandardCoalescent(), pg.LineageConfig(n=4), pg.Epoch()),
+            (pg.BetaCoalescent(alpha=1.5), pg.LineageConfig(n=4), pg.Epoch()),
+            (pg.DiracCoalescent(psi=0.5, c=10), pg.LineageConfig(n=4), pg.Epoch()),
+            (pg.StandardCoalescent(), pg.LineageConfig(n={'pop_0': 2, 'pop_1': 2}),
+             pg.Epoch(migration_rates={('pop_0', 'pop_1'): 0.5, ('pop_1', 'pop_0'): 0.5},
+                      pop_sizes={'pop_0': 1.0, 'pop_1': 1.5})),
+        ]
+
+        prev = pg.Settings.use_numba
+        try:
+            for model, lineage_config, epoch in cases:
+                def build(use_numba):
+                    pg.Settings.use_numba = use_numba
+                    ss = pg.LineageCountingStateSpace(
+                        lineage_config=lineage_config,
+                        locus_config=pg.LocusConfig(n=2, recombination_rate=1.0),
+                        model=model, epoch=epoch,
+                    )
+
+                    # the construction path is fixed when the states are first built
+                    _ = ss.S
+                    self.assertEqual(ss._use_numba(), use_numba)
+
+                    return ss
+
+                numba_ss, python_ss = build(True), build(False)
+                self.assertEqual(numba_ss.k, python_ss.k)
+
+                # reorder the numba states to match the python ones by (lineages, linked), then compare the generator
+                order = [np.where(((python_ss.lineages == numba_ss.lineages[i])
+                                   & (python_ss.linked == numba_ss.linked[i])).all(axis=(1, 2, 3)))[0][0]
+                         for i in range(numba_ss.k)]
+                testing.assert_array_almost_equal(numba_ss.S, python_ss.S[order][:, order], decimal=12)
+        finally:
+            pg.Settings.use_numba = prev
+
     @staticmethod
     def test_n_2_2_demes():
         """
         Test n = 2, 2 demes.
         """
-        s = pg.state_space_old.LineageCountingStateSpace(
+        s = state_space_old.LineageCountingStateSpace(
             lineage_config=pg.LineageConfig(n=2),
             model=pg.StandardCoalescent(),
             epoch=pg.Epoch(
@@ -59,7 +119,7 @@ class StateSpaceTestCase(TestCase):
         """
         Test two loci, n = 2.
         """
-        s = pg.state_space_old.LineageCountingStateSpace(
+        s = state_space_old.LineageCountingStateSpace(
             lineage_config=pg.LineageConfig(n=2),
             locus_config=pg.LocusConfig(n=2, recombination_rate=1.11)
         )
@@ -83,7 +143,7 @@ class StateSpaceTestCase(TestCase):
         """
         Test two loci, n = 3.
         """
-        s = pg.state_space_old.LineageCountingStateSpace(
+        s = state_space_old.LineageCountingStateSpace(
             lineage_config=pg.LineageConfig(n=3),
             locus_config=pg.LocusConfig(n=2, recombination_rate=1.11)
         )
@@ -116,31 +176,71 @@ class StateSpaceTestCase(TestCase):
 
         np.testing.assert_array_almost_equal(s.S, expected)
 
-    @pytest.mark.skip(reason="recombination not implemented for block-counting state space")
-    def test_block_counting_state_space_two_loci_one_deme_n_2(self):
+    def test_two_locus_block_counting_state_space_generator(self):
         """
-        Test two loci, one deme, two lineages.
+        Two loci, one deme: the generator of the two-locus block-counting state space is well formed for every
+        sample size, with one block per descendant vector ``(a_0, a_1)`` other than ``(0, 0)``.
         """
-        s = pg.BlockCountingStateSpace(
-            lineage_config=pg.LineageConfig(n=2),
-            locus_config=pg.LocusConfig(n=2)
-        )
+        for n in [2, 3, 4]:
+            with self.subTest(n=n):
+                s = pg.TwoLocusBlockCountingStateSpace(
+                    lineage_config=pg.LineageConfig(n=n),
+                    locus_config=pg.LocusConfig(n=2, recombination_rate=1.11)
+                )
 
-        _ = s.S
+                self.assertEqual((n + 1) ** 2 - 1, s.n_blocks)
 
-    @pytest.mark.skip(reason="recombination not implemented for block-counting state space")
-    def test_block_counting_state_space_two_loci_one_deme_n_3(self):
+                # a generator has non-negative off-diagonal rates and rows summing to zero
+                off_diagonal = s.S - np.diag(np.diag(s.S))
+                self.assertTrue((off_diagonal >= 0).all())
+                testing.assert_allclose(s.S.sum(axis=1), 0, atol=1e-12)
+
+                # exactly one initial state, and the process absorbs
+                self.assertAlmostEqual(1, s.alpha.sum())
+                self.assertEqual(1, (s.alpha > 0).sum())
+                self.assertTrue(any(s._is_absorbing(state) for state in s.states))
+
+    def test_two_locus_block_counting_state_space_rejects_multiple_populations(self):
         """
-        Test two loci, one deme, two lineages.
+        Two loci, two demes: the two-locus block-counting state space carries the locus in the role of the
+        population, so migration between demes has no representation and is rejected.
         """
-        s = pg.BlockCountingStateSpace(
+        with self.assertRaises(NotImplementedError):
+            pg.TwoLocusBlockCountingStateSpace(
+                lineage_config=pg.LineageConfig([2, 2]),
+                locus_config=pg.LocusConfig(n=2),
+                model=pg.StandardCoalescent(),
+                epoch=pg.Epoch(pop_sizes={'pop_0': 1, 'pop_1': 1})
+            )
+
+    def test_state_space_rejects_more_unlinked_lineages_than_lineages(self):
+        """
+        Neither configuration can check this alone: the locus configuration does not know the sample size. Built
+        directly with more unlinked lineages than there are lineages, a state space has no initial state, which
+        showed up only once the lazy ``alpha`` was touched, as all NaN or as a silently oversized space.
+        """
+        for cls in (pg.LineageCountingStateSpace, pg.TwoLocusBlockCountingStateSpace):
+            with self.subTest(state_space=cls.__name__):
+                with self.assertRaises(ValueError):
+                    cls(lineage_config=pg.LineageConfig(n=2), locus_config=pg.LocusConfig(n=2, n_unlinked=3))
+
+        # a valid count still builds, with a proper initial distribution
+        s = pg.LineageCountingStateSpace(
             lineage_config=pg.LineageConfig(n=3),
-            locus_config=pg.LocusConfig(n=2, recombination_rate=1.11)
+            locus_config=pg.LocusConfig(n=2, n_unlinked=2)
         )
+        self.assertAlmostEqual(1, float(np.asarray(s.alpha).sum()))
 
-        _ = s.S
-
-        pass
+    def test_block_counting_state_space_rejects_two_loci(self):
+        """
+        The single-locus block-counting state space carries no locus dimension; two loci are served by
+        :class:`~phasegen.state_space.TwoLocusBlockCountingStateSpace`.
+        """
+        with self.assertRaises(NotImplementedError):
+            pg.BlockCountingStateSpace(
+                lineage_config=pg.LineageConfig(n=2),
+                locus_config=pg.LocusConfig(n=2)
+            )
 
     @staticmethod
     def test_lineage_counting_state_space_two_loci_one_deme_n_4():
@@ -148,20 +248,6 @@ class StateSpaceTestCase(TestCase):
         Test two loci, one deme, four lineages.
         """
         s = pg.LineageCountingStateSpace(
-            lineage_config=pg.LineageConfig(n=4),
-            locus_config=pg.LocusConfig(n=2)
-        )
-
-        _ = s.S
-
-        pass
-
-    @pytest.mark.skip(reason="recombination not implemented for block-counting state space")
-    def test_block_counting_state_space_two_loci_one_deme_n_4(self):
-        """
-        Test two loci, one deme, four lineages.
-        """
-        s = pg.BlockCountingStateSpace(
             lineage_config=pg.LineageConfig(n=4),
             locus_config=pg.LocusConfig(n=2)
         )
@@ -181,22 +267,6 @@ class StateSpaceTestCase(TestCase):
             model=pg.StandardCoalescent(),
             epoch=pg.Epoch(pop_sizes={'pop_0': 1, 'pop_1': 1})
         )
-
-        _ = s.S
-
-    @pytest.mark.skip(reason="recombination not implemented for block-counting state space")
-    def test_block_counting_state_space_two_loci_two_demes_n_4(self):
-        """
-        Test two loci, two demes, four lineages.
-        """
-        s = pg.BlockCountingStateSpace(
-            lineage_config=pg.LineageConfig([2, 2]),
-            locus_config=pg.LocusConfig(n=2),
-            model=pg.StandardCoalescent(),
-            epoch=pg.Epoch(pop_sizes={'pop_0': 1, 'pop_1': 1})
-        )
-
-        s._get_rate(223, 400)
 
         _ = s.S
 
@@ -253,11 +323,6 @@ class StateSpaceTestCase(TestCase):
         """
         Test plot rates.
         """
-        # graphviz is an optional dependency (Python package and the ``dot`` binary)
-        pytest.importorskip('graphviz')
-        if shutil.which('dot') is None:
-            pytest.skip('graphviz "dot" executable not on PATH')
-
         s = pg.LineageCountingStateSpace(
             lineage_config=pg.LineageConfig(n=3),
             model=pg.StandardCoalescent(),
@@ -266,7 +331,6 @@ class StateSpaceTestCase(TestCase):
 
         s.plot_rates('scratch/plot_rates', view=False)
 
-    @pytest.mark.skip('Not needed anymore')
     def test_block_counting_state_space_n_4_dirac(self):
         """
         Test block-counting state space for n = 4, dirac.
@@ -277,11 +341,8 @@ class StateSpaceTestCase(TestCase):
             epoch=pg.Epoch()
         )
 
-        s.plot_rates('scratch/block_counting_state_space_n_4_dirac')
+        s.plot_rates('scratch/block_counting_state_space_n_4_dirac', view=False)
 
-        pass
-
-    @pytest.mark.skip('Not needed anymore')
     def test_block_counting_state_space_n_5_dirac(self):
         """
         Test block-counting state space for n = 4, dirac.
@@ -292,11 +353,8 @@ class StateSpaceTestCase(TestCase):
             epoch=pg.Epoch()
         )
 
-        s.plot_rates('scratch/block_counting_state_space_n_5_dirac')
+        s.plot_rates('scratch/block_counting_state_space_n_5_dirac', view=False)
 
-        pass
-
-    @pytest.mark.skip('Not needed anymore')
     def test_block_counting_state_space_n_4_dirac_psi_0_7_c_50(self):
         """
         Test block-counting state space for n = 4, dirac.
@@ -307,11 +365,9 @@ class StateSpaceTestCase(TestCase):
             epoch=pg.Epoch()
         )
 
-        s.plot_rates('scratch/block_counting_state_space_n_4_dirac_psi_0_7_c_50')
+        s.plot_rates('scratch/block_counting_state_space_n_4_dirac_psi_0_7_c_50', view=False)
 
-        pass
-
-    @pytest.mark.skip('Not a test')
+    @pytest.mark.slow
     def test_lineage_counting_state_space_beta_2_loci_n_3_alpha_1_5(self):
         """
         Test lineage-counting state space for beta, n = 3, alpha = 1.5.
@@ -323,11 +379,8 @@ class StateSpaceTestCase(TestCase):
             epoch=pg.Epoch()
         )
 
-        s.plot_rates('scratch/lineage_counting_state_space_beta_2_loci_n_3_alpha_1_5')
+        s.plot_rates('scratch/lineage_counting_state_space_beta_2_loci_n_3_alpha_1_5', view=False)
 
-        pass
-
-    @pytest.mark.skip('Not a test')
     def test_lineage_counting_state_space_beta_2_loci_n_2_alpha_1_5(self):
         """
         Test lineage-counting state space for beta, n = 2, alpha = 1.5.
@@ -339,11 +392,8 @@ class StateSpaceTestCase(TestCase):
             epoch=pg.Epoch()
         )
 
-        s.plot_rates('scratch/lineage_counting_state_space_beta_2_loci_n_2_alpha_1_5')
+        s.plot_rates('scratch/lineage_counting_state_space_beta_2_loci_n_2_alpha_1_5', view=False)
 
-        pass
-
-    @pytest.mark.skip('Not a test')
     def test_lineage_counting_state_space_kingman_2_loci_n_2(self):
         """
         Test lineage-counting state space for kingman, n = 2, alpha = 1.5.
@@ -354,9 +404,7 @@ class StateSpaceTestCase(TestCase):
             epoch=pg.Epoch()
         )
 
-        s.plot_rates('scratch/lineage_counting_state_space_kingman_2_loci_n_2')
-
-        pass
+        s.plot_rates('scratch/lineage_counting_state_space_kingman_2_loci_n_2', view=False)
 
     def test_determine_state_space_size(self):
         """
@@ -373,8 +421,8 @@ class StateSpaceTestCase(TestCase):
                 size['lineage_counting.observed'][(n, d)] = coal.lineage_counting_state_space.k
                 size['block_counting.observed'][(n, d)] = coal.block_counting_state_space.k
 
-                size['lineage_counting.theoretical'][(n, d)] = coal.lineage_counting_state_space._get_old().get_k()
-                size['block_counting.theoretical'][(n, d)] = coal.block_counting_state_space._get_old().get_k()
+                size['lineage_counting.theoretical'][(n, d)] = build_old(coal.lineage_counting_state_space).get_k()
+                size['block_counting.theoretical'][(n, d)] = build_old(coal.block_counting_state_space).get_k()
 
                 self.assertEqual(size['lineage_counting.observed'][(n, d)], size['lineage_counting.theoretical'][(n, d)])
                 self.assertEqual(size['block_counting.observed'][(n, d)], size['block_counting.theoretical'][(n, d)])
@@ -389,7 +437,7 @@ class StateSpaceTestCase(TestCase):
             for d in np.arange(1, 4):
                 x = np.array(list(itertools.product(np.arange(n + 1), repeat=d)))
                 y = x[x.sum(axis=1) <= n]
-                p = [1] + [pg.state_space_old.StateSpace.p0(i, d) for i in np.arange(1, n + 1)]
+                p = [1] + [state_space_old.StateSpace.p0(i, d) for i in np.arange(1, n + 1)]
 
                 n1 = len(y)
                 n2 = sum(p)
@@ -406,8 +454,8 @@ class StateSpaceTestCase(TestCase):
         k = np.zeros((len(n), 2))
 
         for i in n:
-            n1 = np.array(pg.state_space_old.BlockCountingStateSpace._find_sample_configs(m=i, n=i))
-            n2 = pg.state_space_old.StateSpace.P(i)
+            n1 = np.array(state_space_old.BlockCountingStateSpace._find_sample_configs(m=i, n=i))
+            n2 = state_space_old.StateSpace.P(i)
 
             k[i - 1, 0] = len(n1)
             k[i - 1, 1] = n2
@@ -418,7 +466,7 @@ class StateSpaceTestCase(TestCase):
 
     def compare_state_spaces(
             self,
-            state_space_old: pg.state_space_old.StateSpace,
+            state_space_old: state_space_old.StateSpace,
             state_space: pg.state_space.StateSpace,
             plot: bool = False
     ):
@@ -458,7 +506,7 @@ class StateSpaceTestCase(TestCase):
         )
 
         self.compare_state_spaces(
-            pg.state_space_old.LineageCountingStateSpace(**kwargs),
+            state_space_old.LineageCountingStateSpace(**kwargs),
             pg.LineageCountingStateSpace(**kwargs)
         )
 
@@ -473,7 +521,7 @@ class StateSpaceTestCase(TestCase):
         )
 
         self.compare_state_spaces(
-            pg.state_space_old.BlockCountingStateSpace(**kwargs),
+            state_space_old.BlockCountingStateSpace(**kwargs),
             pg.BlockCountingStateSpace(**kwargs)
         )
 
@@ -488,7 +536,7 @@ class StateSpaceTestCase(TestCase):
         )
 
         self.compare_state_spaces(
-            pg.state_space_old.LineageCountingStateSpace(**kwargs),
+            state_space_old.LineageCountingStateSpace(**kwargs),
             pg.LineageCountingStateSpace(**kwargs)
         )
 
@@ -503,7 +551,7 @@ class StateSpaceTestCase(TestCase):
         )
 
         self.compare_state_spaces(
-            pg.state_space_old.BlockCountingStateSpace(**kwargs),
+            state_space_old.BlockCountingStateSpace(**kwargs),
             pg.BlockCountingStateSpace(**kwargs)
         )
 
@@ -518,7 +566,7 @@ class StateSpaceTestCase(TestCase):
         )
 
         self.compare_state_spaces(
-            pg.state_space_old.LineageCountingStateSpace(**kwargs),
+            state_space_old.LineageCountingStateSpace(**kwargs),
             pg.LineageCountingStateSpace(**kwargs)
         )
 
@@ -533,7 +581,7 @@ class StateSpaceTestCase(TestCase):
         )
 
         self.compare_state_spaces(
-            pg.state_space_old.BlockCountingStateSpace(**kwargs),
+            state_space_old.BlockCountingStateSpace(**kwargs),
             pg.BlockCountingStateSpace(**kwargs)
         )
 
@@ -550,7 +598,7 @@ class StateSpaceTestCase(TestCase):
         )
 
         self.compare_state_spaces(
-            pg.state_space_old.LineageCountingStateSpace(**kwargs),
+            state_space_old.LineageCountingStateSpace(**kwargs),
             pg.LineageCountingStateSpace(**kwargs)
         )
 
@@ -575,7 +623,7 @@ class StateSpaceTestCase(TestCase):
         )
 
         self.compare_state_spaces(
-            pg.state_space_old.BlockCountingStateSpace(**kwargs),
+            state_space_old.BlockCountingStateSpace(**kwargs),
             pg.BlockCountingStateSpace(**kwargs)
         )
 
@@ -591,7 +639,7 @@ class StateSpaceTestCase(TestCase):
         )
 
         self.compare_state_spaces(
-            pg.state_space_old.LineageCountingStateSpace(**kwargs),
+            state_space_old.LineageCountingStateSpace(**kwargs),
             pg.LineageCountingStateSpace(**kwargs),
         )
 
@@ -610,7 +658,7 @@ class StateSpaceTestCase(TestCase):
         )
 
         self.compare_state_spaces(
-            pg.state_space_old.LineageCountingStateSpace(**kwargs),
+            state_space_old.LineageCountingStateSpace(**kwargs),
             pg.LineageCountingStateSpace(**kwargs)
         )
 
@@ -713,21 +761,6 @@ class StateSpaceTestCase(TestCase):
 
             # check that the rate matrix is in the cache
             self.assertTrue(s.epoch in s._cache)
-
-            pg.Settings.cache_epochs = False
-
-            s = pg.state_space.LineageCountingStateSpace(
-                lineage_config=pg.LineageConfig(n=4),
-                model=pg.StandardCoalescent(),
-                epoch=pg.Epoch(pop_sizes={'pop_0': 2})
-            )
-
-            _ = s.S
-
-            # check that the rate matrix is not in the cache
-            self.assertEqual(s._cache, {})
-
-            pg.Settings.cache_epochs = True
         finally:
             pg.Settings.use_numba = True
 
@@ -760,4 +793,144 @@ class StateSpaceTestCase(TestCase):
             pg.state_space.Epoch(pop_sizes={'pop_0': 2, 'pop_1': 2}, migration_rates={('pop_0', 'pop_1'): 0.1})
         )
 
+    def test_block_configs_are_immutable_tuples(self):
+        """``block_configs`` is a cached property, so it is returned as an immutable tuple: a consumer cannot mutate
+        the cached configurations in place (which would corrupt every later access)."""
+        joint = pg.Coalescent(
+            n={'a': 2, 'b': 2},
+            demography=pg.Demography(pop_sizes={'a': 1, 'b': 1}, migration_rates={('a', 'b'): 1, ('b', 'a'): 1})
+        ).joint_block_counting_state_space
+        two_locus = pg.Coalescent(n=3, loci=2, recombination_rate=1).two_locus_block_counting_state_space
 
+        for ss in (joint, two_locus):
+            self.assertIsInstance(ss.block_configs, tuple)
+            with self.assertRaises(AttributeError):
+                ss.block_configs.append((9, 9))
+
+
+
+
+class LegacyReferenceTestCase(TestCase):
+    """
+    The frozen reference of :mod:`testing.state_space_old` is the baseline the current construction is validated
+    against, so where it cannot be trusted it must say so rather than answer.
+    """
+
+    def test_legacy_two_locus_multiple_merger_declines(self):
+        """
+        Its mixed and locus coalescence rates count pairs, which is the standard coalescent's merger rate and no
+        other's, so two loci under a multiple-merger model must raise rather than return a wrong baseline.
+        """
+        for model in (pg.BetaCoalescent(alpha=1.5), pg.DiracCoalescent(psi=0.4, c=2.0)):
+            with self.subTest(model=type(model).__name__):
+                with self.assertRaises(NotImplementedError):
+                    _ = state_space_old.LineageCountingStateSpace(
+                        lineage_config=pg.LineageConfig(n=3),
+                        locus_config=pg.LocusConfig(n=2, recombination_rate=2.0),
+                        model=model
+                    ).S
+
+    def test_legacy_matches_the_current_generator_where_it_is_trusted(self):
+        """
+        Single locus for every model, and two loci under the standard coalescent, must reproduce the current
+        generator exactly. The two-locus merger rate confined to the linked or unlinked lineages is what the
+        per-category rate call used to get wrong, and it is exercised here.
+        """
+        for model in (pg.StandardCoalescent(), pg.BetaCoalescent(alpha=1.5), pg.DiracCoalescent(psi=0.4, c=2.0)):
+            for loci in (1, 2):
+                if loci == 2 and not isinstance(model, pg.StandardCoalescent):
+                    continue
+
+                for n in (2, 3, 4):
+                    with self.subTest(model=type(model).__name__, loci=loci, n=n):
+                        ss = pg.LineageCountingStateSpace(
+                            lineage_config=pg.LineageConfig(n=n),
+                            locus_config=pg.LocusConfig(n=loci, recombination_rate=2.0 if loci == 2 else 0.0),
+                            model=model
+                        )
+                        order = old_ordering(ss)
+                        old = np.asarray(build_old(ss).S)
+
+                        testing.assert_allclose(np.asarray(ss.S), old[order][:, order], atol=1e-12)
+
+
+def test_rescale_uses_sampled_population_size():
+    """Rescaling a cached single-population rate matrix on an epoch change uses the size of the sampled population.
+    Regression: the size of the alphabetically first population of the epoch was used, so an unsampled population
+    'a' listed before the sampled 'b' gave a wrongly scaled S."""
+    lineages = pg.LineageConfig({'b': 3})
+    epoch = pg.Epoch(pop_sizes={'a': 1, 'b': 1})
+    epoch_next = pg.Epoch(start_time=1, pop_sizes={'a': 7, 'b': 2})
+
+    s = pg.LineageCountingStateSpace(lineage_config=lineages, model=pg.StandardCoalescent(), epoch=epoch)
+    _ = s.S
+    s.update_epoch(epoch_next)
+
+    fresh = pg.LineageCountingStateSpace(lineage_config=lineages, model=pg.StandardCoalescent(), epoch=epoch_next)
+
+    testing.assert_allclose(np.asarray(s.S), np.asarray(fresh.S), rtol=1e-12)
+
+
+def test_two_deme_two_epoch_cdf_builds_each_rate_matrix_once(monkeypatch):
+    """
+    The tree-height CDF of a two-deme, two-epoch coalescent builds the rate matrix of each epoch once. Regression:
+    the absorption checks visit the last epoch before the sweep returns to the first, and the rate matrix of every
+    epoch was dropped on leaving it, so both were built twice.
+    """
+    build, built = pg.StateSpace._construct_numba, []
+    monkeypatch.setattr(pg.StateSpace, '_construct_numba', lambda ss: built.append(ss.epoch.start_time) or build(ss))
+
+    coal = pg.Coalescent(n={'pop_0': 3, 'pop_1': 3}, demography=pg.Demography(
+        pop_sizes={'pop_0': {0: 1, 0.5: 0.3}, 'pop_1': {0: 0.5}},
+        migration_rates={('pop_0', 'pop_1'): {0: 1}, ('pop_1', 'pop_0'): {0: 0.2}}
+    ))
+    coal.tree_height.cdf(np.linspace(0, 5, 50))
+
+    assert built == [0, 0.5]
+
+
+def test_update_epoch_restores_the_rate_matrix_of_the_epoch_left_last():
+    """
+    Returning to the epoch left last restores its rate matrix, equal to one built afresh for that epoch, and a third
+    epoch builds its own.
+    """
+    lineages = pg.LineageConfig({'a': 2, 'b': 2})
+    epochs = [pg.Epoch(start_time=i, pop_sizes={'a': 1 + i, 'b': 2}, migration_rates={('a', 'b'): 1, ('b', 'a'): 1})
+              for i in range(3)]
+    s = pg.LineageCountingStateSpace(lineage_config=lineages, model=pg.StandardCoalescent(), epoch=epochs[0])
+
+    S0 = s.S
+    s.update_epoch(epochs[1])
+    S1 = s.S
+    s.update_epoch(epochs[0])
+    assert s.S is S0
+    s.update_epoch(epochs[2])
+    s.update_epoch(epochs[1])
+    assert s.S is not S1
+
+    for epoch in [epochs[2], epochs[0]]:
+        s.update_epoch(epoch)
+        fresh = pg.LineageCountingStateSpace(lineage_config=lineages, model=pg.StandardCoalescent(), epoch=epoch)
+        testing.assert_array_equal(np.asarray(s.S), np.asarray(fresh.S))
+
+    s.drop_cache()
+    s.update_epoch(epochs[2])
+    assert 'S' not in s.__dict__
+
+
+@pytest.mark.parametrize('n_states, level', [(4999, None), (5000, 'slow'), (15000, 'very slow'),
+                                              (50000, 'extremely slow')])
+def test_large_state_space_warns_once_at_the_highest_level(n_states, level, caplog):
+    """A state space logs one warning at the severity of the highest threshold it reaches, and none below 5,000."""
+    ss = pg.Coalescent(n=3).block_counting_state_space
+    caplog.clear()
+
+    with caplog.at_level('WARNING'):
+        ss._warn_if_large(n_states)
+
+    records = [r for r in caplog.records if 'State space is large' in r.getMessage()]
+
+    if level is None:
+        assert not records
+    else:
+        assert len(records) == 1 and records[0].getMessage().endswith(f"may be {level}.")

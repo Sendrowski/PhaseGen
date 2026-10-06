@@ -11,4 +11,9 @@ model: standard
 comparisons:
   tolerance:
     sfs2:
-      mean: 0.05
+      mean: 0.021
+      var: 0.091
+      pairwise:
+        '(1, 2)':
+          cdf: 0.0045
+          pdf: 0.025

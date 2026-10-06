@@ -1,0 +1,1 @@
+correlation:  exact -0.307   sampled -0.307

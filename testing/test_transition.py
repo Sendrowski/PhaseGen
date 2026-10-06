@@ -8,7 +8,8 @@ import numpy as np
 import pytest
 
 import phasegen as pg
-from phasegen.state_space_old import Transition, State
+from testing import state_space_old
+from testing.state_space_old import Transition, State
 
 
 class TransitionTestCase(TestCase):
@@ -20,7 +21,7 @@ class TransitionTestCase(TestCase):
         """
         Test simple coalescence for n = 2.
         """
-        s = pg.state_space_old.LineageCountingStateSpace(
+        s = state_space_old.LineageCountingStateSpace(
             lineage_config=pg.LineageConfig(n=2)
         )
 
@@ -49,7 +50,7 @@ class TransitionTestCase(TestCase):
         """
         Test block coalescence for n = 5.
         """
-        s = pg.state_space_old.BlockCountingStateSpace(
+        s = state_space_old.BlockCountingStateSpace(
             lineage_config=pg.LineageConfig(n=5)
         )
 
@@ -74,7 +75,7 @@ class TransitionTestCase(TestCase):
         """
         Test linked coalescence for two loci, lineage-counting state space.
         """
-        s = pg.state_space_old.LineageCountingStateSpace(
+        s = state_space_old.LineageCountingStateSpace(
             lineage_config=pg.LineageConfig(n=4),
             locus_config=pg.LocusConfig(n=2)
         )
@@ -97,7 +98,7 @@ class TransitionTestCase(TestCase):
         """
         Test whether we detect insufficient linked lineages for linked coalescence.
         """
-        s = pg.state_space_old.LineageCountingStateSpace(
+        s = state_space_old.LineageCountingStateSpace(
             lineage_config=pg.LineageConfig(n=4),
             locus_config=pg.LocusConfig(n=2)
         )
@@ -116,7 +117,7 @@ class TransitionTestCase(TestCase):
         """
         Test whether we detect invalid lineage reduction for linked coalescence.
         """
-        s = pg.state_space_old.LineageCountingStateSpace(
+        s = state_space_old.LineageCountingStateSpace(
             lineage_config=pg.LineageConfig(n=4),
             locus_config=pg.LocusConfig(n=2)
         )
@@ -135,7 +136,7 @@ class TransitionTestCase(TestCase):
         """
         Test migration for two demes, lineage-counting state space.
         """
-        s = pg.state_space_old.LineageCountingStateSpace(
+        s = state_space_old.LineageCountingStateSpace(
             lineage_config=pg.LineageConfig({'pop_0': 1, 'pop_1': 1}),
             epoch=pg.Epoch(
                 pop_sizes={'pop_0': 1, 'pop_1': 2},
@@ -157,7 +158,7 @@ class TransitionTestCase(TestCase):
         """
         Test whether we detect invalid migration for more than one lineage.
         """
-        s = pg.state_space_old.LineageCountingStateSpace(
+        s = state_space_old.LineageCountingStateSpace(
             lineage_config=pg.LineageConfig({'pop_0': 1, 'pop_1': 1}),
             epoch=pg.Epoch(
                 pop_sizes={'pop_0': 1, 'pop_1': 2},
@@ -179,7 +180,7 @@ class TransitionTestCase(TestCase):
         """
         Test recombination for two loci, lineage-counting state space.
         """
-        s = pg.state_space_old.LineageCountingStateSpace(
+        s = state_space_old.LineageCountingStateSpace(
             lineage_config=pg.LineageConfig(n=4),
             locus_config=pg.LocusConfig(n=2, recombination_rate=1.11)
         )
@@ -202,7 +203,7 @@ class TransitionTestCase(TestCase):
         """
         Test locus coalescence for two loci, lineage-counting state space.
         """
-        s = pg.state_space_old.LineageCountingStateSpace(
+        s = state_space_old.LineageCountingStateSpace(
             lineage_config=pg.LineageConfig(n=4),
             locus_config=pg.LocusConfig(n=2, recombination_rate=1.11)
         )
@@ -225,7 +226,7 @@ class TransitionTestCase(TestCase):
         """
         Test unlinked coalescence for two loci, lineage-counting state space.
         """
-        s = pg.state_space_old.LineageCountingStateSpace(
+        s = state_space_old.LineageCountingStateSpace(
             lineage_config=pg.LineageConfig(n=4),
             locus_config=pg.LocusConfig(n=2, recombination_rate=1.11)
         )
@@ -244,7 +245,7 @@ class TransitionTestCase(TestCase):
         """
         Test whether we detect non-linked coalescence.
         """
-        s = pg.state_space_old.BlockCountingStateSpace(
+        s = state_space_old.BlockCountingStateSpace(
             lineage_config=pg.LineageConfig(n=2)
         )
 
@@ -287,7 +288,7 @@ class TransitionTestCase(TestCase):
         """
         Test unlinked coalescence with linked lineages for lineage-counting state space.
         """
-        s = pg.state_space_old.LineageCountingStateSpace(
+        s = state_space_old.LineageCountingStateSpace(
             lineage_config=pg.LineageConfig(2),
             locus_config=pg.LocusConfig(n=2, recombination_rate=1.11)
         )
@@ -309,7 +310,7 @@ class TransitionTestCase(TestCase):
         """
         Test unlinked coalescence with linked lineages for lineage-counting state space.
         """
-        s = pg.state_space_old.LineageCountingStateSpace(
+        s = state_space_old.LineageCountingStateSpace(
             lineage_config=pg.LineageConfig(2),
             locus_config=pg.LocusConfig(n=2, recombination_rate=1.11)
         )
@@ -331,7 +332,7 @@ class TransitionTestCase(TestCase):
         """
         Test unlinked coalescence with linked lineages for lineage-counting state space.
         """
-        s = pg.state_space_old.LineageCountingStateSpace(
+        s = state_space_old.LineageCountingStateSpace(
             lineage_config=pg.LineageConfig(2),
             locus_config=pg.LocusConfig(n=2, recombination_rate=1.11)
         )
@@ -349,31 +350,11 @@ class TransitionTestCase(TestCase):
 
         self.assertEqual(0, t.get_rate())
 
-    @pytest.mark.skip(reason="recombination not implemented for block-counting state space")
-    def test_mixed_coalescence_block_counting_state_space_two_loci_n_2(self):
-        """
-        Test mixed coalescence for block-counting state space.
-        """
-        s = pg.state_space_old.BlockCountingStateSpace(
-            lineage_config=pg.LineageConfig(n=2),
-            locus_config=pg.LocusConfig(n=2, recombination_rate=1.11)
-        )
-
-        t = Transition(
-            state_space=s,
-            marginal1=np.array([[[0, 1]], [[2, 0]]]),
-            marginal2=np.array([[[0, 1]], [[0, 1]]]),
-            linked1=np.array([[[0, 1]], [[1, 0]]]),
-            linked2=np.array([[[0, 1]], [[0, 1]]])
-        )
-
-        self.assertTrue(t.is_mixed_coalescence)
-
     def test_mixed_coalescence_lineage_counting_state_space_two_loci_n_3(self):
         """
         Test mixed coalescence for lineage-counting state space.
         """
-        s = pg.state_space_old.LineageCountingStateSpace(
+        s = state_space_old.LineageCountingStateSpace(
             lineage_config=pg.LineageConfig(n=3),
             locus_config=pg.LocusConfig(n=2, recombination_rate=1.11)
         )
@@ -391,60 +372,12 @@ class TransitionTestCase(TestCase):
         self.assertTrue(t.is_unlinked_coalescence)
 
         self.assertEqual(3, t.get_rate())
-
-    @pytest.mark.skip(reason="recombination not implemented for block-counting state space")
-    def test_mixed_coalescence_block_counting_state_space_two_loci_n_3(self):
-        """
-        Test unlinked coalescence with linked lineages for block-counting state space.
-        """
-        s = pg.state_space_old.BlockCountingStateSpace(
-            lineage_config=pg.LineageConfig(n=3),
-            locus_config=pg.LocusConfig(n=2, recombination_rate=1.11)
-        )
-
-        # here one of the coalescing lineages has to be linked
-        t = Transition(
-            state_space=s,
-            marginal1=np.array([[[3, 0, 0]], [[3, 0, 0]]]),
-            marginal2=np.array([[[3, 0, 0]], [[1, 1, 0]]]),
-            linked1=np.array([[[1, 0, 0]], [[1, 0, 0]]]),
-            linked2=np.array([[[1, 0, 0]], [[0, 1, 0]]])
-        )
-
-        self.assertTrue(t.is_mixed_coalescence)
-        self.assertFalse(t.is_unlinked_coalescence)
-
-        self.assertEqual(2, t.get_rate())
-
-    @pytest.mark.skip(reason="recombination not implemented for block-counting state space")
-    def test_unlinked_coalescence_block_counting_state_space_two_loci_n_3(self):
-        """
-        Test unlinked coalescence with linked lineages for block-counting state space.
-        """
-        s = pg.state_space_old.BlockCountingStateSpace(
-            lineage_config=pg.LineageConfig(n=3),
-            locus_config=pg.LocusConfig(n=2, recombination_rate=1.11)
-        )
-
-        # here both of the coalescing lineages have to be unlinked
-        t = Transition(
-            state_space=s,
-            marginal1=np.array([[[3, 0, 0]], [[3, 0, 0]]]),
-            marginal2=np.array([[[3, 0, 0]], [[1, 1, 0]]]),
-            linked1=np.array([[[1, 0, 0]], [[1, 0, 0]]]),
-            linked2=np.array([[[1, 0, 0]], [[1, 0, 0]]])
-        )
-
-        self.assertTrue(t.is_unlinked_coalescence)
-        self.assertFalse(t.is_mixed_coalescence)
-
-        self.assertEqual(1, t.get_rate())
 
     def test_unlinked_coalescence_lineage_counting_state_space_two_loci_n_3(self):
         """
         Test unlinked coalescence with linked lineages for lineage-counting state space.
         """
-        s = pg.state_space_old.LineageCountingStateSpace(
+        s = state_space_old.LineageCountingStateSpace(
             lineage_config=pg.LineageConfig(n=3),
             locus_config=pg.LocusConfig(n=2, recombination_rate=1.11)
         )
@@ -463,79 +396,11 @@ class TransitionTestCase(TestCase):
 
         self.assertEqual(3, t.get_rate())
 
-    @pytest.mark.skip(reason="recombination not implemented for block-counting state space")
-    def test_linked_coalescence_two_loci_n_3_same_rate_across_loci(self):
-        """
-        Test linked coalescence for equal lineage blocks when the coalescence rate is the same across loci.
-        """
-        s = pg.state_space_old.BlockCountingStateSpace(
-            lineage_config=pg.LineageConfig(n=3),
-            locus_config=pg.LocusConfig(n=2, recombination_rate=1.11)
-        )
-
-        t = Transition(
-            state_space=s,
-            marginal1=np.array([[[1, 1, 0]], [[3, 0, 0]]]),
-            marginal2=np.array([[[0, 0, 1]], [[1, 1, 0]]]),
-            linked1=np.array([[[1, 1, 0]], [[2, 0, 0]]]),
-            linked2=np.array([[[0, 0, 1]], [[0, 1, 0]]])
-        )
-
-        self.assertTrue(t.is_eligible)
-        self.assertTrue(t.is_linked_coalescence)
-
-        self.assertEqual(1, t.get_rate())
-
-    @pytest.mark.skip(reason="recombination not implemented for block-counting state space")
-    def test_linked_coalescence_two_loci_n_4_different_rate_across_loci(self):
-        """
-        Test linked coalescence for unequal lineage blocks when the coalescence rate is different across loci.
-        What to do when rates are different across loci? Select the minimum?
-        """
-        s = pg.state_space_old.BlockCountingStateSpace(
-            lineage_config=pg.LineageConfig(n=3),
-            locus_config=pg.LocusConfig(n=2, recombination_rate=1.11)
-        )
-
-        t = Transition(
-            state_space=s,
-            marginal1=np.array([[[2, 1, 0]], [[4, 0, 0]]]),
-            marginal2=np.array([[[1, 0, 1]], [[2, 1, 0]]]),
-            linked1=np.array([[[2, 1, 0]], [[3, 0, 0]]]),
-            linked2=np.array([[[1, 0, 1]], [[1, 1, 0]]])
-        )
-
-        self.assertTrue(t.is_eligible)
-        self.assertTrue(t.is_linked_coalescence)
-
-        self.assertEqual(2, t.get_rate())
-
-    @pytest.mark.skip(reason="recombination not implemented for block-counting state space")
-    def test_mixed_coalescence_only_possible_if_only_one_locus_changes(self):
-        """
-        Test whether we detect mixed coalescence when only one locus changes.
-        """
-        # lineage-counting state space
-        s = pg.state_space_old.BlockCountingStateSpace(
-            lineage_config=pg.LineageConfig(n=2),
-            locus_config=pg.LocusConfig(n=2, recombination_rate=1.11)
-        )
-
-        t = Transition(
-            state_space=s,
-            marginal1=np.array([[[2, 0]], [[0, 1]]]),
-            marginal2=np.array([[[0, 1]], [[0, 1]]]),
-            linked1=np.array([[[1, 0]], [[0, 1]]]),
-            linked2=np.array([[[0, 0]], [[0, 0]]])
-        )
-
-        self.assertFalse(t.is_mixed_coalescence)
-
     def test_bug_lineage_counting_state_space_two_loci_n_2(self):
         """
         Test mixed coalescence for block-counting state space.
         """
-        s = pg.state_space_old.LineageCountingStateSpace(
+        s = state_space_old.LineageCountingStateSpace(
             lineage_config=pg.LineageConfig(n=2),
             locus_config=pg.LocusConfig(n=2, recombination_rate=1.11)
         )
@@ -552,100 +417,11 @@ class TransitionTestCase(TestCase):
 
         self.assertEqual(0, t.get_rate())
 
-    @pytest.mark.skip(reason="recombination not implemented for block-counting state space")
-    def test_mixed_coalescence_block_counting_state_space_2_loci_n_3(self):
-        """
-        Test mixed coalescence for block-counting state space.
-        """
-        s = pg.state_space_old.BlockCountingStateSpace(
-            lineage_config=pg.LineageConfig(n=3),
-            locus_config=pg.LocusConfig(n=2, recombination_rate=1.11)
-        )
-
-        t = Transition(
-            state_space=s,
-            marginal1=np.array([[[3, 0, 0]], [[1, 1, 0]]]),
-            marginal2=np.array([[[3, 0, 0]], [[0, 0, 1]]]),
-            linked1=np.array([[[1, 0, 0]], [[0, 1, 0]]]),
-            linked2=np.array([[[1, 0, 0]], [[0, 0, 1]]])
-        )
-
-        self.assertTrue(t.is_mixed_coalescence)
-
-        self.assertEqual(1, t.get_rate())
-
-    @pytest.mark.skip(reason="recombination not implemented for block-counting state space")
-    def test_invalid_mixed_coalescence_linked_lineage_in_wrong_place_2_loci_n_4(self):
-        """
-        Test whether we detect invalid mixed coalescence.
-        """
-        s = pg.state_space_old.BlockCountingStateSpace(
-            lineage_config=pg.LineageConfig(n=4),
-            locus_config=pg.LocusConfig(n=2, recombination_rate=1.11)
-        )
-
-        # here both of the coalescing lineages have to be unlinked
-        t = Transition(
-            state_space=s,
-            marginal1=np.array([[[4, 0, 0, 0]], [[2, 1, 0, 0]]]),
-            marginal2=np.array([[[4, 0, 0, 0]], [[1, 0, 1, 0]]]),
-            linked1=np.array([[[1, 0, 0, 0]], [[0, 1, 0, 0]]]),
-            linked2=np.array([[[1, 0, 0, 0]], [[1, 0, 0, 0]]])
-        )
-
-        self.assertFalse(t.is_mixed_coalescence)
-
-    @pytest.mark.skip(reason="recombination not implemented for block-counting state space")
-    def test_invalid_coalescence_too_many_linked_lineages_2_loci_n_4(self):
-        """
-        Test whether we detect invalid mixed coalescence.
-        """
-        s = pg.state_space_old.BlockCountingStateSpace(
-            lineage_config=pg.LineageConfig(n=4),
-            locus_config=pg.LocusConfig(n=2, recombination_rate=1.11)
-        )
-
-        # here both of the coalescing lineages have to be unlinked
-        t = Transition(
-            state_space=s,
-            marginal1=np.array([[[4, 0, 0, 0]], [[2, 1, 0, 0]]]),
-            marginal2=np.array([[[4, 0, 0, 0]], [[0, 2, 0, 0]]]),
-            linked1=np.array([[[2, 0, 0, 0]], [[2, 0, 0, 0]]]),
-            linked2=np.array([[[2, 0, 0, 0]], [[0, 2, 0, 0]]])
-        )
-
-        self.assertFalse(t.is_linked_coalescence)
-        self.assertFalse(t.is_unlinked_coalescence)
-        self.assertFalse(t.is_mixed_coalescence)
-
-        self.assertEqual(0, t.get_rate())
-
-    @pytest.mark.skip(reason="recombination not implemented for block-counting state space")
-    def test_valid_mixed_coalescence_linked_lineage_in_right_place_2_loci_n_4(self):
-        """
-        Test whether we detect valid mixed coalescence.
-        """
-        s = pg.state_space_old.BlockCountingStateSpace(
-            lineage_config=pg.LineageConfig(n=4),
-            locus_config=pg.LocusConfig(n=2, recombination_rate=1.11)
-        )
-
-        # here both of the coalescing lineages have to be unlinked
-        t = Transition(
-            state_space=s,
-            marginal1=np.array([[[4, 0, 0, 0]], [[2, 1, 0, 0]]]),
-            marginal2=np.array([[[4, 0, 0, 0]], [[1, 0, 1, 0]]]),
-            linked1=np.array([[[1, 0, 0, 0]], [[0, 1, 0, 0]]]),
-            linked2=np.array([[[1, 0, 0, 0]], [[0, 0, 1, 0]]])
-        )
-
-        self.assertTrue(t.is_mixed_coalescence)
-
     def test_multiple_merger_lineage_counting_state_space_n_4(self):
         """
         Test multiple merger.
         """
-        s = pg.state_space_old.LineageCountingStateSpace(
+        s = state_space_old.LineageCountingStateSpace(
             lineage_config=pg.LineageConfig(n=4),
             model=pg.BetaCoalescent(alpha=1.5)
         )
@@ -664,7 +440,7 @@ class TransitionTestCase(TestCase):
         """
         Get lineage-counting state space for two demes, two loci.
         """
-        return pg.state_space_old.LineageCountingStateSpace(
+        return state_space_old.LineageCountingStateSpace(
             lineage_config=pg.LineageConfig({'pop_0': 1, 'pop_1': 1}),
             locus_config=pg.LocusConfig(n=2, recombination_rate=1.11),
             epoch=pg.Epoch(

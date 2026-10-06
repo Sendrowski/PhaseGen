@@ -7,9 +7,28 @@ pop_sizes:
   pop_0:
     0: 1
 model: standard
+seed: 42
 comparisons:
   tolerance:
     sfs:
-      mutation_configs: 0.1
+      mutation_configs: 0.004
+      '[1, 4, 9]':
+        cosine:
+          pdf: 0.004
+          cdf: 0.002
+          quantile: 0.004
+      pairwise:
+        '[(1, 2), (1, 9), (2, 9)]':
+          cdf: 0.002
+          pdf: 0.007
     fsfs:
-      mutation_configs: 0.1
+      mutation_configs: 0.004
+    tree_height:
+      pdf: 0.004
+      cdf: 0.002
+      quantile: 0.004
+    total_branch_length:
+      cosine:
+        pdf: 0.004
+        cdf: 0.002
+        quantile: 0.004

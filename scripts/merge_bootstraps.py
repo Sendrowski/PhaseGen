@@ -7,11 +7,6 @@ __contact__ = "sendrowski.janek@gmail.com"
 __date__ = "2024-03-30"
 
 try:
-    import sys
-
-    # necessary to import local module
-    sys.path.append('.')
-
     testing = False
     inf_file = snakemake.input.inference
     bootstraps_file = snakemake.input.bootstraps

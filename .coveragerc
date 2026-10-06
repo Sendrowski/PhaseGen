@@ -4,7 +4,6 @@ source = phasegen
 [report]
 omit =
     phasegen/comparison.py
-    phasegen/state_space_old.py
     phasegen/state_space_numba.py
     phasegen/expm.py
 # Exclude lines that cannot (or should not) be exercised by the test suite:

@@ -5,6 +5,7 @@ from math import comb
 from testing import TestCase
 
 import numpy as np
+import pytest
 from scipy.special import betaln
 
 import phasegen as pg
@@ -180,6 +181,15 @@ class CoalescentModelTestCase(TestCase):
         self.assertAlmostEqual(c.get_rate(4, 1), c.c * comb(4, 4) * c.psi ** 4 * (1 - c.psi) ** 0)
         self.assertAlmostEqual(c.get_rate(4, 0), 0)
 
+    def test_dirac_coalescent_rejects_non_positive_rate(self):
+        """
+        A non-positive rate ``c`` of multiple merger events raises. A negative ``c`` was accepted and produced negative
+        off-diagonal multiple-merger rates, so moments were computed from an invalid generator.
+        """
+        for c in (-0.5, 0):
+            with self.assertRaisesRegex(ValueError, "rate c of multiple merger events must be positive"):
+                pg.DiracCoalescent(psi=0.5, c=c)
+
     def test_equality(self):
         """
         Test equality.
@@ -194,3 +204,13 @@ class CoalescentModelTestCase(TestCase):
         self.assertNotEqual(pg.BetaCoalescent(alpha=1.5), pg.BetaCoalescent(alpha=1.7))
         self.assertNotEqual(pg.DiracCoalescent(psi=0.5, c=1), pg.DiracCoalescent(psi=0.7, c=1))
         self.assertNotEqual(pg.DiracCoalescent(psi=0.5, c=1), pg.DiracCoalescent(psi=0.5, c=2))
+
+
+def test_dirac_coalescent_rejects_non_finite_rate():
+    """
+    An infinite or NaN rate ``c`` of multiple merger events raises at construction. Regression: ``c=inf`` passed and
+    failed later in numpy with 'array must not contain infs or NaNs'.
+    """
+    for c in (np.inf, np.nan):
+        with pytest.raises(ValueError, match="positive and finite"):
+            pg.DiracCoalescent(psi=0.5, c=c)

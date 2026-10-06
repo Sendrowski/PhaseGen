@@ -1,0 +1,4 @@
+# Auto-loaded workflow profile (snakemake reads profiles/default automatically).
+# Use the greedy scheduler: the default ILP scheduler shells out to pulp's bundled
+# CBC binary, which is x86-only and aborts with "Bad CPU type" on Apple Silicon.
+scheduler: greedy

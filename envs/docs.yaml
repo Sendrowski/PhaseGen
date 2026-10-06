@@ -1,6 +1,19 @@
-# phasegen env as in docs
-name: phasegen
+name: docs-phasegen
 channels:
   - conda-forge
 dependencies:
-  - phasegen
+  - python=3.12
+  - ipykernel
+  - nbconvert
+  - r-base
+  - r-reticulate>=1.41
+  - r-ggplot2>=3.5
+  - r-patchwork
+  - r-irkernel
+  - r-ragg
+  - pip
+  - pip:
+    - msprime
+    # paths relative to .snakemake/conda, where snakemake copies this file before creating the env (--use-conda)
+    - -r ../../envs/requirements.txt
+    - -e ../..

@@ -34,8 +34,8 @@ def test_fst_in_unit_interval_and_decreases_with_migration():
 
 
 def test_requires_two_populations():
-    """F_ST requires at least two populations."""
-    with pytest.raises(ValueError, match="two populations"):
+    """F_ST requires at least two sampled populations."""
+    with pytest.raises(ValueError, match="two sampled populations"):
         pg.Coalescent(n=4).fst
 
 
@@ -192,3 +192,63 @@ def test_f4_nonzero_matches_tskit_branch_mode_tree():
     ana = coal.f4('pop_0', 'pop_2', 'pop_1', 'pop_3')
     assert ana > 1                                            # genuinely nonzero (guards against trivial pass)
     assert ana == pytest.approx(np.mean(f4), abs=0.05)
+
+
+def test_fst_respects_start_time():
+    """
+    The pairwise sub-coalescents behind F_ST and the f-statistics received ``end_time`` but not ``start_time``, so a
+    coalescent windowed at ``start_time=1`` returned the unwindowed F_ST of 1/3.
+    """
+    demo = pg.Demography(pop_sizes={'a': 1, 'b': 1}, migration_rates={('a', 'b'): 0.5, ('b', 'a'): 0.5})
+    c = pg.Coalescent(n={'a': 2, 'b': 2}, demography=demo, start_time=1.0, end_time=2.0)
+
+    t_within = pg.Coalescent(n={'a': 2, 'b': 0}, demography=demo, start_time=1.0, end_time=2.0).tree_height.mean
+    t_between = pg.Coalescent(n={'a': 1, 'b': 1}, demography=demo, start_time=1.0, end_time=2.0).tree_height.mean
+
+    assert c.fst == pytest.approx(1 - t_within / t_between, rel=1e-8)
+    assert c.f2('a', 'b') == pytest.approx(2 * t_between - 2 * t_within, rel=1e-8)
+
+
+def test_fst_ignores_an_unsampled_population():
+    """F_ST averages over the sampled populations, as the simulated ground truth does. Regression: an isolated,
+    unsampled population entered both averages and moved the value from 0.500 to 0.416."""
+    sizes = {'a': 1.0, 'b': 1.0}
+    rates = {('a', 'b'): 0.5, ('b', 'a'): 0.5}
+
+    plain = pg.Coalescent(n={'a': 2, 'b': 2}, demography=pg.Demography(pop_sizes=sizes, migration_rates=rates))
+    ghost = pg.Coalescent(
+        n={'a': 2, 'b': 2, 'c': 0},
+        demography=pg.Demography(pop_sizes=sizes | {'c': 1.0}, migration_rates=rates)
+    )
+
+    assert ghost.fst == pytest.approx(plain.fst, rel=1e-10)
+
+
+def test_simulated_fst_rejects_the_layouts_the_exact_one_rejects():
+    """The ground truth raises where Coalescent.fst raises. Regression: it returned nan with a RuntimeWarning."""
+    from phasegen.distributions.empirical import MsprimeCoalescent
+
+    dem = pg.Demography(pop_sizes={'a': 1.0, 'b': 1.0}, migration_rates={('a', 'b'): 0.5, ('b', 'a'): 0.5})
+
+    for n in ({'a': 3, 'b': 0}, {'a': 1, 'b': 1}):
+        with pytest.raises(ValueError):
+            MsprimeCoalescent(n=n, demography=dem, num_replicates=10).fst
+        with pytest.raises(ValueError):
+            pg.Coalescent(n=n, demography=dem).fst
+
+
+def test_simulated_f_statistics_hold_for_single_lineages_and_repeated_populations():
+    """The msprime f-statistics are built from simulated pairwise coalescence times, like the exact ones, so they do
+    not depend on the sampled lineages. Regression: tskit's branch statistics on the sampled lineages returned NaN
+    for a population with one lineage and -3.20 for f4(a, b; c, a), whose exact value is -1. The tolerance is
+    five to nine standard errors at the 20,000 pairwise coalescence times simulated per pair from 2,000 replicates."""
+    coal = pg.Coalescent(
+        n={'a': 2, 'b': 3, 'c': 1},
+        demography=pg.Demography(pop_sizes={'a': 1, 'b': 1, 'c': 1},
+                                 events=[pg.SymmetricMigrationRateChanges(pops=['a', 'b', 'c'], rate=0.5)])
+    )
+    ms = coal.to_msprime(num_replicates=2000, parallelize=False, seed=1)
+
+    assert ms.f2('a', 'c') == pytest.approx(coal.f2('a', 'c'), abs=0.3)
+    assert ms.f3('c', 'a', 'b') == pytest.approx(coal.f3('c', 'a', 'b'), abs=0.3)
+    assert ms.f4('a', 'b', 'c', 'a') == pytest.approx(coal.f4('a', 'b', 'c', 'a'), abs=0.3)

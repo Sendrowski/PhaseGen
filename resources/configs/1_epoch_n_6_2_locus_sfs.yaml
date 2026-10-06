@@ -11,4 +11,5 @@ model: standard
 comparisons:
   tolerance:
     sfs2:
-      mean: 0.08
+      mean: 0.054
+      var: 0.24

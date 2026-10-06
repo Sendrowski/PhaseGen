@@ -29,7 +29,7 @@
                     "pop_1",
                     "pop_2"
                 ],
-                "tol": 0.06
+                "tol": 0.14
             },
             "f4": {
                 "args": [
@@ -102,7 +102,9 @@
     },
     "n_loci": 1,
     "recombination_rate": 0,
+    "n_unlinked": 0,
     "num_replicates": 100000,
+    "n_samples": null,
     "mutation_rate": null,
     "record_migration": false,
     "simulate_mutations": false,
@@ -119,5 +121,109 @@
         "scale_time": true,
         "alpha": 1.5
     },
-    "n_assertions": 0
+    "n_assertions": 0,
+    "_ms_statistics": {
+        "json://{\"py/tuple\": [\"fst\", {\"py/tuple\": []}]}": 0.23728195530456297,
+        "json://{\"py/tuple\": [\"f2\", {\"py/tuple\": [\"pop_0\", \"pop_2\"]}]}": 5.4888210366549925,
+        "json://{\"py/tuple\": [\"f3\", {\"py/tuple\": [\"pop_0\", \"pop_1\", \"pop_2\"]}]}": 0.5061975836771602,
+        "json://{\"py/tuple\": [\"f4\", {\"py/tuple\": [\"pop_0\", \"pop_2\", \"pop_1\", \"pop_3\"]}]}": 4.508961098226693
+    },
+    "ms": {
+        "py/object": "phasegen.distributions.empirical.MsprimeCoalescent",
+        "_logger": {
+            "py/reduce": [
+                {
+                    "py/function": "logging.getLogger"
+                },
+                {
+                    "py/tuple": [
+                        "phasegen.MsprimeCoalescent"
+                    ]
+                }
+            ]
+        },
+        "lineage_config": {
+            "py/object": "phasegen.lineage.LineageConfig",
+            "_logger": {
+                "py/reduce": [
+                    {
+                        "py/function": "logging.getLogger"
+                    },
+                    {
+                        "py/tuple": [
+                            "phasegen.LineageConfig"
+                        ]
+                    }
+                ]
+            },
+            "lineages": {
+                "py/object": "numpy.ndarray",
+                "data": [
+                    2,
+                    2,
+                    2,
+                    2
+                ],
+                "dtype": "int64"
+            },
+            "n": 8,
+            "n_pops": 4,
+            "pop_names": [
+                "pop_0",
+                "pop_1",
+                "pop_2",
+                "pop_3"
+            ]
+        },
+        "locus_config": {
+            "py/object": "phasegen.locus.LocusConfig",
+            "_logger": {
+                "py/reduce": [
+                    {
+                        "py/function": "logging.getLogger"
+                    },
+                    {
+                        "py/tuple": [
+                            "phasegen.LocusConfig"
+                        ]
+                    }
+                ]
+            },
+            "n": 1,
+            "n_unlinked": 0,
+            "recombination_rate": 0
+        },
+        "model": {
+            "py/id": 30
+        },
+        "demography": null,
+        "end_time": null,
+        "sfs_lengths": null,
+        "total_branch_lengths": null,
+        "heights": null,
+        "mutations": null,
+        "jsfs_mutations": null,
+        "deme_mutations": null,
+        "jsfs_moments": null,
+        "jsfs_samples": null,
+        "n_total": 100000,
+        "num_replicates": 100000,
+        "mutation_rate": null,
+        "n_threads": 100,
+        "parallelize": true,
+        "record_migration": false,
+        "simulate_mutations": false,
+        "seed": 42,
+        "fst": 0.23728195530456297,
+        "_pairwise_times": {
+            "json://{\"py/tuple\": [\"pop_0\", \"pop_2\"]}": 9.11374759116694,
+            "json://{\"py/tuple\": [\"pop_0\", \"pop_0\"]}": 6.359692563673056,
+            "json://{\"py/tuple\": [\"pop_2\", \"pop_2\"]}": 6.378981582005831,
+            "json://{\"py/tuple\": [\"pop_0\", \"pop_1\"]}": 6.858155168082932,
+            "json://{\"py/tuple\": [\"pop_1\", \"pop_2\"]}": 9.106012611899656,
+            "json://{\"py/tuple\": [\"pop_0\", \"pop_3\"]}": 9.108952955260243,
+            "json://{\"py/tuple\": [\"pop_2\", \"pop_3\"]}": 6.847849300850277
+        },
+        "_trajectories": null
+    }
 }

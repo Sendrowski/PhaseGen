@@ -6,7 +6,7 @@ __author__ = "Janek Sendrowski"
 __contact__ = "sendrowski.janek@gmail.com"
 __date__ = "2023-04-09"
 
-__version__ = '1.2.0'
+__version__ = '2.0.0'
 
 import logging
 import os
@@ -28,7 +28,7 @@ class TqdmLoggingHandler(logging.Handler):
     A logging handler that uses TQDM to display log messages.
     """
 
-    def __init__(self, level=logging.NOTSET):
+    def __init__(self, level=logging.NOTSET) -> None:
         """
         Initialize the handler.
 
@@ -36,7 +36,7 @@ class TqdmLoggingHandler(logging.Handler):
         """
         super().__init__(level)
 
-    def emit(self, record):
+    def emit(self, record) -> None:
         """
         Emit a record.
         """
@@ -56,7 +56,7 @@ class ColoredFormatter(logging.Formatter):
     Colored formatter.
     """
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args, **kwargs) -> None:
         """
         Initialize the formatter.
         """
@@ -72,7 +72,7 @@ class ColoredFormatter(logging.Formatter):
 
         self.reset = "\033[0m"
 
-    def format(self, record):
+    def format(self, record) -> str:
         """
         Format the record.
         """
@@ -88,22 +88,26 @@ class ColoredFormatter(logging.Formatter):
 
 class DeduplicatingFilter(logging.Filter):
     """
-    Collapse identical log records (same logger, level and rendered message) within a single *coalescent
-    computation* into one record. The per-bin / per-pair spectrum computations would otherwise repeat the same
-    strategy/debug message once per iteration; this keeps one of each per computation. Deduplication is scoped to a
+    Collapse identical log records (same logger, level and rendered message) within a single coalescent
+    computation into one record. The per-bin and per-pair spectrum computations emit the same strategy or debug
+    message once per iteration, and this filter keeps one of each per computation. Deduplication is scoped to a
     computation (not a time or record window, neither of which can robustly bound an arbitrarily slow per-pair
     loop): the caching layer bumps :data:`phasegen.caching.computation_epoch` at each outermost cached/memoised
     computation, and this filter resets its seen-set whenever that epoch changes — so a later computation logs
-    afresh while repeats within a computation are suppressed.
+    afresh while repeats within a computation are suppressed. Records logged outside any computation pass unchanged.
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
         super().__init__()
         self._epoch = None
         self._seen: set = set()
 
     def filter(self, record: logging.LogRecord) -> bool:
         from . import caching
+
+        # records logged outside any computation are not deduplicated
+        if caching._computation_depth == 0:
+            return True
 
         if caching.computation_epoch != self._epoch:
             self._epoch = caching.computation_epoch
@@ -142,7 +146,13 @@ logger.addHandler(handler)
 
 from .distributions import PhaseTypeDistribution
 
+from .distributions import RewardDistribution
+
+from .distributions import JointRewardDistribution
+
 from .distributions import Coalescent
+
+from .distributions import MutationConfig, MutationLayout
 
 from .demography import (
     Demography,
@@ -154,6 +164,7 @@ from .demography import (
     MigrationRateChange,
     SymmetricMigrationRateChanges,
     PopulationSplit,
+    Pulse,
     DiscretizedRateChanges,
     DiscretizedRateChange,
     ExponentialPopSizeChanges,
@@ -180,7 +191,6 @@ from .rewards import (
     TreeHeightReward,
     TotalTreeHeightReward,
     TotalBranchLengthReward,
-    TotalBranchLengthLocusReward,
     UnfoldedSFSReward,
     FoldedSFSReward,
     JointSFSReward,
@@ -191,6 +201,7 @@ from .rewards import (
     ProductReward,
     SumReward,
     CombinedReward,
+    RestrictedReward,
     DemeReward,
     LocusReward
 )
@@ -198,16 +209,19 @@ from .rewards import (
 from .spectrum import (
     SFS,
     Spectra,
-    SFS2,
+    TwoSFS,
     JointSFS,
     TwoLocusSFS
 )
 
+from .errors import ModelError
 from .inference import Inference
 
 from .lineage import LineageConfig
 
 from .locus import LocusConfig
+
+from .initial import InitialDistribution
 
 from .norms import (
     LNorm,
@@ -217,8 +231,6 @@ from .norms import (
     PoissonLikelihood,
     MultinomialLikelihood
 )
-
-from .state_space_old import StateSpace as OldStateSpace
 
 from .expm import (
     ExpmBackend,
@@ -238,7 +250,11 @@ from .settings import Settings
 
 __all__ = [
     'PhaseTypeDistribution',
+    'RewardDistribution',
+    'JointRewardDistribution',
     'Coalescent',
+    'MutationConfig',
+    'MutationLayout',
     'Demography',
     'Epoch',
     'PopSizeChanges',
@@ -247,6 +263,7 @@ __all__ = [
     'MigrationRateChange',
     'SymmetricMigrationRateChanges',
     'PopulationSplit',
+    'Pulse',
     'ExponentialPopSizeChanges',
     'ExponentialRateChanges',
     'DiscreteRateChanges',
@@ -255,22 +272,23 @@ __all__ = [
     'StandardCoalescent',
     'BetaCoalescent',
     'DiracCoalescent',
-    'SFS2',
+    'TwoSFS',
     'SFS',
     'JointSFS',
     'TwoLocusSFS',
     'Spectra',
     'Inference',
+    'ModelError',
     'LNorm',
     'L1Norm',
     'L2Norm',
     'LInfNorm',
     'PoissonLikelihood',
+    'MultinomialLikelihood',
     'Reward',
     'TreeHeightReward',
     'TotalTreeHeightReward',
     'TotalBranchLengthReward',
-    'TotalBranchLengthLocusReward',
     'UnfoldedSFSReward',
     'FoldedSFSReward',
     'JointSFSReward',
@@ -283,6 +301,7 @@ __all__ = [
     'DemeReward',
     'LocusReward',
     'CombinedReward',
+    'RestrictedReward',
     'StateSpace',
     'LineageCountingStateSpace',
     'BlockCountingStateSpace',
@@ -291,6 +310,7 @@ __all__ = [
     'CoalescentModel',
     'LineageConfig',
     'LocusConfig',
+    'InitialDistribution',
     'Backend',
     'ExpmBackend',
     'SciPyExpmBackend',
@@ -298,4 +318,6 @@ __all__ = [
     'JaxExpmBackend',
     'PyTorchExpmBackend',
     'Settings',
+    'take_n',
+    'takewhile_inclusive',
 ]

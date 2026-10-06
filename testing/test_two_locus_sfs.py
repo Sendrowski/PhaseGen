@@ -10,6 +10,8 @@ import pytest
 
 import phasegen as pg
 from phasegen.settings import Settings
+from phasegen.distributions import PhaseTypeDistribution
+from phasegen.rewards import UnitReward
 from phasegen.state_space import TwoLocusBlockCountingStateSpace
 
 MODELS = [
@@ -17,13 +19,6 @@ MODELS = [
     ("beta", pg.BetaCoalescent(alpha=1.5)),
     ("dirac", pg.DiracCoalescent(psi=0.5, c=1.0)),
 ]
-
-
-@pytest.fixture(autouse=True)
-def _restore_numba():
-    prev = Settings.use_numba
-    yield
-    Settings.use_numba = prev
 
 
 def _two_sfs(n, r, model=None):
@@ -38,6 +33,60 @@ def _single_locus_cross_moment(n, model=None):
     coal = pg.Coalescent(n=n, **kwargs)
     mean = np.asarray(coal.sfs.mean.data)
     return np.asarray(coal.sfs.cov.data) + np.outer(mean, mean)
+
+
+def _mean_per_pair(dist):
+    """Mean two-locus SFS via the per-pair cross-moment path (the batched form's fallback)."""
+    from phasegen.rewards import CombinedReward, TwoLocusSFSReward
+    from phasegen.distributions.phase_type import PhaseTypeDistribution
+
+    n = dist.lineage_config.n
+    out = np.zeros((n + 1, n + 1))
+    for i in dist._get_indices():
+        for j in dist._get_indices():
+            out[i, j] = PhaseTypeDistribution.moment(
+                dist, k=2, permute=False, center=False,
+                rewards=(CombinedReward([dist.reward, TwoLocusSFSReward(0, i)]),
+                         CombinedReward([dist.reward, TwoLocusSFSReward(1, j)]))
+            )
+    return (out + out.T) / 2
+
+
+@pytest.mark.parametrize("n,r", [(4, 1.0), (5, 0.5), (4, 10.0), (3, 0.0)])
+def test_batched_mean_matches_per_pair(n, r):
+    """
+    The batched two-locus mean (a single factored two-point contraction) must equal the per-pair cross-moment path
+    it replaces, and must actually be taken on a single-epoch demography. The factored form avoids materialising the
+    dense two-point operator ``K``, whose ``O(n_states^2)`` size makes the naive batching slower than per-pair (and
+    prohibitive at n=10) on the large two-locus state space.
+    """
+    dist = pg.Coalescent(n=n, loci=2, recombination_rate=r).sfs2
+
+    batched = dist._mean_batched()
+    assert batched is not None  # single epoch: the batched path is taken
+    np.testing.assert_allclose(np.asarray(batched.data), _mean_per_pair(dist), atol=1e-8)
+
+
+def test_batched_mean_falls_back_on_multiple_epochs():
+    """A multi-epoch demography has no single-epoch two-point closed form, so the batched mean must fall back."""
+    dem = pg.Demography(pop_sizes={'pop_0': {0: 1.0, 0.5: 0.3}})
+    dist = pg.Coalescent(n=4, loci=2, recombination_rate=1.0, demography=dem).sfs2
+
+    assert dist._mean_batched() is None
+    np.testing.assert_allclose(np.asarray(dist.mean.data), _mean_per_pair(dist), atol=1e-9)
+
+
+def test_two_locus_to_json_round_trip():
+    """
+    ``to_json`` must work for a multi-locus coalescent. Regression: ``drop_cache`` force-built the single-locus
+    block-counting state space, which raises ``NotImplementedError`` for two loci, so serialization crashed.
+    """
+    coal = pg.Coalescent(n=2, loci=2, recombination_rate=1.0)
+    mean = np.asarray(coal.sfs2.mean.data)  # build the two-locus state space
+
+    restored = pg.Coalescent.from_json(coal.to_json())
+
+    np.testing.assert_allclose(np.asarray(restored.sfs2.mean.data), mean)
 
 
 def test_state_space_structure():
@@ -372,10 +421,18 @@ def test_sfs_two_loci_and_sfs2_one_locus_raise():
     with pytest.raises(ValueError, match="two loci"):
         pg.Coalescent(n=4).sfs2.mean
 
-    # the (recombination-invariant) single-locus marginal mean equals the one-locus SFS
+    # the (recombination-invariant) single-locus marginal mean at either locus equals the one-locus SFS
+    from phasegen.distributions import PhaseTypeDistribution
+    from phasegen.rewards import CombinedReward
+
     marg = np.asarray(pg.Coalescent(n=4).sfs.mean.data)
-    diag = np.asarray(two.sfs2.mean.data)  # sanity: two-locus object is usable, single-locus one is the marginal
-    assert marg.shape == (5,) and diag.shape == (5, 5)
+    dist = two.sfs2
+    for locus in (0, 1):
+        for i in range(1, 4):
+            m = PhaseTypeDistribution.moment(
+                dist, k=1, center=False, rewards=(CombinedReward([dist.reward, pg.TwoLocusSFSReward(locus, i)]),)
+            )
+            assert m == pytest.approx(marg[i], rel=1e-9)
 
 
 def test_reward_state_space_guards():
@@ -384,7 +441,7 @@ def test_reward_state_space_guards():
     matters because the two-locus state space subclasses the joint one, so without explicit guards a joint-SFS reward
     would evaluate on it (and vice versa)."""
     from phasegen.state_space import (BlockCountingStateSpace, JointBlockCountingStateSpace,
-                                       TwoLocusBlockCountingStateSpace, LineageCountingStateSpace)
+                                       TwoLocusBlockCountingStateSpace)
 
     two = pg.TwoLocusSFSReward(0, 1)
     joint = pg.JointSFSReward((1, 1))
@@ -414,8 +471,138 @@ def test_reward_state_space_guards():
         two._get(single)
 
 
+@pytest.mark.parametrize("member, call", [
+    ("loci", lambda d: d.loci),
+    ("demes", lambda d: d.demes),
+])
+def test_unsupported_members_raise_not_implemented(member, call):
+    """The members of PhaseTypeDistribution that the two-locus spectrum does not provide raise NotImplementedError
+    naming the supported ones. Regression: they were inherited and failed with an unrelated absorbing-state
+    ValueError, or with a NotImplementedError naming an internal reward."""
+    sfs2 = pg.Coalescent(n=3, loci=2, recombination_rate=1.0).sfs2
+
+    with pytest.raises(NotImplementedError, match="provides moment, mean, var"):
+        call(sfs2)
+
+
+def test_moments_match_sampled_products():
+    """
+    The raw second and third moments of the products L^0_i L^1_j match those of sampled per-locus branch lengths
+    within four standard errors, and the variance, standard deviation and first moment are consistent with them.
+    """
+    sfs2 = pg.Coalescent(n=3, loci=2, recombination_rate=1.0).sfs2
+    a, b = sfs2.sample_per_locus(200000, seed=1)
+    y = a[:, 1:3, None] * b[:, None, 1:3]
+
+    for k in (2, 3):
+        est, se = (y ** k).mean(axis=0), (y ** k).std(axis=0) / np.sqrt(len(y))
+        exact = sfs2.moment(k, center=False).data[1:3, 1:3]
+        assert np.all(np.abs(exact - (est + est.T) / 2) < 4 * np.maximum(se, se.T))
+
+    np.testing.assert_allclose(sfs2.moment(1, center=False).data, sfs2.mean.data, rtol=1e-10)
+    np.testing.assert_allclose(sfs2.var.data, sfs2.m2.data - sfs2.mean.data ** 2, rtol=1e-8, atol=1e-12)
+    np.testing.assert_allclose(sfs2.std.data, np.sqrt(sfs2.var.data), rtol=1e-12)
+    np.testing.assert_allclose(sfs2.moment(1).data, sfs2.mean.data, rtol=1e-10)
+
+
+def test_accumulate_converges_to_moments_and_samples():
+    """
+    The accumulated moments of the products grow from zero and reach the moments to absorption, and the mean
+    accumulated up to a finite time matches the sampled products of the per-locus branch lengths accumulated up to
+    it.
+    """
+    coal = pg.Coalescent(n=3, loci=2, recombination_rate=1.0)
+    sfs2 = coal.sfs2
+    acc = sfs2.accumulate(2, [0, 1.0, 200.0], center=False)
+
+    assert np.allclose(acc[0], 0)
+    np.testing.assert_allclose(acc[-1], sfs2.m2.data, rtol=1e-8)
+    np.testing.assert_allclose(sfs2.accumulate(2, [200.0])[0], sfs2.var.data, rtol=1e-6)
+
+    windowed = pg.Coalescent(n=3, loci=2, recombination_rate=1.0, end_time=1.0).sfs2
+    a, b = windowed.sample_per_locus(200000, seed=1)
+    y = a[:, 1:3, None] * b[:, None, 1:3]
+    est, se = y.mean(axis=0), y.std(axis=0) / np.sqrt(len(y))
+    exact = sfs2.accumulate(1, [1.0], center=False)[0, 1:3, 1:3]
+    assert np.all(np.abs(exact - (est + est.T) / 2) < 4 * np.maximum(se, se.T))
+
+
+def test_distribution_of_a_locus_reward_is_the_single_locus_bin():
+    """The distribution of one locus's class reward on the two-locus space is that of the single-locus SFS bin."""
+    sfs2 = pg.Coalescent(n=3, loci=2, recombination_rate=1.0).sfs2
+    sfs = pg.Coalescent(n=3).sfs
+
+    for i in (1, 2):
+        d = sfs2.distribution(pg.rewards.TwoLocusSFSReward(0, i))
+        np.testing.assert_allclose(d.mean, sfs.mean.data[i], rtol=1e-10)
+        np.testing.assert_allclose(d.cdf([0.5, 2.0]), sfs.bin(i).cdf([0.5, 2.0]), atol=1e-6)
+
+
+@pytest.mark.parametrize("i, j", [(0, 1), (1, 3), (1, -1), (1, 7), (1.5, 1)])
+def test_joint_rejects_a_bin_outside_the_polymorphic_classes(i, j):
+    """Regression: an out-of-range frequency class returned the joint distribution of a reward that is zero
+    everywhere, or raised an unrelated absorbing-state error for the monomorphic classes 0 and n."""
+    sfs2 = pg.Coalescent(n=3, loci=2, recombination_rate=1.0).sfs2
+
+    with pytest.raises(ValueError, match="polymorphic class from 1 to 2"):
+        sfs2.joint(i, j)
+
+
+@pytest.mark.parametrize("count", [0, 3, 4, -1])
+def test_two_locus_sfs_reward_rejects_a_count_outside_the_polymorphic_classes(count):
+    """Regression: a count above n gave an all-zero reward whose moment was 0, and a monomorphic count raised an
+    unrelated absorbing-state error."""
+    coal = pg.Coalescent(n=3, loci=2, recombination_rate=1.0)
+
+    with pytest.raises(ValueError, match="polymorphic class from 1 to 2"):
+        coal.moment(1, [pg.TwoLocusSFSReward(0, count)])
+
+
+def test_two_locus_sfs_reward_rejects_a_locus_other_than_0_or_1():
+    """Regression: locus 2 raised a raw IndexError when the reward was evaluated."""
+    with pytest.raises(ValueError, match="locus must be 0 or 1"):
+        pg.TwoLocusSFSReward(2, 1)
+
+
+@pytest.mark.parametrize("name, model", MODELS, ids=[m[0] for m in MODELS])
+@pytest.mark.parametrize("r", [0.5, 5.0])
+def test_tree_height_on_two_locus_space_matches_lineage_counting(name, model, r):
+    """TreeHeightReward evaluated on the two-locus block-counting space gives the height of the higher locus
+    tree, the tree height of the two-locus lineage-counting space."""
+    coal = pg.Coalescent(n=3, loci=2, recombination_rate=r, model=model)
+
+    two_locus = PhaseTypeDistribution.moment(coal.sfs2, k=1, rewards=(pg.TreeHeightReward(),))
+
+    assert isinstance(coal.sfs2.state_space, TwoLocusBlockCountingStateSpace)
+    assert two_locus == pytest.approx(coal.tree_height.mean, rel=1e-10)
+
+
+@pytest.mark.parametrize("name, model", MODELS, ids=[m[0] for m in MODELS])
+def test_tree_height_combines_with_two_locus_sfs_reward(name, model):
+    """Coalescent.moment and joint accept TreeHeightReward and UnitReward together with a
+    TwoLocusSFSReward. At r = 0 both loci share one tree, so E[T L^0_i] equals the single-locus cross-moment of the
+    tree height and the SFS bin, computed on the single-locus block-counting space. Regression: the rewards did not
+    declare support for the two-locus space, so the mix was rejected."""
+    n = 3
+    coal = pg.Coalescent(n=n, loci=2, recombination_rate=0.0, model=model)
+    single = pg.Coalescent(n=n, model=model)
+
+    for i in range(1, n):
+        cross = coal.moment(2, [pg.TreeHeightReward(), pg.TwoLocusSFSReward(0, i)], center=False)
+        ref = single.moment(2, [pg.TreeHeightReward(), pg.UnfoldedSFSReward(i)], center=False)
+
+        assert cross == pytest.approx(ref, rel=1e-10)
+        assert coal.joint(pg.TreeHeightReward(), pg.TwoLocusSFSReward(0, i)).moment(1, 1) == \
+               pytest.approx(ref, rel=1e-10)
+
+    unit = coal.moment(2, [pg.CombinedReward([UnitReward(), pg.TwoLocusSFSReward(0, 1)]),
+                           pg.TwoLocusSFSReward(1, 1)], center=False)
+    assert unit == pytest.approx(coal.sfs2.mean.data[1, 1], rel=1e-10)
+
+
 def _msprime_two_locus_sfs(n, r, ms_model, reps, seed, ms_demography=None):
-    """Two-locus SFS via msprime: two sites at recombination distance r, the per-bin branch-length cross product."""
+    """Two-locus SFS via msprime: two sites at recombination distance r, the per-bin branch-length cross product,
+    returned with its standard error."""
     import msprime as ms
 
     sim_kwargs = dict(samples=n, sequence_length=2, recombination_rate=r, ploidy=1, model=ms_model,
@@ -425,7 +612,8 @@ def _msprime_two_locus_sfs(n, r, ms_model, reps, seed, ms_demography=None):
     else:
         sim_kwargs['demography'] = ms_demography
 
-    out = np.zeros((n + 1, n + 1))
+    total = np.zeros((n + 1, n + 1))
+    total_sq = np.zeros((n + 1, n + 1))
     for ts in ms.sim_ancestry(**sim_kwargs):
         t0, t1 = ts.at(0.5), ts.at(1.5)
         left = np.zeros(n + 1)
@@ -436,9 +624,13 @@ def _msprime_two_locus_sfs(n, r, ms_model, reps, seed, ms_demography=None):
         for nd in t1.nodes():
             if t1.parent(nd) != -1:
                 right[t1.num_samples(nd)] += t1.branch_length(nd)
-        out += np.outer(left, right)
+        outer = np.outer(left, right)
+        total += outer
+        total_sq += outer ** 2
 
-    return out / reps
+    mean = total / reps
+
+    return mean, np.sqrt((total_sq / reps - mean ** 2) / reps)
 
 
 def _ms_model(name):
@@ -462,10 +654,11 @@ def test_msprime_two_locus_sfs(name, model, ms_model, n, r):
     """The analytical two-locus SFS matches msprime two-locus simulations across models and sample sizes, with
     recombination mapping directly between the two."""
     ana = _two_sfs(n, r, model)
-    sim = _msprime_two_locus_sfs(n, r, _ms_model(ms_model), reps=200000, seed=42)
+    sim, se = _msprime_two_locus_sfs(n, r, _ms_model(ms_model), reps=200000, seed=42)
 
+    # within four standard errors of the simulated entries
     s = slice(1, n)
-    np.testing.assert_allclose(ana[s, s], sim[s, s], atol=0.05, err_msg=name)
+    assert np.all(np.abs(ana[s, s] - sim[s, s]) <= 4 * se[s, s]), name
 
 
 @pytest.mark.slow
@@ -480,10 +673,10 @@ def test_msprime_two_locus_sfs_two_epoch():
     dem = ms.Demography()
     dem.add_population(initial_size=1.0)
     dem.add_population_parameters_change(time=1.0, initial_size=0.5)
-    sim = _msprime_two_locus_sfs(n, r, ms.StandardCoalescent(), reps=200000, seed=43, ms_demography=dem)
+    sim, se = _msprime_two_locus_sfs(n, r, ms.StandardCoalescent(), reps=200000, seed=43, ms_demography=dem)
 
     s = slice(1, n)
-    np.testing.assert_allclose(ana[s, s], sim[s, s], atol=0.05)
+    assert np.all(np.abs(ana[s, s] - sim[s, s]) <= 4 * se[s, s])
 
 
 def _two_sfs_demography(n, r):
@@ -491,3 +684,209 @@ def _two_sfs_demography(n, r):
     coal = pg.Coalescent(n=n, loci=2, recombination_rate=r,
                          demography=pg.Demography(pop_sizes={'pop_0': {0: 1.0, 1.0: 0.5}}))
     return np.asarray(coal.sfs2.mean.data)
+
+
+@pytest.mark.slow
+def test_two_locus_joint_vs_msprime():
+    """Ground truth via the scenario infrastructure: the two-locus joint reward distribution's cross-moment
+    ``E[L^0_i L^1_j]`` (the 2-SFS entry) and joint CDF match a fresh msprime simulation, compared through the
+    empirical two-locus cross-moment / joint-CDF tracking. Exercises the cross-locus dependence at ``r = 0.5``."""
+    from phasegen.comparison import Comparison
+
+    c = Comparison(n=4, n_loci=2, recombination_rate=0.5, num_replicates=120000,
+                   pop_sizes={'pop_0': {0: 1.0}}, parallelize=True, seed=5, comparisons={'tolerance': {}})
+    ms2, ph = c.ms.sfs2, c.ph
+
+    for i, j in [(1, 1), (1, 2), (2, 2), (2, 3)]:
+        jd = ph.sfs2.joint(i, j)
+        empirical_cross = ms2.joint(i, j).moment(1, 1)
+        assert abs(jd.moment(1, 1) - empirical_cross) < 0.04 * empirical_cross + 0.01
+
+        for qa, qb in [(0.5, 0.6), (0.7, 0.4)]:
+            x = float(jd.marginal('a').quantile(qa))
+            y = float(jd.marginal('b').quantile(qb))
+            assert abs(jd.cdf(x, y) - ms2.joint(i, j).cdf(x, y)) < 0.02
+
+
+def test_two_locus_joint_restricted_by_spectrum_reward():
+    """
+    The joint distribution of the two locus bins must carry the reward of the spectrum. It used the bare locus
+    rewards, so a constant reward of 2 left the means unchanged instead of doubling them.
+    """
+    sfs2 = pg.Coalescent(n=3, loci=2, recombination_rate=1).sfs2
+    scaled = pg.distributions.TwoLocusSFSDistribution(
+        state_space=sfs2.state_space,
+        tree_height=sfs2._tree_height,
+        demography=sfs2.demography,
+        reward=pg.CustomReward(lambda s: np.full(s.k, 2.0))
+    )
+
+    np.testing.assert_allclose(scaled.joint(1, 2).mean, 2 * sfs2.joint(1, 2).mean, rtol=1e-10)
+
+
+@pytest.mark.slow
+@pytest.mark.parametrize("n_unlinked, exact", [(0, 1.0), (1, 1 / 3), (2, 2 / 9)])
+def test_msprime_honours_n_unlinked(n_unlinked, exact):
+    """``LocusConfig.n_unlinked`` must reach the simulation, so that the exact two-locus path has a ground truth to
+    be checked against. Regression: it was validated and stored but never read, and every sample started ancestral
+    at both loci, so the simulated covariance of the two loci's tree heights was 1 whatever the setting."""
+    from phasegen.distributions.empirical import MsprimeCoalescent
+
+    loci = pg.LocusConfig(n=2, recombination_rate=0.0, n_unlinked=n_unlinked)
+    sim = MsprimeCoalescent(n=pg.LineageConfig(2), loci=loci, num_replicates=100000, seed=3)
+
+    # the marginal at one locus cannot see the initial linkage
+    assert sim.tree_height.loci[0].mean == pytest.approx(1.0, abs=0.02)
+
+    # the covariance between the loci does, and it is what n_unlinked sets, within four standard errors of the
+    # simulated covariance, sqrt(8 / 100000) = 0.0089 when the loci are fully linked
+    assert sim.tree_height.loci.cov[0, 1] == pytest.approx(exact, abs=0.036)
+    assert pg.Coalescent(n=pg.LineageConfig(2), loci=loci).tree_height.loci.cov[0, 1] == pytest.approx(exact, abs=1e-9)
+
+
+@pytest.mark.slow
+def test_msprime_places_unlinked_lineages_as_the_exact_path_does():
+    """The unlinked lineages are taken from the demes in order, each filled before the next, on both sides. The
+    unlinked lineage starts in the large deme a, the linked one in the small deme b. Regression: the exact path
+    averaged over the placements in a and b, giving a covariance of the two loci's tree heights of 5.10 against
+    2.32 +- 0.14 simulated (20 standard errors off), where the per-deme placement gives 2.38."""
+    from phasegen.distributions.empirical import MsprimeCoalescent
+
+    dem = pg.Demography(pop_sizes={'a': 5.0, 'b': 0.2}, migration_rates={('a', 'b'): 0.5, ('b', 'a'): 0.5})
+    loci = pg.LocusConfig(n=2, recombination_rate=0.0, n_unlinked=1)
+
+    exact = pg.Coalescent(n={'a': 1, 'b': 1}, demography=dem, loci=loci).tree_height.loci.cov[0, 1]
+    sim = MsprimeCoalescent(n={'a': 1, 'b': 1}, demography=dem, loci=loci, num_replicates=20000, seed=5)
+
+    # four standard errors of the simulated covariance, which is about 0.14 at 20,000 replicates
+    assert sim.tree_height.loci.cov[0, 1] == pytest.approx(exact, abs=0.55)
+
+
+@pytest.mark.slow
+def test_msprime_unlinked_lineages_with_migration_recording():
+    """The statistics accumulators take the first n node ids as the samples, so the initial state must number the
+    samples before the split parents. Regression: the parents were interleaved among them, and with migration
+    recording the simulated mean total branch length was 25.1 against the exact 12.0."""
+    from phasegen.distributions.empirical import MsprimeCoalescent
+
+    dem = pg.Demography(pop_sizes={'a': 1.0, 'b': 1.0}, migration_rates={('a', 'b'): 0.5, ('b', 'a'): 0.5})
+    loci = pg.LocusConfig(n=2, recombination_rate=0.0, n_unlinked=1)
+
+    exact = pg.Coalescent(n={'a': 1, 'b': 1}, demography=dem, loci=loci).total_branch_length.mean
+    sim = MsprimeCoalescent(n={'a': 1, 'b': 1}, demography=dem, loci=loci, num_replicates=20000, seed=4,
+                            record_migration=True)
+
+    assert sim.total_branch_length.mean == pytest.approx(exact, rel=0.03)
+
+
+def test_msprime_migration_history_gives_no_negative_branch_length_when_a_tree_spans_both_loci():
+    """With migration recording on two linked loci, each locus takes the migrations at its own midpoint. Regression:
+    a tree spanning both loci took the migrations of both, so some replicates had negative per-deme branch lengths
+    (about 20 in 10,000 replicates)."""
+    coal = pg.Coalescent(
+        n={'pop_0': 2, 'pop_1': 1},
+        loci=pg.LocusConfig(n=2, recombination_rate=0.8),
+        demography=pg.Demography(pop_sizes={'pop_0': {0: 1, 0.4: 2}, 'pop_1': {0: 0.5}},
+                                 migration_rates={('pop_0', 'pop_1'): 0.6, ('pop_1', 'pop_0'): 1.1})
+    )
+    ms = coal.to_msprime(num_replicates=5000, record_migration=True, parallelize=False, seed=1)
+    ms.simulate()
+
+    assert ms.total_branch_lengths.min() >= 0
+
+
+def test_windowed_moments_match_sampled_products():
+    """
+    The mean and second moment of the products on a window of the coalescent, and the accumulation from the window
+    start, match the sampled products of the windowed coalescent within four standard errors.
+    """
+    windowed = pg.Coalescent(n=3, loci=2, recombination_rate=1.0, start_time=0.3, end_time=1.5).sfs2
+    a, b = windowed.sample_per_locus(200000, seed=2)
+    y = a[:, 1:3, None] * b[:, None, 1:3]
+
+    for k, exact in ((1, windowed.mean.data), (2, windowed.m2.data)):
+        est, se = (y ** k).mean(axis=0), (y ** k).std(axis=0) / np.sqrt(len(y))
+        assert np.all(np.abs(exact[1:3, 1:3] - (est + est.T) / 2) < 4 * np.maximum(se, se.T))
+
+    acc = pg.Coalescent(n=3, loci=2, recombination_rate=1.0).sfs2.accumulate(1, [1.5], center=False, start_time=0.3)
+    np.testing.assert_allclose(acc[0], windowed.mean.data, rtol=1e-8)
+
+
+def test_plot_accumulation_draws_one_curve_per_pair():
+    """The accumulation plot draws the accumulated moment of each pair of classes i <= j and takes no rewards."""
+    sfs2 = pg.Coalescent(n=3, loci=2, recombination_rate=1.0).sfs2
+    data = sfs2._plot_accumulation_data(2, [0.5, 1.0])
+    acc = sfs2.accumulate(2, [0.5, 1.0])
+    pairs = [(i, j) for i in (1, 2) for j in (1, 2) if i <= j]
+
+    assert data.labels == [f"({i}, {j})" for i, j in pairs]
+    np.testing.assert_allclose(data.y, [acc[:, i, j] for i, j in pairs])
+
+    with pytest.raises(ValueError):
+        sfs2._plot_accumulation_data(1, [1.0], rewards=[pg.TreeHeightReward()])
+
+
+def test_distribution_requires_a_reward():
+    """The spectrum has no distribution of its own, so a call without a reward raises."""
+    with pytest.raises(ValueError, match="no distribution of its own"):
+        pg.Coalescent(n=3, loci=2, recombination_rate=1.0).sfs2.distribution()
+
+
+def test_sample_variance_matches_var():
+    """The sampled products have the variance of var within four standard errors, also off the diagonal."""
+    sfs2 = pg.Coalescent(n=3, loci=2, recombination_rate=1.0).sfs2
+    s = sfs2.sample(200000, seed=3)[:, 1:3, 1:3]
+    blocks = np.array([b.var(axis=0) for b in np.array_split(s, 100)])
+    est, se = s.var(axis=0), blocks.std(axis=0) / 10
+
+    assert np.all(np.abs(sfs2.var.data[1:3, 1:3] - (est + est.T) / 2) < 4 * np.maximum(se, se.T))
+
+
+def test_empirical_spectrum_keeps_only_the_branch_lengths_of_the_two_loci():
+    """
+    ``EmpiricalTwoLocusSFSDistribution`` stored the dense per-replicate products ``L^0_i L^1_j`` of ``N (n + 1)^2``
+    floats beside the branch lengths of the two loci. It holds no array of that size, and its statistics equal those
+    of the products.
+    """
+    e = pg.Coalescent(n=4, loci=2, recombination_rate=1.0).sfs2.to_empirical(2000, seed=1)
+    left, right = e._left.copy(), e._right.copy()
+    y = left[:, :, None] * right[:, None, :]
+
+    assert all(v.size < y.size for v in vars(e).values() if isinstance(v, np.ndarray))
+    np.testing.assert_array_equal(e.samples, y)
+    np.testing.assert_array_equal(e.mean.data, np.mean(y, axis=0))
+    np.testing.assert_array_equal(e.var.data, np.var(y, axis=0))
+    np.testing.assert_array_equal(e.moment(3).data, np.mean((y - np.mean(y, axis=0)) ** 3, axis=0))
+    np.testing.assert_array_equal(e.cov, np.cov(y.reshape(len(y), -1), rowvar=False, bias=True).reshape(5, 5, 5, 5))
+
+    e._drop()
+
+    assert e.samples is None and e._left is None and e._right is None
+    np.testing.assert_array_equal(e.mean.data, np.mean(y, axis=0))
+    assert e.n_samples == 2000
+
+    with pytest.raises(AttributeError):
+        e.samples = y
+
+
+def test_empirical_moments_survive_dropping_the_samples():
+    """After the samples are freed, the empirical spectrum serves its retained moments and covariance."""
+    e = pg.Coalescent(n=3, loci=2, recombination_rate=1.0).sfs2.to_empirical(5000, seed=1)
+    m2, var, cov = e.moment(2, center=False).data, e.var.data, e.cov
+    e._drop()
+
+    np.testing.assert_array_equal(e.moment(2, center=False).data, m2)
+    np.testing.assert_array_equal(e.moment(2).data, var)
+    np.testing.assert_array_equal(e.cov, cov)
+
+    with pytest.raises(ValueError, match="dropped"):
+        e.moment(3)
+
+
+def test_msprime_two_locus_spectrum_uses_the_shared_replicates():
+    """The msprime two-locus spectrum is built from all replicates of the shared simulation."""
+    ms = pg.distributions.MsprimeCoalescent(n=3, loci=2, recombination_rate=1.0, num_replicates=500, n_threads=2,
+                                            parallelize=False, seed=1)
+
+    assert ms.sfs2.n_samples == ms.sfs_lengths.shape[2]
+    np.testing.assert_allclose(ms.sfs2.mean.data, np.einsum('ni,nj->ij', *ms.sfs_lengths.sum(axis=1)) / ms.sfs2.n_samples)

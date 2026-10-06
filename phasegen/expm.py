@@ -1,51 +1,70 @@
 """
 Matrix exponentiation backends.
+
+.. deprecated::
+    The backend registry is deprecated and will be removed. The coalescent statistics issue many small matrix
+    exponentials, for which the default SciPy backend is faster than the TensorFlow, Jax and PyTorch ones, whose
+    per-call overhead dominates at these sizes.
+
+Two operations are exposed: the dense matrix exponential :math:`\\exp(\\mathbf{A})`
+(:meth:`ExpmBackend.compute() <phasegen.expm.ExpmBackend.compute>`) and its action
+:math:`\\exp(\\mathbf{A})\\mathbf{v}` on a vector or thin matrix
+(:meth:`ExpmBackend.compute_action() <phasegen.expm.ExpmBackend.compute_action>`).
+
+A registered backend reaches the Van Loan evaluation of moments, the tree-height distribution functions and the
+mutational configurations. The Laplace transform of an accumulated reward always calls SciPy. The occupation times of
+spectra call SciPy above :attr:`Settings.closed_form_sparse_min_states
+<phasegen.settings.Settings.closed_form_sparse_min_states>` and :attr:`Settings.expm_action_min_dim
+<phasegen.settings.Settings.expm_action_min_dim>`, and the registered backend below them.
 """
+import logging
 from abc import ABC, abstractmethod
-from typing import Literal
 
 import numpy as np
 import scipy
 
+logger = logging.getLogger('phasegen')
+
 
 class ExpmBackend(ABC):
     """
-    Base class for matrix exponentiation.
-
-    :meta private:
+    Base class for matrix exponentiation backends. A custom backend implements :meth:`compute` and is activated with
+    :meth:`Backend.register() <phasegen.expm.Backend.register>`.
     """
 
     @abstractmethod
     def compute(self, m: np.ndarray) -> np.ndarray:
         """
-        Compute the matrix exponential.
+        Compute the matrix exponential :math:`\\exp(\\mathbf{A})`.
+
+        :param m: Square matrix.
+        :return: The matrix exponential of ``m``.
         """
         pass
 
     def compute_action(self, a, b: np.ndarray) -> np.ndarray:
         """
-        Compute the action of the matrix exponential on a vector (or thin matrix), ``exp(a) @ b``, without forming
-        the dense exponential. The default uses scipy's sparse Krylov/Taylor implementation, which exploits the
-        sparsity of ``a``; backends may override this (e.g. with a GPU Krylov method).
+        Compute the action of the matrix exponential on a vector (or thin matrix),
+        :math:`\\exp(\\mathbf{A})\\mathbf{v}` (``exp(a) @ b``).
+
+        The default implementation densifies ``a`` and forms the dense exponential via :meth:`compute`, so the action
+        uses the backend's own exponentiation. :class:`SciPyExpmBackend` overrides it with the truncated Taylor
+        algorithm of Al-Mohy and Higham (2011) in :func:`scipy.sparse.linalg.expm_multiply`, which exploits the
+        sparsity of :math:`\\mathbf{A}` without forming the dense exponential. Other backends may override it likewise.
 
         :param a: Matrix (typically a sparse matrix).
         :param b: Vector or thin matrix.
         :return: ``exp(a) @ b``.
         """
-        from scipy.sparse.linalg import expm_multiply
+        a_dense = a.toarray() if hasattr(a, 'toarray') else np.asarray(a)
 
-        return expm_multiply(a, b)
+        return self.compute(a_dense) @ b
 
 
 class TensorFlowExpmBackend(ExpmBackend):
     """
-    Compute the matrix exponential using TensorFlow. Tends to be faster than scipy.
-    Note that tensorflow is an optional dependency and thus needs to be installed separately.
-    GPU acceleration may be available depending on the underlying hardware.
-    Tends to be faster than :class:`SciPyExpmBackend` for large matrices and highly parallelized computations.
-
-    .. note::
-        Recommended backend for fast and reliable matrix exponentiation.
+    Compute the matrix exponential using TensorFlow, an optional dependency with the installation and GPU
+    notes of :class:`JaxExpmBackend`.
     """
 
     def compute(self, m: np.ndarray) -> np.ndarray:
@@ -66,28 +85,66 @@ class SciPyExpmBackend(ExpmBackend):
     Compute the matrix exponential using SciPy.
 
     .. note::
-        This is the default backend. Recommended for smaller matrices. Consider switching to other backends for larger
-        matrices, such as :class:`JaxExpmBackend`, which is both efficient and lightweight to install.
+        This is the default backend.
     """
 
-    def __init__(self, precision: Literal['np.float32', 'np.float64'] = np.float64):
+    #: Largest 1-norm passed to :func:`scipy.linalg.expm`. Its choice of the number of squarings overflows for 1-norms
+    #: above about 1e38, so a larger argument is scaled by a power of two below this bound and the result squared,
+    #: each squaring roughly doubling the relative error.
+    _max_norm: float = 1e36
+
+    def __init__(self, precision: type | str | np.dtype = np.float64) -> None:
         """
         Initialize the backend.
 
-        :param precision: Precision of the matrix exponential, defaults to double precision. A lower precision may be
-            faster but much more prone to numerical issues, so please use with caution.
+        :param precision: Floating-point precision of the matrix exponential and its action, as a NumPy floating type
+            such as ``np.float32`` or ``np.float64``, or its name such as ``'float32'``. Defaults to double precision.
+            A lower precision may be faster but is much more prone to numerical issues. Only single and double
+            precision are supported.
+        :raises TypeError: If ``precision`` is neither single nor double precision.
         """
-        #: Precision of the matrix exponential
-        self.precision = precision
+        try:
+            dtype = np.dtype(precision)
+        except TypeError:
+            dtype = None
+
+        if dtype is None or dtype not in (np.dtype(np.float32), np.dtype(np.float64)):
+            raise TypeError(f"Precision must be np.float32 or np.float64, got {precision!r}.")
+
+        #: Precision of the matrix exponential and its action
+        self.precision: np.dtype = dtype
 
     def compute(self, m: np.ndarray) -> np.ndarray:
-        """
-        Compute the matrix exponential using SciPy.
+        r"""
+        Compute the matrix exponential using SciPy, as :math:`\exp(\mathbf{A} / 2^k)^{2^k}` with the smallest
+        :math:`k \ge 0` that brings the 1-norm of :math:`\mathbf{A} / 2^k` within :attr:`_max_norm`.
 
         :param m: Matrix
         :return: Matrix exponential
         """
-        return scipy.linalg.expm(m.astype(self.precision))
+        m = m.astype(self.precision)
+        norm = float(np.abs(m).sum(axis=0).max()) if m.size else 0.0
+        k = int(np.ceil(np.log2(norm / self._max_norm))) if np.isfinite(norm) and norm > self._max_norm else 0
+
+        e = scipy.linalg.expm(m / 2.0 ** k if k else m)
+        for _ in range(k):
+            e = e @ e
+
+        return e
+
+    def compute_action(self, a, b: np.ndarray) -> np.ndarray:
+        """
+        Compute the action :math:`\\exp(\\mathbf{A})\\mathbf{v}` (``exp(a) @ b``) with the truncated Taylor algorithm
+        of Al-Mohy and Higham (2011) in :func:`scipy.sparse.linalg.expm_multiply`, which exploits the sparsity of
+        :math:`\\mathbf{A}` without forming the dense exponential.
+
+        :param a: Matrix (typically a sparse matrix).
+        :param b: Vector or thin matrix.
+        :return: ``exp(a) @ b``.
+        """
+        from scipy.sparse.linalg import expm_multiply
+
+        return expm_multiply(a.astype(self.precision), np.asarray(b, dtype=self.precision))
 
 
 class JaxExpmBackend(ExpmBackend):
@@ -95,10 +152,9 @@ class JaxExpmBackend(ExpmBackend):
     Compute the matrix exponential using Jax.
     Note that jax is an optional dependency and thus needs to be installed separately.
     GPU acceleration may be available depending on the underlying hardware.
-    Tends to be faster than :class:`SciPyExpmBackend` for larger matrices and highly parallelized computations.
     """
 
-    def __init__(self, max_squarings: int = 2 ** 10):
+    def __init__(self, max_squarings: int = 2 ** 10) -> None:
         """
         Initialize the backend.
 
@@ -157,21 +213,38 @@ class Backend(ABC):
     @abstractmethod
     def expm(cls, m: np.ndarray) -> np.ndarray:
         """
-        Compute the matrix exponential.
+        Compute the matrix exponential :math:`\\exp(\\mathbf{A})`, as a writable NumPy array whatever array type the
+        backend returns.
         """
-        return cls.backend.compute(m)
+        return cls._writable(cls.backend.compute(m))
 
     @classmethod
     def expm_multiply(cls, a, b: np.ndarray) -> np.ndarray:
         """
-        Compute the action of the matrix exponential, ``exp(a) @ b``, via the active backend without forming the
-        dense exponential.
+        Compute the action of the matrix exponential, :math:`\\exp(\\mathbf{A})\\mathbf{v}` (``exp(a) @ b``), via the
+        active backend, as a writable NumPy array.
         """
-        return cls.backend.compute_action(a, b)
+        return cls._writable(cls.backend.compute_action(a, b))
+
+    @staticmethod
+    def _writable(x) -> np.ndarray:
+        """
+        The array as a writable NumPy array, copied only if it is not one.
+
+        :param x: Array of any array type.
+        :return: Writable NumPy array.
+        """
+        return x if isinstance(x, np.ndarray) and x.flags.writeable else np.array(x)
 
     @classmethod
-    def register(cls, backend: ExpmBackend):
+    def register(cls, backend: ExpmBackend) -> None:
         """
         Register a backend.
+
+        .. deprecated::
+            The backend registry is deprecated and will be removed; see :mod:`phasegen.expm`.
         """
+        logger.warning(
+            "Backend.register is deprecated and will be removed; phasegen will call SciPy directly."
+        )
         cls.backend = backend

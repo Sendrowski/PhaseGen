@@ -1,9 +1,6 @@
 .. _modules.state_space:
 
-State Space
+State space
 -----------
 
 .. automodule:: phasegen.state_space
-   :inherited-members:
-   :undoc-members:
-   :show-inheritance:

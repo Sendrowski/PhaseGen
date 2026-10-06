@@ -14,9 +14,10 @@ migration_rates:
   !!python/tuple [ 'pop_1', 'pop_0' ]:
     0: 0.2
 model: standard
+seed: 42
 comparisons:
   tolerance:
     sfs:
-      mutation_configs: 0.1
+      mutation_configs: 0.004
     fsfs:
-      mutation_configs: 0.1
+      mutation_configs: 0.004

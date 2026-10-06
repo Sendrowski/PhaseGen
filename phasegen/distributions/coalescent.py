@@ -4,28 +4,36 @@ import copy
 import logging
 from abc import ABC, abstractmethod
 from ..caching import cached_property, cache
-from typing import List, Tuple, Dict, Iterable, Sequence, Union, TYPE_CHECKING
+from typing import List, Dict, Iterable, Sequence, TYPE_CHECKING
 import numpy as np
 from ..coalescent_models import StandardCoalescent, CoalescentModel
 from ..demography import Demography, PopSizeChanges
-from ..expm import Backend
+from ..initial import InitialDistribution
 from ..lineage import LineageConfig
 from ..locus import LocusConfig
-from ..rewards import Reward, TreeHeightReward, TotalBranchLengthReward, UnitReward
+from ..rewards import Reward, TreeHeightReward
 from ..serialization import Serializable
-from ..state_space import BlockCountingStateSpace, LineageCountingStateSpace, JointBlockCountingStateSpace, TwoLocusBlockCountingStateSpace
+from ..state_space import StateSpace, BlockCountingStateSpace, LineageCountingStateSpace, JointBlockCountingStateSpace, TwoLocusBlockCountingStateSpace
 
-from ._common import _make_hashable
+from ._common import N_EMPIRICAL_SAMPLES, _make_hashable, _validate_order, _validate_reward, _validate_rewards
 from .base import DensityAwareDistribution, MomentAwareDistribution
-from .phase_type import PhaseTypeDistribution, TreeHeightDistribution
+from .phase_type import PhaseTypeDistribution, TreeHeightDistribution, TotalBranchLengthDistribution
 from .spectra import FoldedSFSDistribution, JointSFSDistribution, TwoLocusSFSDistribution, UnfoldedSFSDistribution
 
 if TYPE_CHECKING:
+    from .reward import RewardDistribution, JointRewardDistribution
     from matplotlib import pyplot as plt
-    from .empirical import MsprimeCoalescent
+    from .empirical import MsprimeCoalescent, SampledCoalescent
 
-expm = Backend.expm
 logger = logging.getLogger('phasegen')
+
+#: Attribute names of the state spaces a :class:`Coalescent` can build.
+_STATE_SPACE_NAMES = (
+    'lineage_counting_state_space',
+    'block_counting_state_space',
+    'joint_block_counting_state_space',
+    'two_locus_block_counting_state_space',
+)
 
 
 class AbstractCoalescent(ABC):
@@ -34,59 +42,97 @@ class AbstractCoalescent(ABC):
     tree height, total branch length and site frequency spectrum.
     """
 
+    #: Initial distribution over lineage configurations, ``None`` for the single configuration :attr:`lineage_config`
+    lineage_distribution: InitialDistribution | None = None
+
+    #: Initial distribution over locus configurations, ``None`` for the single configuration :attr:`locus_config`
+    locus_distribution: InitialDistribution | None = None
+
     def __init__(
             self,
-            n: int | Dict[str, int] | List[int] | LineageConfig,
+            n: int | Dict[str, int] | List[int] | LineageConfig | InitialDistribution,
             model: CoalescentModel = None,
             demography: Demography = None,
-            loci: int | LocusConfig = 1,
+            loci: int | LocusConfig | InitialDistribution = 1,
             recombination_rate: float = None,
             end_time: float = None
-    ):
+    ) -> None:
         """
         Create object.
 
         :param n: Number of lineages. Either a single integer if only one population, or a list of integers
             or a dictionary with population names as keys and number of lineages as values. Alternatively, a
-            :class:`~phasegen.lineage.LineageConfig` object can be passed.
+            :class:`~phasegen.lineage.LineageConfig` object, or an :class:`~phasegen.initial.InitialDistribution`
+            over lineage configurations, can be passed.
         :param model: Coalescent model. By default, the standard coalescent is used.
-        :param loci: Number of loci or locus configuration.
-        :param recombination_rate: Recombination rate.
+        :param loci: Number of loci, locus configuration, or :class:`~phasegen.initial.InitialDistribution` over
+            locus configurations.
+        :param recombination_rate: Recombination rate. If given, it overrides the rate of ``loci``.
         :param demography: Demography.
-        :param end_time: Time when to end the computation. If ``None``, the end time is taken to be the
+        :param end_time: Time when to end the computation. If ``None`` or infinite, the end time is taken to be the
             time of almost sure absorption. Note that unnecessarily large end times can lead to numerical errors.
+        :raises ValueError: If the number of unlinked lineages exceeds the number of lineages.
+        :raises TypeError: If ``model`` is not a :class:`~phasegen.coalescent_models.CoalescentModel`,
+            ``demography`` is not a :class:`~phasegen.demography.Demography`, or an initial distribution passed as
+            ``n`` or ``loci`` holds the other kind of configuration.
         """
+        n, lineage_distribution = InitialDistribution._split(n)
+        loci, locus_distribution = InitialDistribution._split(loci)
+
+        if lineage_distribution is not None and not isinstance(n, LineageConfig):
+            raise TypeError("An initial distribution passed as n must hold lineage configurations.")
+
+        if locus_distribution is not None and not isinstance(loci, LocusConfig):
+            raise TypeError("An initial distribution passed as loci must hold locus configurations.")
+
         self._logger = logger.getChild(self.__class__.__name__)
 
         # set up default coalescent model
         if model is None:
             model = StandardCoalescent()
 
+        if not isinstance(model, CoalescentModel):
+            raise TypeError(f"model must be a {CoalescentModel.__name__}, but got {type(model).__name__}.")
+
+        if demography is not None and not isinstance(demography, Demography):
+            raise TypeError(f"demography must be a {Demography.__name__}, but got {type(demography).__name__}.")
+
         if not isinstance(n, LineageConfig):
-            #: Population configuration
+            #: Population configuration, the first component of :attr:`lineage_distribution` if given
             self.lineage_config: LineageConfig = LineageConfig(n)
         else:
-            #: Population configuration
+            #: Population configuration, the first component of :attr:`lineage_distribution` if given
             self.lineage_config: LineageConfig = n
 
         # set up demography
         if demography is None:
             demography = Demography(pop_sizes={p: 1 for p in self.lineage_config.pop_names})
-
-        # set up locus configuration (accept a numeric number of loci, including the float that reticulate passes
-        # from R, or a LocusConfig)
-        if isinstance(loci, (int, float)):
-            #: Locus configuration
-            self.locus_config: LocusConfig = LocusConfig(
-                n=int(loci),
-                recombination_rate=recombination_rate if recombination_rate is not None else 0
-            )
         else:
-            #: Locus configuration
-            self.locus_config: LocusConfig = loci
+            # copy so filling in missing populations never mutates the caller-supplied demography
+            demography = copy.deepcopy(demography)
 
-            if recombination_rate is not None:
-                self.locus_config.recombination_rate = recombination_rate
+        # accept a number of loci (including the float that reticulate passes from R) or a locus configuration
+        if not isinstance(loci, LocusConfig):
+            loci = LocusConfig(n=loci)
+
+        def validate_locus_config(c: LocusConfig) -> LocusConfig:
+            """
+            A new, validated locus configuration, so the caller-supplied one is never mutated.
+
+            :param c: The locus configuration.
+            :return: The new locus configuration, with the overriding recombination rate.
+            """
+            return LocusConfig(
+                n=c.n,
+                n_unlinked=c.n_unlinked,
+                recombination_rate=c.recombination_rate if recombination_rate is None else recombination_rate
+            )
+
+        #: Locus configuration, the first component of :attr:`locus_distribution` if given
+        self.locus_config: LocusConfig = validate_locus_config(loci)
+
+        if locus_distribution is not None:
+            self.locus_distribution = locus_distribution._map(validate_locus_config)
 
         # population names present in the population configuration but not in the demography
         initial_sizes = {p: {0: 1} for p in self.lineage_config.pop_names if p not in demography.pop_names}
@@ -104,8 +150,8 @@ class AbstractCoalescent(ABC):
                 f"Adding these populations with population size of 1."
             )
 
-        # determine population names that are present in the demography but not in the population configuration
-        unspecified_lineages = set(demography.pop_names) - set(self.lineage_config.pop_names)
+        # population names present in the demography but not in the population configuration, in demography order
+        unspecified_lineages = [p for p in demography.pop_names if p not in self.lineage_config.pop_names]
 
         # warn if population names are present in the demography but not in the population configuration
         if len(unspecified_lineages) > 0:
@@ -117,14 +163,59 @@ class AbstractCoalescent(ABC):
 
         self.lineage_config = LineageConfig(self.lineage_config.lineage_dict | {p: 0 for p in unspecified_lineages})
 
+        if lineage_distribution is not None:
+            self.lineage_distribution = lineage_distribution._map(
+                lambda c: LineageConfig(c.lineage_dict | {p: 0 for p in unspecified_lineages})
+            )
+
+        n_unlinked = max(c.n_unlinked for c in ([self.locus_config] if self.locus_distribution is None
+                                                else self.locus_distribution.configs))
+
+        if n_unlinked > self.lineage_config.n:
+            raise ValueError(
+                f"The number of unlinked lineages ({n_unlinked}) must not exceed the number of "
+                f"lineages ({self.lineage_config.n})."
+            )
+
         #: Coalescent model
         self.model: CoalescentModel = model
+
+        # the drain rate of a population split and the window of a pulse depend on the coalescent model
+        demography._model = model
 
         #: Demography
         self.demography: Demography = demography
 
         #: End time
-        self.end_time: float = end_time
+        self.end_time: float = None if end_time == np.inf else end_time
+
+    @property
+    def n(self) -> int:
+        """Total number of sampled lineages across all populations."""
+        return self.lineage_config.n
+
+    @property
+    def _lineages(self) -> LineageConfig | InitialDistribution:
+        """The lineage configuration, or the initial distribution over lineage configurations if given."""
+        return self.lineage_config if self.lineage_distribution is None else self.lineage_distribution
+
+    @property
+    def _loci(self) -> LocusConfig | InitialDistribution:
+        """The locus configuration, or the initial distribution over locus configurations if given."""
+        return self.locus_config if self.locus_distribution is None else self.locus_distribution
+
+    def _assert_single_lineage_config(self, name: str) -> None:
+        """
+        Raise if the components of the initial distribution over lineage configurations differ, for a statistic
+        that depends on the sample configuration beyond the initial vector.
+
+        :param name: Name of the statistic, used in the error message.
+        :raises ValueError: If the lineage configurations differ.
+        """
+        if self.lineage_distribution is not None and any(
+                c != self.lineage_config for c in self.lineage_distribution.configs
+        ):
+            raise ValueError(f"{name} requires a single lineage configuration, not an initial distribution over them.")
 
     @property
     @abstractmethod
@@ -161,32 +252,50 @@ class AbstractCoalescent(ABC):
 
 class Coalescent(AbstractCoalescent, Serializable):
     """
-    Coalescent distribution.
+    Coalescent process of a sample of lineages under a demography, a coalescent model and a locus configuration. Its
+    tree height, total branch length, site-frequency spectra and any other accumulated reward are phase-type
+    distributed.
+
+    The following example computes the mean tree height and site-frequency spectrum of five lineages in a population
+    whose size drops to 0.2 at time 0.5.
+
+    ::
+
+        coal = pg.Coalescent(n=5, demography=pg.Demography(pop_sizes={'pop_0': {0: 1, 0.5: 0.2}}))
+
+        height = coal.tree_height.mean
+        sfs = coal.sfs.mean
     """
 
     def __init__(
             self,
-            n: int | Dict[str, int] | List[int] | LineageConfig,
+            n: int | Dict[str, int] | List[int] | LineageConfig | InitialDistribution,
             model: CoalescentModel = None,
             demography: Demography = None,
-            loci: int | LocusConfig = 1,
+            loci: int | LocusConfig | InitialDistribution = 1,
             recombination_rate: float = None,
             start_time: float = 0,
             end_time: float = None,
-    ):
+    ) -> None:
         """
-        Create object.
+        Configure the coalescent. The state spaces are constructed when a statistic first requires them.
 
         :param n: Number of lineages. Either a single integer if only one population, or a list of integers
             or dictionary with population names as keys and number of lineages as values for multiple populations.
-            Alternatively, a :class:`~phasegen.lineage.LineageConfig` object can be passed.
+            Alternatively, a :class:`~phasegen.lineage.LineageConfig` object, or an
+            :class:`~phasegen.initial.InitialDistribution` over lineage configurations, can be passed.
         :param model: Coalescent model. Default is the standard coalescent.
         :param demography: Demography.
-        :param loci: Number of loci or locus configuration.
+        :param loci: Number of loci, locus configuration, or :class:`~phasegen.initial.InitialDistribution` over
+            locus configurations.
         :param recombination_rate: Recombination rate.
         :param start_time: Time when to start accumulating moments. By default, this is 0.
         :param end_time: Time when to end the accumulating moments. If ``None``, the end time is taken to
             be the time of almost sure absorption. Note that unnecessarily long end times can lead to numerical errors.
+        :raises ValueError: If the number of unlinked lineages exceeds the number of lineages.
+        :raises TypeError: If ``model`` is not a :class:`~phasegen.coalescent_models.CoalescentModel`,
+            ``demography`` is not a :class:`~phasegen.demography.Demography`, or an initial distribution passed as
+            ``n`` or ``loci`` holds the other kind of configuration.
         """
         super().__init__(
             n=n,
@@ -206,8 +315,8 @@ class Coalescent(AbstractCoalescent, Serializable):
         The lineage-counting state space.
         """
         return LineageCountingStateSpace(
-            lineage_config=self.lineage_config,
-            locus_config=self.locus_config,
+            lineage_config=self._lineages,
+            locus_config=self._loci,
             model=self.model,
             epoch=self.demography.get_epoch(0)
         )
@@ -218,8 +327,8 @@ class Coalescent(AbstractCoalescent, Serializable):
         The block-counting state space.
         """
         return BlockCountingStateSpace(
-            lineage_config=self.lineage_config,
-            locus_config=self.locus_config,
+            lineage_config=self._lineages,
+            locus_config=self._loci,
             model=self.model,
             epoch=self.demography.get_epoch(0)
         )
@@ -230,19 +339,23 @@ class Coalescent(AbstractCoalescent, Serializable):
         The joint block-counting state space (tracks the deme-of-origin composition of each lineage).
         """
         return JointBlockCountingStateSpace(
-            lineage_config=self.lineage_config,
-            locus_config=self.locus_config,
+            lineage_config=self._lineages,
+            locus_config=self._loci,
             model=self.model,
             epoch=self.demography.get_epoch(0)
         )
 
     @cached_property
     def tree_height(self) -> TreeHeightDistribution:
-        """
-        Tree height distribution, i.e. the time to the most recent common ancestor. With multiple loci this is the
-        time until *all* loci have reached their MRCA (absorption of the two-locus ancestral process), so it equals
-        the single-locus height when fully linked (``r = 0``) and grows towards the maximum of the per-locus heights
-        as the loci decouple (``r -> inf``).
+        r"""
+        Tree height distribution, i.e. the time to the most recent common ancestor. This is the phase-type absorption
+        time :math:`\tau` of the underlying Markov jump process, with the notation of
+        :class:`~phasegen.distributions.PhaseTypeDistribution`, equivalently the reward accumulated under the reward
+        :math:`r(x) = \mathbb{1}\{x \notin B\}`. With multiple loci this is the time until every locus has reached its
+        MRCA (absorption of the two-locus ancestral process), the maximum of the per-locus heights. Its distribution is
+        that of the single-locus height when fully linked (:math:`\rho = 0`, with :math:`\rho` the recombination rate)
+        and, for the standard coalescent, tends to that of the maximum of independent per-locus heights as the loci
+        decouple (:math:`\rho \to \infty`).
         """
         return TreeHeightDistribution(
             state_space=self.lineage_counting_state_space,
@@ -252,18 +365,19 @@ class Coalescent(AbstractCoalescent, Serializable):
         )
 
     @cached_property
-    def total_branch_length(self) -> PhaseTypeDistribution:
+    def total_branch_length(self) -> TotalBranchLengthDistribution:
+        r"""
+        Total branch length distribution: the sum of all branch lengths of the coalescent tree, i.e. the accumulated
+        reward :math:`\int_0^{\tau} r_{\text{length}}(X_s)\,\mathrm{d}s` under the reward
+        :math:`r_{\text{length}}(i) = (\text{number of lineages in } i)`.
         """
-        Total branch length distribution.
-        """
-        return PhaseTypeDistribution(
-            reward=TotalBranchLengthReward(),
+        return TotalBranchLengthDistribution(
             tree_height=self.tree_height,
             state_space=self.lineage_counting_state_space,
             demography=self.demography
         )
 
-    def _require_single_locus(self, name: str):
+    def _require_single_locus(self, name: str) -> None:
         """
         Raise a clear error if more than one locus is configured for a single-locus SFS statistic.
 
@@ -279,9 +393,11 @@ class Coalescent(AbstractCoalescent, Serializable):
 
     @cached_property
     def sfs(self) -> UnfoldedSFSDistribution:
-        """
-        Unfolded site-frequency spectrum distribution. Defined for a single locus; for two loci under recombination
-        use :meth:`sfs2`.
+        r"""
+        Unfolded site-frequency spectrum distribution. Bin :math:`j` is the accumulated length of all branches
+        subtending exactly :math:`j` of the :math:`n` samples, the reward :math:`r_j(x) = a_j(x)` counting the lineages
+        in state :math:`x` that subtend :math:`j` samples. It is defined for a single locus. For two loci under
+        recombination, use :attr:`sfs2`.
         """
         self._require_single_locus('sfs')
 
@@ -294,8 +410,8 @@ class Coalescent(AbstractCoalescent, Serializable):
     @cached_property
     def fsfs(self) -> FoldedSFSDistribution:
         """
-        Folded site-frequency spectrum distribution. Defined for a single locus; for two loci under recombination
-        use :meth:`sfs2`.
+        Folded site-frequency spectrum distribution. It is defined for a single locus. For two loci under
+        recombination, use :attr:`sfs2`.
         """
         self._require_single_locus('fsfs')
 
@@ -315,8 +431,7 @@ class Coalescent(AbstractCoalescent, Serializable):
             The joint state space grows combinatorially with the per-population sample sizes, so this is only
             practical for small samples.
 
-        :raises ValueError: If fewer than two populations are configured (the joint SFS is across populations; use
-            :attr:`sfs` for a single population).
+        :raises ValueError: If fewer than two populations are configured. For a single population, use :attr:`sfs`.
         """
         if self.lineage_config.n_pops < 2:
             raise ValueError(
@@ -337,11 +452,24 @@ class Coalescent(AbstractCoalescent, Serializable):
         recombination/linkage history). Requires exactly two loci and a single population.
         """
         return TwoLocusBlockCountingStateSpace(
-            lineage_config=self.lineage_config,
-            locus_config=self.locus_config,
+            lineage_config=self._lineages,
+            locus_config=self._loci,
             model=self.model,
             epoch=self.demography.get_epoch(0)
         )
+
+    @property
+    def state_spaces(self) -> Dict[str, StateSpace]:
+        """
+        The state spaces this configuration supports, keyed by attribute name.
+        """
+        spaces = {}
+        for name in _STATE_SPACE_NAMES:
+            try:
+                spaces[name] = getattr(self, name)
+            except (NotImplementedError, ValueError):
+                pass
+        return spaces
 
     @cached_property
     def _two_locus_tree_height(self) -> TreeHeightDistribution:
@@ -358,8 +486,9 @@ class Coalescent(AbstractCoalescent, Serializable):
     @cached_property
     def sfs2(self) -> TwoLocusSFSDistribution:
         """
-        Two-locus site-frequency spectrum under recombination, returned as a :class:`~phasegen.spectrum.TwoLocusSFS`.
-        Requires exactly two loci (``loci=2``) and a single population.
+        Two-locus site-frequency spectrum distribution under recombination, whose moments are
+        :class:`~sfsutils.spectrum.TwoLocusSFS` objects. Requires exactly two loci (``loci=2``) and a single
+        population.
 
         .. note::
             The two-locus state space grows quickly with the sample size, so this is only practical for small ``n``.
@@ -373,30 +502,41 @@ class Coalescent(AbstractCoalescent, Serializable):
     @cached_property
     def fst(self) -> float:
         r"""
-        Hudson's fixation index :math:`F_{ST} = 1 - \mathbb{E}[T_S] / \mathbb{E}[T_B]`, based on pairwise
-        coalescence times: :math:`T_S` is the coalescence time of two lineages sampled within the same population
-        (averaged over populations) and :math:`T_B` of two lineages from different populations (averaged over
-        population pairs). Requires at least two populations.
+        Hudson's fixation index
 
-        Since :math:`F_{ST}` is a pairwise, single-locus quantity, it is computed from two-lineage sub-coalescents
-        under the same (possibly time-varying, migrating) demography and coalescent model, and so does not depend on
-        the configured sample sizes or number of loci.
+        .. math::
+
+            F_{ST} = 1 - \frac{\overline{\mathbb{E}[T_{PP}]}}{\overline{\mathbb{E}[T_{PP'}]}},
+
+        where :math:`T_{PP'}` is the coalescence time of one lineage sampled in population :math:`P` and one in
+        population :math:`P'`, the numerator averages :math:`\mathbb{E}[T_{PP}]` over the populations with at least
+        two sampled lineages and the denominator averages :math:`\mathbb{E}[T_{PP'}]` over the unordered pairs
+        :math:`P \ne P'` of sampled populations. Each expectation is the mean tree height of a two-lineage coalescent
+        with the same demography and coalescent model, so the result depends on which populations carry at least one
+        and which at least two sampled lineages, but not on larger counts, nor on the number of loci.
 
         :return: Hudson's :math:`F_{ST}`.
-        :raises ValueError: if fewer than two populations are configured.
+        :raises ValueError: if fewer than two populations are sampled, none carries two sampled lineages, or the
+            lineage configurations of an initial distribution differ.
         """
-        pops = self.demography.pop_names
+        self._assert_single_lineage_config("F_ST")
 
-        if len(pops) < 2:
-            raise ValueError(f"F_ST requires at least two populations (got {len(pops)}).")
+        counts = self.lineage_config.lineage_dict
+        sampled = [q for q in self.demography.pop_names if counts.get(q, 0) >= 1]
 
-        # within-population pairwise times (both lineages in the same population)
-        t_within = [self._pairwise_coalescence_time(q, q) for q in pops]
+        if len(sampled) < 2:
+            raise ValueError(f"F_ST requires at least two sampled populations (got {len(sampled)}).")
 
-        # between-population pairwise times (one lineage in each of two distinct populations)
+        # within-population pairwise times, where two lineages can be sampled in the same population
+        t_within = [self._pairwise_coalescence_time(q, q) for q in sampled if counts[q] >= 2]
+
+        if not t_within:
+            raise ValueError("F_ST requires a population with at least two sampled lineages.")
+
+        # between-population pairwise times (one lineage in each of two distinct sampled populations)
         t_between = [
             self._pairwise_coalescence_time(a, b)
-            for i, a in enumerate(pops) for b in pops[i + 1:]
+            for i, a in enumerate(sampled) for b in sampled[i + 1:]
         ]
 
         return float(1 - np.mean(t_within) / np.mean(t_between))
@@ -426,14 +566,22 @@ class Coalescent(AbstractCoalescent, Serializable):
             n=counts,
             demography=self.demography,
             model=self.model,
+            start_time=self.start_time,
             end_time=self.end_time
         ).tree_height.mean
 
     def f2(self, pop_0: str, pop_1: str) -> float:
         r"""
-        Patterson's :math:`f_2(A, B) = \mathbb{E}[(p_A - p_B)^2]`, the branch (coalescence-time) version
-        :math:`f_2 = 2 T_{AB} - T_{AA} - T_{BB}` in terms of pairwise coalescence times (matching ``tskit``'s
-        branch-mode ``f2``). Measures the amount of drift separating the two populations.
+        Branch form of Patterson's :math:`f_2(A, B) = \mathbb{E}[(p_A - p_B)^2]`, where :math:`p_A` and :math:`p_B`
+        are the allele frequencies in populations :math:`A` and :math:`B`,
+
+        .. math::
+
+            f_2(A, B) = 2\, \mathbb{E}[T_{AB}] - \mathbb{E}[T_{AA}] - \mathbb{E}[T_{BB}],
+
+        with :math:`T_{XY}` the coalescence time of one lineage sampled in population :math:`X` and one in
+        population :math:`Y`, matching the branch mode of ``tskit``. It measures the drift separating the two
+        populations.
 
         :param pop_0: Name of population ``A``.
         :param pop_1: Name of population ``B``.
@@ -444,9 +592,16 @@ class Coalescent(AbstractCoalescent, Serializable):
 
     def f3(self, pop_target: str, pop_0: str, pop_1: str) -> float:
         r"""
-        Patterson's :math:`f_3(C; A, B) = \mathbb{E}[(p_C - p_A)(p_C - p_B)]`, in branch (coalescence-time) form
-        :math:`f_3 = T_{CA} + T_{CB} - T_{AB} - T_{CC}` (matching ``tskit``'s branch-mode ``f3``). A significantly
-        negative value is evidence that the target population ``C`` is admixed between ``A`` and ``B``.
+        Branch form of Patterson's :math:`f_3(C; A, B) = \mathbb{E}[(p_C - p_A)(p_C - p_B)]`, with allele
+        frequencies and pairwise coalescence times :math:`T_{XY}` as in :meth:`Coalescent.f2()
+        <phasegen.distributions.Coalescent.f2>`,
+
+        .. math::
+
+            f_3(C; A, B) = \mathbb{E}[T_{CA}] + \mathbb{E}[T_{CB}] - \mathbb{E}[T_{AB}] - \mathbb{E}[T_{CC}],
+
+        matching the branch mode of ``tskit``. A negative value indicates that the target population :math:`C` is
+        admixed between :math:`A` and :math:`B`.
 
         :param pop_target: Name of the (potentially admixed) target population ``C``.
         :param pop_0: Name of source population ``A``.
@@ -458,9 +613,16 @@ class Coalescent(AbstractCoalescent, Serializable):
 
     def f4(self, pop_0: str, pop_1: str, pop_2: str, pop_3: str) -> float:
         r"""
-        Patterson's :math:`f_4(A, B; C, D) = \mathbb{E}[(p_A - p_B)(p_C - p_D)]`, in branch (coalescence-time) form
-        :math:`f_4 = T_{AD} + T_{BC} - T_{AC} - T_{BD}` (matching ``tskit``'s branch-mode ``f4``). Used to test
-        treeness and detect gene flow between the two population pairs.
+        Branch form of Patterson's :math:`f_4(A, B; C, D) = \mathbb{E}[(p_A - p_B)(p_C - p_D)]`, with allele
+        frequencies and pairwise coalescence times :math:`T_{XY}` as in :meth:`Coalescent.f2()
+        <phasegen.distributions.Coalescent.f2>`,
+
+        .. math::
+
+            f_4(A, B; C, D) = \mathbb{E}[T_{AD}] + \mathbb{E}[T_{BC}] - \mathbb{E}[T_{AC}] - \mathbb{E}[T_{BD}],
+
+        matching the branch mode of ``tskit``. It tests treeness and detects gene flow between the two population
+        pairs.
 
         :param pop_0: Name of population ``A``.
         :param pop_1: Name of population ``B``.
@@ -474,16 +636,40 @@ class Coalescent(AbstractCoalescent, Serializable):
     def _get_dist(self, k: int, rewards: Iterable[Reward] = None) -> PhaseTypeDistribution:
         """
         Get the kth-order phase-type distribution with state space inferred from the rewards.
-        The returned phase-type distribution is configured with the unit reward.
+        The returned phase-type distribution is configured with the first (default: tree-height) reward.
 
         :param k: Order of the moment.
         :param rewards: Sequence of k rewards. By default, tree height rewards are used.
         :return: Distribution.
+        :raises ValueError: if a single :class:`~phasegen.rewards.Reward` is passed instead of a sequence.
+        :raises TypeError: if an entry of ``rewards`` is not a :class:`~phasegen.rewards.Reward`.
         """
-        if rewards is None:
-            rewards = [TreeHeightReward()] * k
+        _validate_rewards(rewards, k)
 
-        # only route to the (expensive) joint state space when a reward requires it; then all rewards must support it
+        # an order of zero has no rewards, and its moment of one is taken on the tree-height distribution
+        if not rewards:
+            rewards = [TreeHeightReward()] * max(k, 1)
+
+        return PhaseTypeDistribution(
+            reward=rewards[0],
+            tree_height=self.tree_height,
+            state_space=self._select_state_space(rewards),
+            demography=self.demography
+        )
+
+    def _select_state_space(self, rewards: Iterable[Reward]) -> StateSpace:
+        """
+        Select the smallest state space jointly compatible with the given rewards -- the reward-compatibility wiring
+        shared by :meth:`moment`, :meth:`accumulate`, :meth:`distribution` and :meth:`joint` (all via
+        :meth:`_get_dist`). The (expensive) joint block-counting space is used only when a reward requires it (then
+        every reward must also support it). Otherwise the lineage-counting space is used if all rewards support it,
+        then the two-locus block-counting space if all rewards support it and there are two loci and one deme, then
+        the block-counting space if all rewards support it and there is one locus.
+
+        :param rewards: The rewards to be accumulated jointly.
+        :return: The state space supporting all the rewards.
+        :raises ValueError: if the rewards are not jointly compatible with any single state space.
+        """
         if Reward.requires_joint_state_space(rewards):
             if not Reward.support(JointBlockCountingStateSpace, rewards):
                 raise ValueError(
@@ -491,18 +677,61 @@ class Coalescent(AbstractCoalescent, Serializable):
                     f"{[r.__class__.__name__ for r in rewards]}. A joint-SFS reward can only be combined with "
                     "rewards that also support the joint state space."
                 )
-            state_space = self.joint_block_counting_state_space
-        elif Reward.support(LineageCountingStateSpace, rewards):
-            state_space = self.lineage_counting_state_space
-        else:
-            state_space = self.block_counting_state_space
+            return self.joint_block_counting_state_space
 
-        return PhaseTypeDistribution(
-            reward=UnitReward(),
-            tree_height=self.tree_height,
-            state_space=state_space,
-            demography=self.demography
-        )
+        if Reward.support(LineageCountingStateSpace, rewards):
+            return self.lineage_counting_state_space
+
+        two_locus = self.locus_config.n == 2 and self.lineage_config.n_pops == 1
+
+        if two_locus and Reward.support(TwoLocusBlockCountingStateSpace, rewards):
+            return self.two_locus_block_counting_state_space
+
+        if self.locus_config.n != 1 or not Reward.support(BlockCountingStateSpace, rewards):
+            raise ValueError(
+                "The given rewards are not jointly compatible with any state space of this coalescent: "
+                f"{[r.__class__.__name__ for r in rewards]}."
+            )
+
+        return self.block_counting_state_space
+
+    @_make_hashable
+    @cache
+    def distribution(self, reward: Reward = None) -> 'RewardDistribution':
+        r"""
+        The distribution of the accumulated reward :math:`R`, as a
+        :class:`~phasegen.distributions.RewardDistribution` whose evaluation is described there. The state space is
+        the smallest one that supports the reward, and the result is cached per reward. For the default tree-height
+        reward it describes the same law as :attr:`Coalescent.tree_height
+        <phasegen.distributions.Coalescent.tree_height>`, evaluated by transform inversion.
+
+        :param reward: The reward whose accumulation is distributed. Defaults to the tree-height reward.
+        :return: The 1D accumulated-reward distribution.
+        :raises TypeError: if ``reward`` is not a single :class:`~phasegen.rewards.Reward`.
+        """
+        reward = TreeHeightReward() if reward is None else reward
+        _validate_reward(reward)
+
+        return self._get_dist(k=1, rewards=[reward]).distribution(reward)
+
+    @_make_hashable
+    @cache
+    def joint(self, reward_a: Reward, reward_b: Reward) -> 'JointRewardDistribution':
+        """
+        Joint distribution of two accumulated rewards, as a :class:`~phasegen.distributions.JointRewardDistribution`,
+        on the smallest state space supporting both rewards and cached per pair of rewards.
+
+        :param reward_a: The first reward.
+        :param reward_b: The second reward.
+        :return: The joint distribution.
+        :raises TypeError: if ``reward_a`` or ``reward_b`` is not a single :class:`~phasegen.rewards.Reward`.
+
+        .. versionadded:: 2.0
+        """
+        _validate_reward(reward_a, "reward_a")
+        _validate_reward(reward_b, "reward_b")
+
+        return self._get_dist(k=2, rewards=[reward_a, reward_b]).joint(reward_a, reward_b)
 
     @_make_hashable
     @cache
@@ -515,21 +744,24 @@ class Coalescent(AbstractCoalescent, Serializable):
             center: bool = True,
             permute: bool = True
     ) -> float:
-        """
-        Get the kth (non-central) moment using the specified rewards and state space.
+        r"""
+        The :math:`k`-th moment of the accumulated rewards, central by default, evaluated on the smallest state space
+        supporting all ``rewards`` as described in
+        :meth:`PhaseTypeDistribution.moment() <phasegen.distributions.PhaseTypeDistribution.moment>`.
 
-        :param k: The order of the moment
-        :param rewards: Sequence of k rewards. By default, tree height rewards are used.
-        :param start_time: Time when to start accumulation of moments. By default, the start time specified when
-            initializing the distribution.
-        :param end_time: Time when to end accumulation of moments. By default, either the end time specified when
-            initializing the distribution or the time until almost sure absorption.
-        :param center: Whether to center the moment.
-        :param permute: For cross-moments, whether to average over all permutations of rewards. Default is ``True``,
-            which will provide the correct cross-moment. If set to ``False``, the cross-moment will be conditioned on
-            the order of rewards.
-        :return: The kth moment
+        :param k: The order :math:`k` of the moment.
+        :param rewards: Sequence of :math:`k` rewards. By default, the tree-height reward for each factor.
+        :param start_time: The start time :math:`t_\mathrm{start}`. By default, the start time of the coalescent.
+        :param end_time: The end time :math:`t_\mathrm{end}`. By default, the end time of the coalescent, or absorption.
+        :param center: Whether to return the central moment.
+        :param permute: Whether to average over the :math:`k!` orderings of the rewards. Without averaging, the result
+            equals the cross-moment only when all rewards are equal.
+        :return: The :math:`k`-th moment.
+        :raises ValueError: if ``k`` is not integral or is negative.
+        :raises TypeError: if an entry of ``rewards`` is not a :class:`~phasegen.rewards.Reward`.
         """
+        k = _validate_order(k)
+
         return self._get_dist(k, rewards).moment(
             k=k,
             rewards=rewards,
@@ -539,81 +771,40 @@ class Coalescent(AbstractCoalescent, Serializable):
             permute=permute
         )
 
-    def _sample(
-            self,
-            n_samples: int,
-            rewards: Sequence[Reward] = None,
-            record_visits: bool = False
-    ) -> Union[np.ndarray, Tuple[np.ndarray, np.ndarray]]:
-        """
-        Generate samples from the mean reward distribution by simulating trajectories.
-
-        :param n_samples: Number of trajectories to simulate.
-        :param rewards: Rewards to sample from. Default is the tree height reward.
-        :param record_visits: Whether to record which states were visited during the sampling.
-        :return: Array of sampled rewards of size (n_samples, len(rewards)),
-                 and optionally an array of probabilities of visiting each state.
-        """
-        return self._get_dist(k=1, rewards=rewards)._sample(
-            n_samples=n_samples,
-            rewards=rewards,
-            record_visits=record_visits
-        )
-
-    def _raw_moment(
-            self,
-            k: int,
-            rewards: Sequence[Reward] = None,
-            start_time: float = None,
-            end_time: float = None
-    ) -> float:
-        """
-        Get the kth raw moment using the specified rewards and state space.
-
-        :param k: The order of the moment
-        :param rewards: Sequence of k rewards. By default, tree height rewards are used.
-        :param start_time: Time when to start accumulation of moments. By default, the start time specified when
-            initializing the distribution.
-        :param end_time: Time when to end accumulation of moments. By default, either the end time specified when
-            initializing the distribution or the time until almost sure absorption.
-        :return: The kth raw moment
-        """
-        return self.moment(
-            k=k,
-            rewards=rewards,
-            start_time=start_time,
-            end_time=end_time,
-            center=False,
-            permute=False
-        )
-
     def accumulate(
             self,
             k: int,
             end_times: Iterable[float],
             rewards: Sequence[Reward] = None,
             center: bool = True,
-            permute: bool = True
+            permute: bool = True,
+            start_time: float = None
     ) -> np.ndarray:
-        """
-        Accumulate moments at different times.
+        r"""
+        The :math:`k`-th moment accumulated from the start time :math:`t_\mathrm{start}` to each end time
+        :math:`t_\mathrm{end}` in ``end_times``, as described in
+        :meth:`PhaseTypeDistribution.moment() <phasegen.distributions.PhaseTypeDistribution.moment>`.
 
-        :param k: The order of the moment.
-        :param end_times: Times when to evaluate the moment. By default, 200 evenly spaced values between 0 and
-            the 99th percentile.
-        :param rewards: Sequence of k rewards. By default, the reward of the underlying distribution.
-        :param center: Whether to center the moment around the mean.
-        :param permute: For cross-moments, whether to average over all permutations of rewards. Default is ``True``,
-            which will provide the correct cross-moment. If set to ``False``, the cross-moment will be conditioned on
-            the order of rewards.
-        :return: Accumulation of moments.
+        :param k: The order :math:`k` of the moment.
+        :param end_times: The end times :math:`t_\mathrm{end}` at which to evaluate the moment.
+        :param rewards: Sequence of :math:`k` rewards. By default, the tree-height reward for each factor.
+        :param center: Whether to return the central moment.
+        :param permute: Whether to average over the :math:`k!` orderings of the rewards. Without averaging, the result
+            equals the cross-moment only when all rewards are equal.
+        :param start_time: The start time :math:`t_\mathrm{start}`. By default, the start time of the coalescent.
+        :return: The moment at each end time.
+        :raises ValueError: if ``k`` is not integral or is negative.
+        :raises TypeError: if an entry of ``rewards`` is not a :class:`~phasegen.rewards.Reward`.
         """
+        k = _validate_order(k)
+
         return self._get_dist(k, rewards).accumulate(
             k=k,
             end_times=end_times,
             rewards=rewards,
             center=center,
-            permute=permute
+            permute=permute,
+            start_time=start_time
         )
 
     def plot_accumulation(
@@ -626,7 +817,7 @@ class Coalescent(AbstractCoalescent, Serializable):
             ax: 'plt.Axes' = None,
             show: bool = True,
             file: str = None,
-            clear: bool = False,
+            clear: bool = True,
             label: str = None,
             title: str = None
     ) -> 'plt.Axes':
@@ -634,22 +825,27 @@ class Coalescent(AbstractCoalescent, Serializable):
         Plot the accumulation of moments.
 
         :param k: The order of the moment.
-        :param end_times: Times when to evaluate the moment. By default, 200 evenly spaced values between 0 and
-            the 99th percentile.
-        :param rewards: Sequence of k rewards. By default, the reward of the underlying distribution.
+        :param end_times: Times when to evaluate the moment. Defaults to a grid over
+            :attr:`~phasegen.settings.Settings.plot_n_grid` points up to
+            :attr:`~phasegen.settings.Settings.plot_endpoint_quantile`.
+        :param rewards: Sequence of k rewards. By default, the tree-height reward for each factor.
         :param center: Whether to center the moment around the mean.
-        :param permute: For cross-moments, whether to average over all permutations of rewards. Default is ``True``,
-            which will provide the correct cross-moment. If set to ``False``, the cross-moment will be conditioned on
-            the order of rewards.
+        :param permute: Whether to average over the :math:`k!` orderings of the rewards. Without averaging, the result
+            equals the cross-moment only when all rewards are equal.
         :param ax: Axes to plot on.
         :param show: Whether to show the plot.
         :param file: File to save the plot to.
-        :param clear: Whether to clear the plot before plotting.
+        :param clear: Whether to draw on a new figure when ``ax`` is not given, otherwise onto the current axes.
         :param label: Label for the plot.
         :param title: Title of the plot.
         :return: Axes.
+        :raises ValueError: if ``k`` is not integral or is negative, or if ``rewards`` is a single
+            :class:`~phasegen.rewards.Reward` and not a sequence.
+        :raises TypeError: if an entry of ``rewards`` is not a :class:`~phasegen.rewards.Reward`.
         """
-        self._get_dist(k, rewards).plot_accumulation(
+        k = _validate_order(k)
+
+        return self._get_dist(k, rewards).plot_accumulation(
             k=k,
             end_times=end_times,
             rewards=rewards,
@@ -663,20 +859,26 @@ class Coalescent(AbstractCoalescent, Serializable):
             title=title
         )
 
-    def drop_cache(self):
+    def drop_cache(self) -> None:
         """
-        Drop state space cache.
+        Drop the cache of every state space that has been built and return it to the first epoch, where a freshly
+        built state space starts, so that the rate matrices are rebuilt bit for bit as on a fresh coalescent. Spaces
+        that have not been built are left unbuilt.
         """
-        self.lineage_counting_state_space.drop_cache()
-        self.block_counting_state_space.drop_cache()
+        self._drop_state_space_caches(self.__dict__)
 
-    def __setstate__(self, state: dict):
+    def _drop_state_space_caches(self, spaces: dict) -> None:
         """
-        Restore the state of the object from a serialized state.
+        Drop the cache of every built state space in ``spaces`` and set it to the first epoch of the demography.
 
-        :param state: State.
+        :param spaces: The instance dictionary holding the state spaces, of this coalescent or of a copy of it.
         """
-        self.__dict__.update(state)
+        epoch = self.demography.get_epoch(0)
+
+        for name in _STATE_SPACE_NAMES:
+            if name in spaces:
+                spaces[name].drop_cache()
+                spaces[name].epoch = epoch
 
     def __getstate__(self) -> dict:
         """
@@ -687,17 +889,14 @@ class Coalescent(AbstractCoalescent, Serializable):
         # create deep copy of object without causing infinite recursion
         other = copy.deepcopy(self.__dict__)
 
-        if 'lineage_counting_state_space' in other:
-            other['lineage_counting_state_space'].drop_cache()
-
-        if 'block_counting_state_space' in other:
-            other['block_counting_state_space'].drop_cache()
+        self._drop_state_space_caches(other)
 
         return other
 
     def to_json(self) -> str:
         """
-        Serialize to JSON. Drop cache before serializing.
+        Serialize the coalescent to a JSON string, leaving out the caches of its state spaces. The coalescent itself
+        is not modified.
 
         :return: JSON string.
         """
@@ -707,7 +906,7 @@ class Coalescent(AbstractCoalescent, Serializable):
         # drop cache
         other.drop_cache()
 
-        return super(self.__class__, other).to_json()
+        return super(Coalescent, other).to_json()
 
     def to_msprime(
             self,
@@ -724,7 +923,7 @@ class Coalescent(AbstractCoalescent, Serializable):
 
         :param num_replicates: Number of replicates.
         :param n_threads: Number of threads.
-        :param parallelize: Whether to parallelize.
+        :param parallelize: Whether to parallelize. ``Settings.parallelize = False`` overrides it.
         :param record_migration: Whether to record migrations which is necessary to calculate statistics per deme.
         :param simulate_mutations: Whether to simulate mutations.
         :param mutation_rate: Mutation rate.
@@ -736,10 +935,10 @@ class Coalescent(AbstractCoalescent, Serializable):
 
         from .empirical import MsprimeCoalescent
         return MsprimeCoalescent(
-            n=self.lineage_config,
+            n=self._lineages,
             demography=self.demography,
             model=self.model,
-            loci=self.locus_config,
+            loci=self._loci,
             recombination_rate=self.locus_config.recombination_rate,
             mutation_rate=mutation_rate,
             end_time=self.end_time,
@@ -750,4 +949,23 @@ class Coalescent(AbstractCoalescent, Serializable):
             simulate_mutations=simulate_mutations,
             seed=seed
         )
+
+    def to_empirical(
+            self,
+            n_samples: int = N_EMPIRICAL_SAMPLES,
+            seed: int | np.random.Generator = None
+    ) -> 'SampledCoalescent':
+        """
+        Estimate the tree height, total branch length and site-frequency spectra by simulation, see
+        :class:`~phasegen.distributions.SampledCoalescent`.
+
+        :param n_samples: Number of trajectories to sample per statistic.
+        :param seed: Integer seed, or a :class:`numpy.random.Generator` from which one is drawn. ``None`` draws one
+            from fresh entropy.
+        :return: The sampled coalescent.
+
+        .. versionadded:: 2.0
+        """
+        from .empirical import SampledCoalescent
+        return SampledCoalescent(coalescent=self, n_samples=n_samples, seed=seed)
 

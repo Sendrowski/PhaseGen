@@ -1,0 +1,23 @@
+n: 10
+num_replicates: 1000000
+pop_sizes:
+  pop_0:
+    0: 1
+    1: 10
+model: standard
+seed: 42
+comparisons:
+  tolerance:
+    sfs:
+      "[1, 3, 9]":
+        cosine:
+          pdf: 0.004
+          cdf: 0.002
+          quantile: 0.0067
+      pairwise:
+        (1, 2):
+          cdf: 0.012
+          pdf: 0.013
+        "[(1, 9), (4, 5), (3, 7)]":
+          cdf: 0.0038
+          pdf: 0.0094

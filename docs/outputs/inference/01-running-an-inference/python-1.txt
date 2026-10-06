@@ -1,0 +1,2 @@
+Optimizing: 100%|██████████| 10/10 [--:--<--:--, --it/s]
+INFO:Inference: Inferred parameters: (t=0.1455, Ne=0.4814)

@@ -2,8 +2,8 @@
 Tests for the sparse matrix-exponential-action moment computation.
 
 For large state spaces moments are computed via the action of the matrix exponential on a vector
-(``_accumulate_action``) instead of the dense Van Loan propagator. These tests force both paths and check that they
-agree across state-space types, models, moment orders, multiple epochs and cross-moments.
+(``MomentEvaluator._advance_action``) instead of the dense Van Loan propagator. These tests force both paths and check
+that they agree across state-space types, models, moment orders, multiple epochs and cross-moments.
 """
 import numpy as np
 import pytest
@@ -14,14 +14,6 @@ from phasegen.settings import Settings
 #: force the dense / action path respectively
 DENSE = 10 ** 9
 ACTION = 0
-
-
-@pytest.fixture(autouse=True)
-def _restore_threshold():
-    """Restore the global threshold after each test."""
-    prev = Settings.expm_action_min_dim
-    yield
-    Settings.expm_action_min_dim = prev
 
 
 def _demography(pop_sizes, migration_rate=1.0, two_epoch=False):

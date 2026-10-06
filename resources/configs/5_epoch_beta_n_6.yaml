@@ -1,0 +1,45 @@
+n:
+  pop_0: 6
+n_samples: 200000
+pop_sizes:
+  pop_0:
+    0: 2
+    1.1: 0.3
+    3.5: 0.5
+    4.2: 8
+    7.5: 2.3
+model: beta
+alpha: 1.5
+seed: 42
+comparisons:
+  tolerance:
+    sfs:
+      conditional:
+        '[(1, 2)]':
+          moments: 0.0001
+          # the atom conditional against the msprime sample (see 1_epoch_n_4): five epochs and a Beta coalescent at
+          # once.
+          atom:
+            mass: 0.013
+            mean: 0.073
+            var: 0.3
+            cdf: 0.062
+            pdf: 0.14
+            quantile: 0.13
+          # the conditional CDF against the de Hoog inversion of its transform (see 1_epoch_n_4), at the median alone
+          dehoog:
+            cdf: 0.00011
+            quantiles: [0.5]
+    empirical:
+      tree_height:
+        mean: 0.0059
+        var: 0.043
+        cdf: 0.0053
+        pdf: 0.009
+        quantile: 0.009
+      total_branch_length:
+        mean: 0.0047
+        var: 0.034
+      sfs:
+        mean: 0.023
+        m2: 0.091

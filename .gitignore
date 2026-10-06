@@ -4,7 +4,15 @@
 /reports/
 /resources/dpgp3/
 /resources/rice/
-/results/
+# everything under results/ is ignored EXCEPT the serialized comparison fixtures, which are test *inputs*
+# (test_scenarios cannot run without them). Each level must be re-included explicitly: git does not descend into an
+# excluded directory, so a negation alone cannot resurrect a file inside one.
+/results/*
+!/results/comparisons/
+/results/comparisons/*
+!/results/comparisons/serialized/
+/results/comparisons/serialized/*
+!/results/comparisons/serialized/*.json
 /docs/_build/
 /docs/jupyter_execute/
 /slurm/logs/

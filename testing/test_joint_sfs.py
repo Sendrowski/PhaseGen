@@ -216,19 +216,19 @@ def test_jsfs_accumulate(two_pop_coalescent):
     end_times = [0.5, 2.0, 100.0]
     acc = jsfs.accumulate(k=1, end_times=end_times)
 
-    # shape is the spectrum shape plus a trailing time axis
-    assert acc.shape == jsfs.shape + (len(end_times),)
+    # shape is a leading time axis plus the spectrum shape
+    assert acc.shape == (len(end_times),) + jsfs.shape
 
     # accumulation at a large end time converges to the bin means
-    np.testing.assert_allclose(acc[..., -1], np.asarray(mean), atol=1e-9)
+    np.testing.assert_allclose(acc[-1], np.asarray(mean), atol=1e-9)
 
     # each bin's accumulation matches Coalescent.accumulate for that JointSFSReward
     for config in [(1, 0), (1, 1), (2, 0)]:
         single = two_pop_coalescent.accumulate(k=1, end_times=[2.0], rewards=[pg.JointSFSReward(config)])
-        assert acc[config + (1,)] == pytest.approx(float(single[0]), abs=1e-9)
+        assert acc[(1,) + config] == pytest.approx(float(single[0]), abs=1e-9)
 
     # centered second-moment accumulation and plotting run without error
-    assert jsfs.accumulate(k=2, end_times=[2.0], center=True).shape == jsfs.shape + (1,)
+    assert jsfs.accumulate(k=2, end_times=[2.0], center=True).shape == (1,) + jsfs.shape
     jsfs.plot_accumulation(k=1, end_times=np.linspace(0, 3, 20), show=False)
 
 
@@ -262,9 +262,73 @@ def test_jsfs_incompatible_reward_stacking_raises(two_pop_coalescent):
     """
     from phasegen.rewards import CombinedReward
 
-    for other in [pg.UnfoldedSFSReward(1), pg.LocusReward(0), pg.TotalTreeHeightReward()]:
-        with pytest.raises(ValueError):
-            two_pop_coalescent.moment(k=1, rewards=[CombinedReward([other, pg.JointSFSReward((1, 0))])])
+    with pytest.raises(ValueError):
+        two_pop_coalescent.moment(k=1, rewards=[CombinedReward([pg.UnfoldedSFSReward(1), pg.JointSFSReward((1, 0))])])
+
+
+def test_joint_cdf_plot_grid_honours_diagonal_reduction():
+    """
+    Regression for the ``JointCDF`` plot/surface path (``_grid_values``) skipping the ``R_a = R_b`` diagonal
+    reduction that the callable ``__call__`` applies. For a diagonal joint (identical rewards) the law is singular
+    on the diagonal and the CDF must equal ``P(R <= min(x, y))``; the plot grid must reproduce the pointwise callable
+    exactly. Pre-fix, ``_grid_values`` built the 2D cosine box expansion of the diagonal-singular measure instead, so
+    the grid disagreed with ``__call__`` (max abs error ~0.009) and was not constant along ``min(x, y)``.
+    """
+    d = pg.Coalescent(n=3).joint(pg.TotalBranchLengthReward(), pg.TotalBranchLengthReward())
+    assert d._ratio == 1.0
+
+    xs = np.array([1.0, 2.0, 3.0])
+    ys = np.array([1.0, 2.0, 3.0])
+
+    grid = d.cdf._grid_values(xs, ys)
+    pointwise = np.array([[float(d.cdf(x, y)) for y in ys] for x in xs])
+
+    # the plot grid must match the callable evaluated pointwise on the same grid (pre-fix they differed)
+    np.testing.assert_allclose(grid, pointwise, atol=1e-12)
+
+    # and it must be constant along each min(x, y) contour, e.g. the x = 1 row is P(R <= 1) throughout
+    np.testing.assert_allclose(grid[0], grid[0, 0], atol=1e-12)
+
+
+def test_jsfs_per_bin_curves_honour_non_unit_reward(symmetric_demography):
+    """
+    Regression for the ``JointSFS`` per-bin cdf/pdf/quantile aggregate dropping ``self.reward``. Under a non-unit
+    spectrum reward (here a deme-restricted view) the per-bin distribution must combine it with the bin's
+    ``JointSFSReward`` exactly as the moment/mean/cov paths do; its ``mean`` must equal ``jsfs.moment(1)[config]`` and
+    its cdf must differ from the default (unit-reward) per-bin cdf. Pre-fix, the per-bin distribution was built from
+    ``JointSFSReward(config)`` alone, ignoring ``self.reward``, giving the wrong (unit-reward) curve.
+    """
+    from phasegen.distributions.spectra import JointSFSDistribution
+    from phasegen.rewards import CombinedReward, JointSFSReward
+
+    coal = pg.Coalescent(
+        n={'pop_0': 2, 'pop_1': 2},
+        demography=symmetric_demography({'pop_0': 1.0, 'pop_1': 1.5}, migration_rate=0.75)
+    )
+
+    reward = pg.DemeReward('pop_0')
+    jsfs = JointSFSDistribution(
+        state_space=coal.joint_block_counting_state_space,
+        tree_height=coal.tree_height,
+        demography=coal.demography,
+        reward=reward
+    )
+
+    means = jsfs.moment(1)
+    config = (0, 1)  # a bin with non-zero deme-restricted mean
+    assert means[config] > 1e-6
+
+    # the per-bin distribution built with the combined reward (the fixed path) reproduces the spectrum mean exactly
+    bin_dist = jsfs.distribution(reward=CombinedReward([jsfs.reward, JointSFSReward(config)]))
+    assert bin_dist.mean == pytest.approx(float(means[config]), abs=1e-9)
+
+    # the public per-bin cdf aggregate honours self.reward, so it matches the combined-reward bin distribution ...
+    t = 0.5
+    assert float(jsfs.cdf(t)[config]) == pytest.approx(float(bin_dist.cdf(t)), abs=1e-9)
+
+    # ... and differs from the pre-fix behaviour, which used JointSFSReward(config) alone (the unit-reward curve)
+    unit_cdf = jsfs.distribution(reward=JointSFSReward(config)).cdf(t)
+    assert abs(float(jsfs.cdf(t)[config]) - float(unit_cdf)) > 1e-3
 
 
 @pytest.mark.slow
@@ -326,3 +390,143 @@ def test_jsfs_matches_moments(name):
 
     # moments is a diffusion approximation, so allow a small absolute tolerance on the normalized spectrum
     np.testing.assert_allclose(jsfs, np.array(reference['jsfs']), atol=0.01, err_msg=f"Mismatch for config {name}")
+
+
+def test_jsfs_moment_infinite_end_time(two_pop_coalescent):
+    """
+    An explicit infinite end time is accumulation until absorption. jsfs.moment passed it on unresolved, which
+    exponentiated over an infinite step and raised ValueError for the mean and for windowed moments.
+    """
+    jsfs = two_pop_coalescent.jsfs
+
+    np.testing.assert_allclose(
+        np.asarray(jsfs.moment(k=1, end_time=np.inf).data), np.asarray(jsfs.mean.data), rtol=1e-10, atol=1e-12
+    )
+
+    for k in (1, 2):
+        np.testing.assert_allclose(
+            np.asarray(jsfs.moment(k=k, start_time=0.3, end_time=np.inf).data),
+            np.asarray(jsfs.moment(k=k, start_time=0.3).data),
+            rtol=1e-8,
+            atol=1e-12
+        )
+
+
+def test_jsfs_demes_cov(two_pop_coalescent):
+    """
+    jsfs.demes.get_cov, cov and corr must evaluate, and the deme covariances of a bin must sum to its variance, since
+    the deme branch lengths partition the bin branch length. JointSFSDistribution.moment took no rewards, so all three
+    raised TypeError.
+
+    That summation identity is ``Var(sum_p X_p)`` for the per-deme branch lengths ``X_p`` of a bin, so it is the same
+    number under any relabelling of the demes, and the other two assertions checked only shapes. A mis-attribution
+    inside ``MarginalDemeDistributions.get_cov`` -- looking each deme up one position along the canonical deme axis,
+    which would corrupt every per-deme covariance and correlation of the tree height, total branch length, SFS and
+    joint SFS alike -- left the whole of this file and testing/test_rewards.py green. The diagonal entries are pinned
+    against each deme's own variance, computed by a separate call of the moment engine, and the two demes here differ
+    by up to 0.436 in that diagonal, so a permutation of the deme axis breaks it.
+    """
+    jsfs = two_pop_coalescent.jsfs
+    pops = jsfs.lineage_config.pop_names
+
+    total = sum(np.asarray(jsfs.demes.get_cov(p, q).data) for p in pops for q in pops)
+
+    np.testing.assert_allclose(total, np.asarray(jsfs.var.data), rtol=1e-8, atol=1e-12)
+    assert np.asarray(jsfs.demes.cov).shape == (len(pops), len(pops)) + jsfs.shape
+    assert np.asarray(jsfs.demes.corr).shape == (len(pops), len(pops)) + jsfs.shape
+
+    cov = np.asarray(jsfs.demes.cov)
+    corr = np.asarray(jsfs.demes.corr)
+    variances = [np.asarray(jsfs.demes[p].var.data) for p in pops]
+
+    # the demes are told apart: they differ in population size, so their bin variances differ
+    assert np.abs(variances[0] - variances[1]).max() > 0.1
+
+    for i, p in enumerate(pops):
+        np.testing.assert_allclose(np.asarray(jsfs.demes.get_cov(p, p).data), variances[i], rtol=1e-8, atol=1e-12)
+        np.testing.assert_allclose(cov[i, i], variances[i], rtol=1e-8, atol=1e-12)
+
+    # the off-diagonal correlation is built from the same two demes as the off-diagonal covariance
+    off = np.asarray(jsfs.demes.get_cov(pops[0], pops[1]).data)
+    np.testing.assert_allclose(cov[0, 1], off, rtol=1e-8, atol=1e-12)
+    with np.errstate(divide='ignore', invalid='ignore'):
+        expected = off / np.sqrt(variances[0] * variances[1])
+    finite = np.isfinite(expected)
+    np.testing.assert_allclose(corr[0, 1][finite], expected[finite], rtol=1e-8, atol=1e-12)
+
+
+def test_jsfs_joint_restricted_by_spectrum_reward(two_pop_coalescent):
+    """
+    The joint distribution of two bins of a deme view must carry the view's reward, so its marginal means and
+    covariance equal those of the view. It used the bare bin rewards and so described the full joint spectrum.
+    """
+    view = two_pop_coalescent.jsfs.demes['pop_0']
+    a, b = (1, 0), (0, 1)
+
+    jd = view.joint(a, b)
+
+    np.testing.assert_allclose(jd.mean, [view.mean.data[a], view.mean.data[b]], rtol=1e-10)
+    np.testing.assert_allclose(jd.cov, view.get_cov(a, b), rtol=1e-8)
+
+
+@pytest.mark.parametrize('config', [(3, 0), (1,), (1, 0, 0), (0, 0), (2, 2), (0.5, 1), (True, 0)])
+def test_jsfs_invalid_config_raises_value_error(two_pop_coalescent, config):
+    """An out-of-range, wrongly sized, monomorphic or non-integral descendant configuration raises ValueError from
+    every per-bin entry point. Regression: a bare KeyError from the reward, the absorbing-state error for the full
+    configuration, a silently floored non-integral entry, and a failure deferred to first use."""
+    jsfs = two_pop_coalescent.jsfs
+
+    for call in (
+            lambda: jsfs.bin(*config),
+            lambda: jsfs.get_cov(config, (1, 0)),
+            lambda: jsfs.joint(config, (1, 0)),
+            lambda: jsfs.cdf._plot_data(configs=[config], t=[1.0])
+    ):
+        with pytest.raises(ValueError, match='descendant configuration'):
+            call()
+
+
+def test_jsfs_valid_configs_pass_validation(two_pop_coalescent):
+    """Every polymorphic configuration passes validation unchanged, as integers."""
+    jsfs = two_pop_coalescent.jsfs
+
+    assert [jsfs._bin_config(c) for c in jsfs._get_configs()] == list(jsfs._get_configs())
+    assert jsfs._bin_config(np.array([1, 0])) == (1, 0) and jsfs._bin_config((1.0, 2.0)) == (1, 2)
+
+
+def test_bin_distributions_are_served_when_the_cache_is_off(two_pop_coalescent):
+    """With ``Settings.cache`` off, a stored per-bin distribution is still served and a new one is not stored.
+    Regression: the stored entry was bypassed and its fit rebuilt on every call."""
+    for spectrum, key, other in ((pg.Coalescent(n=4).sfs, 1, 2), (two_pop_coalescent.jsfs, (1, 0), (0, 1))):
+        stored = spectrum._bin_distribution(key)
+        pg.Settings.cache = False
+
+        assert spectrum._bin_distribution(key) is stored
+        assert spectrum._bin_distribution(other) is not spectrum._bin_distribution(other)
+        pg.Settings.cache = True
+
+
+def test_empirical_joint_spectrum_keeps_its_statistics_when_dropped():
+    """The fourth moment is a joint spectrum as the lower ones, and the covariance survives freeing the samples."""
+    coal = pg.Coalescent(n={'a': 2, 'b': 1}, demography=pg.Demography(
+        pop_sizes={'a': 1, 'b': 1}, migration_rates={('a', 'b'): 1, ('b', 'a'): 1}))
+    e = coal.jsfs.to_empirical(2000, seed=1)
+    cov = e.cov
+
+    assert isinstance(e.m4, type(e.m3))
+
+    e._drop()
+    np.testing.assert_array_equal(e.cov, cov)
+    assert {'mean', 'var', 'cov'} <= set(e._standard_errors)
+
+
+def test_joint_plot_accumulation_takes_a_label():
+    """The joint spectrum plots its accumulation through the shared method, with a legend label."""
+    import matplotlib
+    matplotlib.use('Agg')
+
+    coal = pg.Coalescent(n={'a': 2, 'b': 1}, demography=pg.Demography(
+        pop_sizes={'a': 1, 'b': 1}, migration_rates={('a', 'b'): 1, ('b', 'a'): 1}))
+
+    ax = coal.jsfs.plot_accumulation(end_times=[0.5, 1.0], show=False, label='x')
+    assert ax.get_lines()

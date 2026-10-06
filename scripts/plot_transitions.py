@@ -8,11 +8,6 @@ __date__ = "2024-03-10"
 import os
 
 try:
-    import sys
-
-    # necessary to import local module
-    sys.path.append('.')
-
     testing = False
     name = snakemake.params.name
     out = snakemake.output[0]
