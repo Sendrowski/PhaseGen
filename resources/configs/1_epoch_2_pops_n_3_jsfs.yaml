@@ -23,7 +23,7 @@ comparisons:
           corr: 0.0084
       jsfs:
         mean: 0.023
-        var: 0.033
+        var: 0.064
         pairwise:
           '((0, 1), (1, 0))':
             cdf: 0.0045

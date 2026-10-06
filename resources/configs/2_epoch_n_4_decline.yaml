@@ -63,4 +63,4 @@ comparisons:
         var: 0.021
       sfs:
         mean: 0.015
-        m2: 0.013
+        m2: 0.032

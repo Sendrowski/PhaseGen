@@ -369,7 +369,7 @@ class Comparison(Serializable):
         elif isinstance(ph_stat, Iterable):  # a spectrum: SFS / jSFS / 2-SFS / covariance matrix
             diff, plot = self._diff_and_plot_spectrum(ph_stat, ms_stat, stat, name)
         elif stat in ['pdf', 'cdf', 'quantile']:
-            diff, plot = self._diff_and_plot_curve(ph, ms, ph_stat, ms_stat, stat, mode, name)
+            diff, plot = self._diff_and_plot_curve(ph, ms, ms_stat, stat, mode, name)
         else:
             raise ValueError(f"Unknown type {type(ph_stat)}.")
 
@@ -489,7 +489,7 @@ class Comparison(Serializable):
 
         return diff, plot
 
-    def _diff_and_plot_curve(self, ph, ms, ph_stat, ms_stat, stat: str, mode: str, name: str) -> tuple:
+    def _diff_and_plot_curve(self, ph, ms, ms_stat, stat: str, mode: str, name: str) -> tuple:
         """Difference of a pdf / cdf / quantile curve (per-point or per-bin), with a deferred two-panel curve +
         difference plot. The msprime curve uses cached grid values when available. Under a ``cosine`` key the phasegen
         curve is the cosine-inverted reward distribution where the statistic has one (for the tree height, in place of
@@ -511,12 +511,10 @@ class Comparison(Serializable):
             t = np.linspace(0, float(np.max(ph.quantile(0.99))), 100)
             y_ms = np.asarray(ms_stat(t))
 
-        curve = 'cdf' if stat == 'cdf' else 'pdf'
-
         # the cdf is read pointwise; the pdf is averaged over each cell of the grid, because that is the functional
         # the empirical density estimates (see :meth:`_cell_average`). Both come with the grid on the last axis.
-        evaluate = ((lambda f: self._cell_average(f, t)) if stat == 'pdf'
-                    else (lambda f: np.moveaxis(np.asarray(f(t), dtype=float), 0, -1)))
+        evaluate = ((lambda d: self._cell_average(d.pdf, t, d.cdf)) if stat == 'pdf'
+                    else (lambda d: np.moveaxis(np.asarray(d.cdf(t), dtype=float), 0, -1)))
 
         if stat == 'quantile':
             y_ph = self._quantile_values(ph, t, n_bins=y_ms.shape[1] if y_ms.ndim == 2 else None, mode=mode)
@@ -524,13 +522,12 @@ class Comparison(Serializable):
             # a moded spectrum pdf/cdf compares each bin's *inverted* curve; the monomorphic edge bins are zero
             # placeholders, dropped below
             nb = y_ms.shape[1]
-            y_ph = np.array([np.zeros(len(t)) if b in (0, nb - 1) else evaluate(getattr(ph.bin(b), curve))
-                             for b in range(nb)])
+            y_ph = np.array([np.zeros(len(t)) if b in (0, nb - 1) else evaluate(ph.bin(b)) for b in range(nb)])
         elif mode is not None and hasattr(ph, '_reward_distribution'):
             # a moded scalar reward distribution (e.g. total_branch_length) compares its inverted curve
-            y_ph = evaluate(getattr(ph._reward_distribution, curve))
+            y_ph = evaluate(ph._reward_distribution)
         else:
-            y_ph = evaluate(ph_stat)  # exact (mode is None, e.g. the expm tree height)
+            y_ph = evaluate(ph)  # exact (mode is None, e.g. the expm tree height)
 
         # per-bin distributions (the SFS) are 2-D, the empirical ones and the quantiles of both with the grid on the
         # first axis. Orient both as (n_bins, len(grid)) and keep only the polymorphic bins (the monomorphic edges
@@ -609,7 +606,7 @@ class Comparison(Serializable):
         return 0.5 * (y * w).sum(axis=-1)
 
     @classmethod
-    def _cell_average(cls, f, t: np.ndarray) -> np.ndarray:
+    def _cell_average(cls, f, t: np.ndarray, cdf) -> np.ndarray:
         """
         The exact density ``f`` averaged over each cell of the grid ``t`` -- the same functional the empirical density
         estimates (:class:`~phasegen.distributions.empirical._EmpiricalDensityFunction`), so that a pdf comparison
@@ -621,9 +618,14 @@ class Comparison(Serializable):
 
         Cells whose integral is still moving are refined until it settles, and only those: a spike much narrower than
         its cell defeats a fixed-order rule, and the resulting error lands in the comparison as if it were phasegen's.
+        A cell is flagged for refinement where a rule of half the nodes disagrees, or where the quadrature disagrees
+        with the cdf's increment :math:`(F(b) - F(a)) / (b - a)` over the cell :math:`[a, b)`. The second test catches
+        a jump in the density (an epoch boundary for the tree height) that lies closer to a cell edge than any node of
+        either rule. The returned average is always the quadrature of ``f``, so the comparison tests the density.
 
         :param f: The exact density, a vectorised callable (1-D, or per-bin returning ``(len(x), n_bins)``).
         :param t: The grid whose cells to average over; the last cell is extended by the final spacing.
+        :param cdf: The cumulative distribution function belonging to ``f``, shaped like it.
         :return: The cell averages, of shape ``(len(t),)``, or ``(n_bins, len(t))`` per bin.
         """
         edges = np.append(t, 2 * t[-1] - t[-2])
@@ -635,7 +637,10 @@ class Comparison(Serializable):
         # half the nodes is not the answer but the error estimate: where the two rules agree the density is resolved,
         # and where they do not the cell holds a feature the rule cannot see, which only refinement settles
         probe = cls._quadrature(f, lo, hi, cls._CELL_QUAD_NODES // 2)
-        cells = cls._unconverged(np.abs(avg - probe) * widths > cls._CELL_QUAD_TOL, np.arange(len(lo)))
+        mass = np.diff(np.moveaxis(np.asarray(cdf(edges), dtype=float), 0, -1), axis=-1)
+        flagged = ((np.abs(avg - probe) * widths > cls._CELL_QUAD_TOL)
+                   | (np.abs(avg * widths - mass) > cls._CELL_QUAD_TOL))
+        cells = cls._unconverged(flagged, np.arange(len(lo)))
 
         n_nodes = cls._CELL_QUAD_NODES
         while cells.size and n_nodes < cls._CELL_QUAD_MAX_NODES:
@@ -1054,7 +1059,7 @@ class Comparison(Serializable):
                     # the pdf is averaged over each cell, as the spectrum-wide comparison does: the empirical density
                     # is a cell average, and a pointwise exact density is a different functional (see _cell_average)
                     y_ph = (np.asarray(d.cdf(t), dtype=float) if stat == 'cdf'
-                            else self._cell_average(d.pdf, t))
+                            else self._cell_average(d.pdf, t, d.cdf))
                     diff = (float(np.abs(y_ms - y_ph).max()) if stat == 'cdf'
                             else self._pdf_diff(y_ms, y_ph, t))
 

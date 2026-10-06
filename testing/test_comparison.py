@@ -111,7 +111,7 @@ class CurveStatRegressionTestCase(TestCase):
         # the density's own orientation is grid-first -- the exact shape the pre-fix reshape mis-handled
         self.assertEqual(np.asarray(dens(t)).shape, (len(t), 5))
 
-        avg = Comparison._cell_average(dens, t)  # pre-fix: ValueError from the grid-last reshape assumption
+        avg = Comparison._cell_average(dens, t, coal.sfs.cdf)  # pre-fix: ValueError from the reshape
 
         # oriented to the (n_bins, len(grid)) cell-average contract, finite and non-negative
         self.assertEqual(avg.shape, (5, len(t)))
@@ -484,7 +484,7 @@ class UncachedCurveTestCase(TestCase):
 
         for stat in ('cdf', 'quantile'):
             with self.subTest(stat=stat):
-                diff, _ = c._diff_and_plot_curve(ph, ms, getattr(ph, stat), getattr(ms, stat), stat, None, 'n')
+                diff, _ = c._diff_and_plot_curve(ph, ms, getattr(ms, stat), stat, None, 'n')
                 self.assertTrue(np.isfinite(diff))
 
 
@@ -569,3 +569,25 @@ class SpectrumGroundTruthTestCase(TestCase):
         self.assertEqual(len(c.ms.tree_height._loci_joint_surface), 1)
         c.compare()
         self.assertEqual(c.n_assertions, 1)
+
+
+class CellAverageJumpTestCase(TestCase):
+    """The exact pdf's cell average integrates a density jump that lies closer to a cell edge than any node."""
+
+    def test_epoch_jump_next_to_a_cell_edge(self):
+        """Regression: on the grid ``1.38 k`` the epoch boundary at 1.4 sits 0.02 inside the cell [1.38, 2.76), short
+        of the first node of both the 8- and the 4-node rule. The two rules agreed, so the cell was not refined, and
+        the tree height's pdf differed from its own cdf's increments by a total variation of about 5e-3."""
+        th = pg.Coalescent(n=2, demography=pg.Demography(
+            pop_sizes={'pop_0': {0: 1.2, 0.3: 10, 1: 0.8, 1.4: 10}})).tree_height
+        t = 1.38 * np.arange(100)
+        exact = np.diff(th.cdf(np.append(t, 1.38 * 100))) / 1.38
+
+        ms = EmpiricalDistribution(np.zeros(1))
+        ms._cache = {'t': t, 'pdf': exact}
+
+        c = Comparison.__new__(Comparison)
+        c.visualize, c.show_title, c.do_assertion, c.n_assertions = False, False, True, 0
+        c.logger = logging.getLogger('phasegen.Comparison')
+
+        c.compare_stat(th, ms, 'pdf', tol=2e-4)

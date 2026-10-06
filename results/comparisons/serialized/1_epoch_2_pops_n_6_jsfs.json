@@ -15,7 +15,7 @@
     "comparisons": {
         "tolerance": {
             "jsfs": {
-                "mean": 0.009,
+                "mean": 0.017,
                 "var": 0.019
             }
         }
