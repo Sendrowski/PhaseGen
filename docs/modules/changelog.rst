@@ -3,7 +3,7 @@
 Changelog
 =========
 
-[2.0.0] - 2026-10-05
+[2.0.0] - 2026-10-06
 ^^^^^^^^^^^^^^^^^^^^
 - Expose the full distribution of any accumulated reward as callable, plottable ``pdf`` / ``cdf`` / ``quantile`` objects, and the joint distribution of two rewards (:class:`~phasegen.distributions.JointRewardDistribution`) with its marginal and conditional distributions.
 - Substantially speed up the moments of large state spaces with sparse linear solves and matrix-exponential actions, by an order of magnitude on the joint and two-locus spectra.
