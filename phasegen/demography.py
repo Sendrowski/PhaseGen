@@ -1284,30 +1284,21 @@ class Pulse(DiscreteDemographicEvent):
     Forward in time, a fraction :math:`p` of ``source`` derives from ``dest`` at time :math:`t`, as for a demes
     ``Pulse`` with ``sources=[dest]`` and ``dest=source``.
 
-    The jump is approximated by one-way migration from ``source`` to ``dest`` over a window
-    :math:`[t_0, t_0 + \delta)`, at the rate
+    The jump is approximated by one-way migration from ``source`` to ``dest`` over a short window of length
+    :math:`\delta`, opening at :math:`t` or, for a later one of simultaneous pulses, when the previous window closes,
+    at the rate
 
     .. math::
 
         m = -\ln(1 - p) / \delta, \qquad \delta = 1 / (c \, r),
 
     added to the migration rate in force, where :math:`p \in [0, 1)` is ``proportion``, :math:`c` is ``multiplier``,
-    :math:`t_0` is the time at which the window opens, and :math:`r = \max_i \lambda_{2,2} / \tau(N_i)` is the
-    fastest pairwise coalescence rate of the epoch at :math:`t_0`, with :math:`\lambda_{2,2}` and :math:`\tau(N_i)`
-    as for :class:`PopulationSplit`. A lineage thus moves with probability :math:`1 - e^{-m \delta} = p` over the
-    window, and the approximation differs from the exact pulse only through events falling into it. While the
-    population sizes stay constant over the window, a pair of lineages coalesces there with probability at most
-    :math:`1 / c`, so under the standard coalescent the bias is at most of order :math:`\binom{k}{2} / c` for
-    :math:`k` lineages, plus the probability of a migration or recombination event within the window.
-
-    Pulses act one at a time, in the order of their times and, for equal times, in the order in which they are given
-    to :class:`Demography`, so the order of simultaneous pulses matters. A pulse's window opens at its time
-    :math:`t_0 = t`, or, if that falls into the window of an earlier pulse, when that window closes, which delays the
-    move by at most the summed lengths of the windows before it. Pulses at the same time thus act as consecutive
-    msprime mass migrations given in the same order: each moves a fraction :math:`p` of the lineages then in
-    ``source``, including those that a previous pulse moved there. A pulse and a split at the same time act
-    concurrently over the window. A pulse at time 0 moves the sampled lineages, while an msprime mass migration at
-    time 0 leaves the samples in place.
+    and :math:`r = \max_i \lambda_{2,2} / \tau(N_i)` is the fastest pairwise coalescence rate of the epoch in which
+    the window opens, with :math:`\lambda_{2,2}` and :math:`\tau(N_i)` as for :class:`PopulationSplit`. A lineage
+    thus moves with probability :math:`1 - e^{-m \delta} = p` over the window, and a larger :math:`c` shortens the
+    window and the error from events falling into it. Simultaneous pulses act in the order given, as consecutive
+    msprime mass migrations. A pulse at time 0 moves the sampled lineages, while an msprime mass migration at time 0
+    leaves them in place.
 
     The following example moves each lineage in ``pop_0`` to ``pop_1`` with probability 0.3 at time 0.5 backward in
     time, so that forward in time 30% of ``pop_0`` derives from ``pop_1``, and computes the fixation index.
