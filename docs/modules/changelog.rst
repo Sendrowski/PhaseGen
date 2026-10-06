@@ -9,6 +9,7 @@ Changelog
 - Substantially speed up the moments of large state spaces with sparse linear solves and matrix-exponential actions, by an order of magnitude on the joint and two-locus spectra.
 - Support time-inhomogeneous (multi-epoch) demographies for mutational block configurations (:meth:`UnfoldedSFSDistribution.get_mutation_config() <phasegen.distributions.UnfoldedSFSDistribution.get_mutation_config>`), and add them for the joint and two-locus spectra and for folded and deme-resolved layouts, described by :class:`~phasegen.distributions.MutationLayout`.
 - Add a fast vectorised trajectory sampler (:meth:`PhaseTypeDistribution.to_empirical() <phasegen.distributions.PhaseTypeDistribution.to_empirical>`, :class:`~phasegen.distributions.SampledCoalescent`) as a sampled counterpart of every phase-type distribution.
+- Add admixture pulses with :class:`~phasegen.demography.Pulse`.
 - Start the coalescent from a weighted mixture of lineage or locus configurations with :class:`~phasegen.initial.InitialDistribution`.
 - Improve parameter inference with :class:`~phasegen.inference.Inference`.
 - Make numerous smaller improvements and bug fixes throughout.

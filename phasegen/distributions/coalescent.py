@@ -180,7 +180,7 @@ class AbstractCoalescent(ABC):
         #: Coalescent model
         self.model: CoalescentModel = model
 
-        # the drain rate of a population split depends on the coalescent model
+        # the drain rate of a population split and the window of a pulse depend on the coalescent model
         demography._model = model
 
         #: Demography

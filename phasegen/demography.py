@@ -81,8 +81,8 @@ class Demography:
         :param warn_n_epochs: Threshold for the number of epochs considered after which a warning is issued.
         :raises TypeError: If ``events`` is not a list of :class:`DemographicEvent` objects.
         :raises ValueError: If ``pop_sizes`` is neither a number nor a dictionary, ``migration_rates`` is not a
-            dictionary, or one of their entries is neither a number nor a non-empty dictionary of times
-            to values.
+            dictionary, one of their entries is neither a number nor a non-empty dictionary of times to values, or a
+            :class:`Pulse` refers to a population the demography does not have.
         """
         if events is None:
             events = []
@@ -165,9 +165,11 @@ class Demography:
 
     def _prepare_events(self) -> None:
         """
-        Sort events by start time and determine population names and number of populations.
+        Sort events stably by start time and determine population names and number of populations.
+
+        :raises ValueError: If a :class:`Pulse` refers to a population the demography does not have.
         """
-        # sort events by start time
+        # sort events stably by start time, keeping the order of the pulses sharing a time
         self.events = sorted(self.events, key=lambda e: e.start_time)
 
         # determine population names
@@ -175,6 +177,13 @@ class Demography:
 
         # determine number of populations
         self.n_pops = len(self.pop_names)
+
+        for e in self.events:
+            if isinstance(e, Pulse) and not {e.source, e.dest} <= set(self.pop_names):
+                raise ValueError(
+                    f"The source {e.source!r} and destination {e.dest!r} of a pulse must be populations of the "
+                    f"demography, which has {self.pop_names}."
+                )
 
     def to_msprime(
             self,
@@ -333,12 +342,12 @@ class Demography:
             )
             self._issued_warning = True
 
-        # potential next epoch
+        # potential next epoch, carrying the rates of the previous one without the rates of its pulse windows
         epoch = Epoch(
             start_time=prev.end_time,
             end_time=np.inf,
             pop_sizes=prev.pop_sizes,
-            migration_rates=prev.migration_rates
+            migration_rates=prev._base_rates
         )
 
         # broadcast events
@@ -374,6 +383,23 @@ class Demography:
 
         for e in splits:
             e._apply(epoch, model)
+
+        # pulses act one at a time in the order of the events, each opening its window once the previous one closes
+        window = prev._window if prev._window is not None and prev._window[1] > epoch.start_time else None
+        pending = prev._pending + tuple(e for e in self.events if isinstance(e, Pulse) and
+                                        np.any((epoch.start_time <= e.times) & (e.times < epoch.end_time)))
+
+        if window is None and pending:
+            window, pending = pending[0]._window(epoch, model), pending[1:]
+
+        epoch._base_rates = epoch.migration_rates.copy()
+        epoch._window = window
+        epoch._pending = pending
+
+        if window is not None:
+            pulse, end, rate = window
+            epoch.end_time = min(epoch.end_time, end)
+            epoch.migration_rates[(pulse.source, pulse.dest)] += rate
 
         epoch.index = i
 
@@ -493,6 +519,7 @@ class Demography:
 
         :param events: List of demographic events.
         :raises TypeError: If ``events`` is not a list of :class:`DemographicEvent` objects.
+        :raises ValueError: If a :class:`Pulse` refers to a population the demography does not have.
         """
         self.events += self._check_events(events)
 
@@ -504,6 +531,7 @@ class Demography:
 
         :param event: Demographic event.
         :raises TypeError: If ``event`` is not a :class:`DemographicEvent`.
+        :raises ValueError: If a :class:`Pulse` refers to a population the demography does not have.
         """
         self.add_events([event])
 
@@ -735,6 +763,15 @@ class Epoch:
         #: Migration rates.
         self.migration_rates: Dict[Tuple[str, str], float] = migration_rates
 
+        #: Migration rates without the rates of the pulse windows, carried over to the next epoch.
+        self._base_rates: Dict[Tuple[str, str], float] = migration_rates
+
+        #: Pulse window open in the epoch, as the pulse, the end time of its window and its rate.
+        self._window: Tuple['Pulse', float, float] | None = None
+
+        #: Pulses whose time has come, waiting in order for the open window to close.
+        self._pending: Tuple['Pulse', ...] = ()
+
     @cached_property
     def tau(self) -> float:
         r"""
@@ -815,6 +852,27 @@ class DemographicEvent(ABC):
         :param epoch: Epoch.
         """
         pass
+
+    @staticmethod
+    def _max_coalescence_rate(epoch: Epoch, model: CoalescentModel) -> float:
+        """
+        The fastest pairwise coalescence rate among the populations of an epoch.
+
+        :param epoch: Epoch.
+        :param model: Coalescent model.
+        :return: The rate.
+        :raises ModelError: If a population size of the epoch is not positive.
+        """
+        timescale = min(model._get_timescale(N) for N in epoch.pop_sizes.values())
+
+        if not timescale > 0:
+            raise ModelError(
+                f"A population size is not positive in the epoch starting at {epoch.start_time:g}, but the exact "
+                f"computation needs a positive size in every epoch it reaches. Floor the trajectory at a small positive "
+                f"size."
+            )
+
+        return model._get_rate(b=2, k=2) / timescale
 
     @staticmethod
     def _flatten(
@@ -1211,21 +1269,135 @@ class PopulationSplit(DiscreteDemographicEvent):
 
         # the drain rate is a multiple of the fastest pairwise coalescence rate of the epoch, so that the lineages
         # leave the derived populations before any coalescence the split displaces
-        timescale = min(model._get_timescale(N) for N in epoch.pop_sizes.values())
-
-        if not timescale > 0:
-            raise ModelError(
-                f"A population size is not positive in the epoch starting at {epoch.start_time:g}, but the exact "
-                f"computation needs a positive size in every epoch it reaches. Floor the trajectory at a small positive "
-                f"size."
-            )
-
-        rate = self.multiplier * model._get_rate(b=2, k=2) / timescale
+        rate = self.multiplier * self._max_coalescence_rate(epoch, model)
 
         for p in self.derived:
             epoch.migration_rates[(p, self.ancestral)] = rate
 
         return {(p, self.ancestral) for p in self.derived}
+
+
+class Pulse(DiscreteDemographicEvent):
+    r"""
+    Demographic event for a pulse of admixture, with the semantics of msprime's ``add_mass_migration``. Backward in
+    time, each lineage in ``source`` at time :math:`t` moves to ``dest`` independently with probability :math:`p`.
+    Forward in time, a fraction :math:`p` of ``source`` derives from ``dest`` at time :math:`t`, as for a demes
+    ``Pulse`` with ``sources=[dest]`` and ``dest=source``.
+
+    The jump is approximated by one-way migration from ``source`` to ``dest`` over a window
+    :math:`[t_0, t_0 + \delta)`, at the rate
+
+    .. math::
+
+        m = -\ln(1 - p) / \delta, \qquad \delta = 1 / (c \, r),
+
+    added to the migration rate in force, where :math:`p \in [0, 1)` is ``proportion``, :math:`c` is ``multiplier``,
+    :math:`t_0` is the time at which the window opens, and :math:`r = \max_i \lambda_{2,2} / \tau(N_i)` is the
+    fastest pairwise coalescence rate of the epoch at :math:`t_0`, with :math:`\lambda_{2,2}` and :math:`\tau(N_i)`
+    as for :class:`PopulationSplit`. A lineage thus moves with probability :math:`1 - e^{-m \delta} = p` over the
+    window, and the approximation differs from the exact pulse only through events falling into it. While the
+    population sizes stay constant over the window, a pair of lineages coalesces there with probability at most
+    :math:`1 / c`, so under the standard coalescent the bias is at most of order :math:`\binom{k}{2} / c` for
+    :math:`k` lineages, plus the probability of a migration or recombination event within the window.
+
+    Pulses act one at a time, in the order of their times and, for equal times, in the order in which they are given
+    to :class:`Demography`, so the order of simultaneous pulses matters. A pulse's window opens at its time
+    :math:`t_0 = t`, or, if that falls into the window of an earlier pulse, when that window closes, which delays the
+    move by at most the summed lengths of the windows before it. Pulses at the same time thus act as consecutive
+    msprime mass migrations given in the same order: each moves a fraction :math:`p` of the lineages then in
+    ``source``, including those that a previous pulse moved there. A pulse and a split at the same time act
+    concurrently over the window. A pulse at time 0 moves the sampled lineages, while an msprime mass migration at
+    time 0 leaves the samples in place.
+
+    The following example moves each lineage in ``pop_0`` to ``pop_1`` with probability 0.3 at time 0.5 backward in
+    time, so that forward in time 30% of ``pop_0`` derives from ``pop_1``, and computes the fixation index.
+
+    ::
+
+        demography = pg.Demography(
+            pop_sizes={'pop_0': 1, 'pop_1': 1},
+            migration_rates={('pop_0', 'pop_1'): 0.1, ('pop_1', 'pop_0'): 0.1},
+            events=[pg.Pulse(time=0.5, source='pop_0', dest='pop_1', proportion=0.3)]
+        )
+
+        fst = pg.Coalescent(n={'pop_0': 2, 'pop_1': 2}, demography=demography).fst
+    """
+
+    def __init__(
+            self,
+            time: float,
+            source: str,
+            dest: str,
+            proportion: float,
+            multiplier: float = 1e5
+    ) -> None:
+        r"""
+        Initialize the pulse.
+
+        :param time: Time of the pulse.
+        :param source: Population from which lineages move backward in time, the recipient forward in time.
+        :param dest: Population to which lineages move backward in time, the donor forward in time.
+        :param proportion: Probability :math:`p \in [0, 1)` that a lineage in ``source`` moves to ``dest``. A pulse
+            of proportion 0 has no effect.
+        :param multiplier: The multiplier :math:`c` setting the window length :math:`\delta = 1 / (c \, r)`.
+        :raises ValueError: If the time is negative, the proportion is not in :math:`[0, 1)`, ``source`` equals
+            ``dest``, or the multiplier is not positive and finite. :class:`Demography` raises a ``ValueError`` if
+            ``source`` or ``dest`` is not among its populations.
+        """
+        if not time >= 0:
+            raise ValueError(f'The pulse time must be non-negative, got {time}.')
+
+        if not 0 <= proportion < 1:
+            raise ValueError(f'The pulse proportion must be in [0, 1), got {proportion}.')
+
+        if source == dest:
+            raise ValueError(f'The source and destination of a pulse must differ, got {source!r} for both.')
+
+        if not 0 < multiplier < np.inf:
+            raise ValueError(f'The window multiplier must be positive and finite, got {multiplier}.')
+
+        #: Time of the pulse.
+        self.start_time: float = time
+
+        #: Times at which the pulse opens its window, none for a proportion of 0.
+        self.times: np.ndarray = np.array([time] if proportion > 0 else [], dtype=float)
+
+        #: Population names. A pulse defines no populations of its own.
+        self.pop_names: List[str] = []
+
+        #: Population from which lineages move backward in time.
+        self.source: str = source
+
+        #: Population to which lineages move backward in time.
+        self.dest: str = dest
+
+        #: Probability that a lineage in the source population moves to the destination population.
+        self.proportion: float = proportion
+
+        #: Window multiplier.
+        self.multiplier: float = multiplier
+
+    def _apply(self, epoch: Epoch) -> set:
+        """
+        A pulse sets no rate itself. :class:`Demography` adds the rate of its window, given by :meth:`_window`, to the
+        rates in force.
+
+        :param epoch: Epoch.
+        :return: The empty set.
+        """
+        return set()
+
+    def _window(self, epoch: Epoch, model: CoalescentModel) -> Tuple['Pulse', float, float]:
+        """
+        The window of the pulse, opening at the start of ``epoch`` and sized from its population sizes.
+
+        :param epoch: The epoch in which the window opens.
+        :param model: Coalescent model, whose pairwise coalescence rate and time scale set the window length.
+        :return: The pulse, the end time of its window and its migration rate.
+        """
+        delta = 1 / (self.multiplier * self._max_coalescence_rate(epoch, model))
+
+        return self, epoch.start_time + delta, -np.log1p(-self.proportion) / delta
 
 
 class DiscretizedDemographicEvent(DemographicEvent, ABC):

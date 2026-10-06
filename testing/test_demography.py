@@ -1081,3 +1081,126 @@ def test_rate_changes_reject_missing_dict_keys():
 
     with pytest.raises(ValueError, match="no entry for 'a'"):
         pg.DiscretizedRateChanges(trajectory={'a': lambda t: 1}, start_time={'b': 0})
+
+
+def _pulse_demography(*events) -> pg.Demography:
+    """Two demes of size 1 exchanging migrants at rate 0.1, with the given events."""
+    return pg.Demography(
+        pop_sizes={'pop_0': 1, 'pop_1': 1},
+        migration_rates={('pop_0', 'pop_1'): 0.1, ('pop_1', 'pop_0'): 0.1},
+        events=list(events)
+    )
+
+
+@pytest.mark.parametrize('make', [
+    lambda: pg.Pulse(time=-1, source='pop_0', dest='pop_1', proportion=0.5),
+    lambda: pg.Pulse(time=np.nan, source='pop_0', dest='pop_1', proportion=0.5),
+    lambda: pg.Pulse(time=1, source='pop_0', dest='pop_1', proportion=1),
+    lambda: pg.Pulse(time=1, source='pop_0', dest='pop_1', proportion=-0.1),
+    lambda: pg.Pulse(time=1, source='pop_0', dest='pop_1', proportion=np.nan),
+    lambda: pg.Pulse(time=1, source='pop_0', dest='pop_0', proportion=0.5),
+    lambda: pg.Pulse(time=1, source='pop_0', dest='pop_1', proportion=0.5, multiplier=0),
+    lambda: pg.Pulse(time=1, source='pop_0', dest='pop_1', proportion=0.5, multiplier=np.inf),
+    lambda: _pulse_demography(pg.Pulse(time=1, source='pop_0', dest='pop_2', proportion=0.5)),
+    lambda: _pulse_demography().add_event(pg.Pulse(time=1, source='pop_2', dest='pop_1', proportion=0)),
+])
+def test_pulse_rejects_invalid_arguments(make):
+    """A pulse rejects invalid times, proportions, multipliers and populations."""
+    with pytest.raises(ValueError):
+        make()
+
+
+def test_pulse_of_proportion_zero_is_a_no_op():
+    """A pulse of proportion 0 leaves the epochs unchanged."""
+    dem = _pulse_demography(pg.Pulse(time=0.5, source='pop_0', dest='pop_1', proportion=0))
+
+    assert list(dem.epochs) == list(_pulse_demography().epochs)
+
+
+def test_pulse_window_rates():
+    """The window adds -ln(1 - p) / delta on top of the rate in force, with delta = 1 / (c max_i 1 / N_i) taken from
+    the sizes at the pulse, and spans a size change inside it. After the window the rates are those without the
+    pulse, also in the epoch of a split at the same time."""
+    p, c, t = 0.3, 1e3, 0.5
+    events = [pg.PopSizeChange(pop='pop_1', time=t, size=0.5), pg.PopSizeChange(pop='pop_0', time=t + 1e-4, size=2)]
+    split = pg.PopulationSplit(time=t, derived='pop_1', ancestral='pop_0')
+    dem = _pulse_demography(*events, split, pg.Pulse(time=t, source='pop_0', dest='pop_1', proportion=p, multiplier=c))
+    ref = _pulse_demography(*events, split)
+    delta, rate = 0.5 / c, -np.log(1 - p) * c / 0.5
+
+    epochs = list(dem.epochs)
+    np.testing.assert_allclose([e.start_time for e in epochs], [0, t, t + 1e-4, t + delta])
+    for e in epochs[1:3]:
+        assert e.migration_rates[('pop_0', 'pop_1')] == pytest.approx(rate)
+    assert epochs[3] == ref.get_epoch(t + delta)
+
+
+def test_pulse_exports_its_window_to_msprime():
+    """The msprime export holds the window as a migration epoch."""
+    p, c = 0.5, 1e3
+    msd = _pulse_demography(pg.Pulse(time=0.5, source='pop_0', dest='pop_1', proportion=p, multiplier=c)).to_msprime()
+    changes = {(e.time, e.source, e.dest): e.rate for e in msd.events if hasattr(e, 'rate') and e.source == 'pop_0'}
+
+    assert changes[(0.5, 'pop_0', 'pop_1')] == pytest.approx(0.1 + -np.log(1 - p) * c)
+    assert changes[(0.5 + 1 / c, 'pop_0', 'pop_1')] == pytest.approx(0.1)
+
+
+def test_pulse_agrees_with_msprime_mass_migration():
+    """Mean tree height and F_ST against msprime with an exact mass migration of proportion 0.5 from pop_0 to pop_1
+    at time 0.5, from 4e6 replicates, within 4 standard errors."""
+    coal = pg.Coalescent(
+        n={'pop_0': 2, 'pop_1': 2},
+        demography=_pulse_demography(pg.Pulse(time=0.5, source='pop_0', dest='pop_1', proportion=0.5))
+    )
+
+    assert abs(coal.tree_height.mean - 6.331942) < 4 * 0.003033
+    assert abs(coal.fst - 0.4788939) < 4 * 0.0003598
+    assert abs(coal.tree_height.mean - pg.Coalescent(n={'pop_0': 2, 'pop_1': 2}, demography=_pulse_demography())
+               .tree_height.mean) > 1
+
+
+def _pulses_into_isolated_demes(*pulses) -> pg.Demography:
+    """Demes pop_0 to pop_3 of sizes 1, 0.1, 5 and 2, isolated until time 3 when every deme sends migrants back to
+    pop_0 at rate 1, with pulses given as tuples of time, source, destination and proportion."""
+    pops = ['pop_0', 'pop_1', 'pop_2', 'pop_3']
+
+    return pg.Demography(
+        pop_sizes=dict(zip(pops, [1, 0.1, 5, 2])),
+        migration_rates={(p, 'pop_0'): {0: 0, 3: 1} for p in pops[1:]},
+        events=[pg.Pulse(time=t, source=s, dest=d, proportion=p) for t, s, d, p in pulses]
+    )
+
+
+@pytest.mark.parametrize('pulses, mean, se', [
+    ([(0.5, 'pop_0', 'pop_1', 0.5), (0.5, 'pop_0', 'pop_2', 0.5)], 2.345556, 0.005688),
+    ([(0.5, 'pop_0', 'pop_2', 0.5), (0.5, 'pop_0', 'pop_1', 0.5)], 2.724167, 0.005817),
+    ([(0.5, 'pop_0', 'pop_1', 0.3), (0.5, 'pop_0', 'pop_2', 0.5), (0.5, 'pop_0', 'pop_3', 0.4)], 2.793666, 0.005949),
+    ([(0.5, 'pop_0', 'pop_1', 0.5), (0.5, 'pop_1', 'pop_2', 0.5)], 2.418080, 0.005503),
+    ([(0.5, 'pop_1', 'pop_2', 0.5), (0.5, 'pop_0', 'pop_1', 0.5)], 1.923550, 0.005034),
+    ([(0.5, 'pop_0', 'pop_1', 0.5), (0.5 + 5e-7, 'pop_0', 'pop_2', 0.5)], 2.360206, 0.005692),
+])
+def test_pulses_sharing_a_time_act_in_order(pulses, mean, se):
+    """Regression: pulses whose windows overlapped acted as competing risks over one window, so two pulses from pop_0
+    of proportion 0.5 at one time moved a lineage to each destination with probability 0.375 whatever their order.
+    Mean tree height of two lineages in pop_0 against msprime with exact mass migrations added in the same order,
+    from 2e5 replicates, within 4 standard errors: two and three pulses from one source at one time, a chain
+    pop_0 -> pop_1 -> pop_2 at one time in both orders, and a pulse inside the window of an earlier one."""
+    coal = pg.Coalescent(n={'pop_0': 2, 'pop_1': 0, 'pop_2': 0, 'pop_3': 0},
+                         demography=_pulses_into_isolated_demes(*pulses))
+
+    assert abs(coal.tree_height.mean - mean) < 4 * se
+
+
+def test_pulse_inside_another_window_opens_when_it_closes():
+    """Pulses act one window at a time: the window of a pulse at the time of, or within the window of, an earlier
+    pulse opens when the earlier window closes, and the windows of pulses at one time follow their order."""
+    delta = 1e-6  # 1 / (1e5 * 10) for the smallest deme of size 0.1
+    dem = _pulses_into_isolated_demes((0.5, 'pop_0', 'pop_1', 0.5), (0.5 + delta / 2, 'pop_0', 'pop_2', 0.5),
+                                      (0.5, 'pop_0', 'pop_3', 0.5))
+    epochs = list(dem.epochs)[:5]
+    rate = np.log(2) / delta
+
+    np.testing.assert_allclose([e.start_time for e in epochs], [0, 0.5, 0.5 + delta / 2, 0.5 + delta, 0.5 + 2 * delta])
+    for e, dest in zip(epochs[1:], ['pop_1', 'pop_1', 'pop_3', 'pop_2']):
+        assert {k: r for k, r in e.migration_rates.items() if r > 0} == {('pop_0', dest): pytest.approx(rate)}
+    assert epochs[4].end_time == pytest.approx(0.5 + 3 * delta)
