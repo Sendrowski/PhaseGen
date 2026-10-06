@@ -11,14 +11,15 @@ from typing import Dict, Hashable, Iterator, Literal, Optional, Sequence, Tuple,
 import numpy as np
 import scipy.sparse as sp
 
+from ..demography import Demography
 from ..expm import Backend
 from ..initial import InitialDistribution
 from ..lineage import LineageConfig
 from ..locus import LocusConfig
-from ..rewards import CombinedReward, Reward, SumReward, TreeHeightReward
+from ..rewards import CombinedReward, Reward, SumReward, TreeHeightReward, UnitReward
 from ..settings import Settings
 from ..state_space import StateSpace
-from .phase_type import PhaseTypeDistribution
+from .phase_type import PhaseTypeDistribution, TreeHeightDistribution
 
 expm = Backend.expm
 
@@ -357,7 +358,35 @@ class MutationConfig(tuple):
         return out
 
 
-class SpectrumDistribution(PhaseTypeDistribution, ABC):
+class _DefaultLayoutMixin:
+    """The default layout shared by the exact and the empirical spectra."""
+
+    def _default_layout(self) -> MutationLayout:
+        """
+        The layout of ``mutation_layout()`` with its default arguments, memoized.
+
+        :return: The layout.
+        """
+        layout = self.__dict__.get('_default_layout_memo')
+
+        if layout is None:
+            layout = self.mutation_layout()
+
+            if Settings.cache:
+                self.__dict__['_default_layout_memo'] = layout
+
+        return layout
+
+    def _layout_axes(self) -> Tuple[Tuple[str, ...], ...]:
+        """
+        The axes of the spectrum arrays of the layouts this spectrum provides.
+
+        :return: The axes of each kind of layout.
+        """
+        return self._default_layout().axes,
+
+
+class SpectrumDistribution(_DefaultLayoutMixin, PhaseTypeDistribution, ABC):
     r"""
     Base class for the spectra, phase-type distributions whose reward vectors :math:`\mathbf{r}_j` count the branches
     of the bins :math:`j` of a :class:`~phasegen.distributions.MutationLayout`, with the probabilities of their
@@ -377,6 +406,27 @@ class SpectrumDistribution(PhaseTypeDistribution, ABC):
     #: Probability mass yielded by the most recently started configuration iterator.
     generated_mass: float = 0
 
+    def __init__(
+            self,
+            state_space: StateSpace,
+            tree_height: TreeHeightDistribution,
+            demography: Demography,
+            reward: Reward = None
+    ) -> None:
+        """
+        Initialize the distribution.
+
+        :param state_space: The block-counting state space of the spectrum.
+        :param tree_height: The tree height distribution.
+        :param demography: The demography.
+        :param reward: The reward to multiply the bin rewards with. By default, the unit reward is used, which has
+            no effect.
+        """
+        if reward is None:
+            reward = UnitReward()
+
+        super().__init__(state_space=state_space, tree_height=tree_height, demography=demography, reward=reward)
+
     def _mutation_class_reward(self, label: Hashable) -> Reward:
         """
         The reward of an elementary frequency class.
@@ -393,22 +443,6 @@ class SpectrumDistribution(PhaseTypeDistribution, ABC):
         :return: The layout.
         """
         raise NotImplementedError
-
-    def _default_layout(self) -> MutationLayout:
-        """
-        The layout of ``mutation_layout()`` with its default arguments, memoized.
-
-        :return: The layout.
-        """
-        layout = self.__dict__.get('_default_layout_memo')
-
-        if layout is None:
-            layout = self.mutation_layout()
-
-            if Settings.cache:
-                self.__dict__['_default_layout_memo'] = layout
-
-        return layout
 
     @property
     def _layout_lineages(self) -> LineageConfig | InitialDistribution:
@@ -432,14 +466,6 @@ class SpectrumDistribution(PhaseTypeDistribution, ABC):
         rewards = [self._mutation_class_reward(label) for label in b]
 
         return CombinedReward([self.reward, rewards[0] if len(rewards) == 1 else SumReward(rewards)])
-
-    def _layout_axes(self) -> Tuple[Tuple[str, ...], ...]:
-        """
-        The axes of the spectrum arrays of the layouts this spectrum provides.
-
-        :return: The axes of each kind of layout.
-        """
-        return self._default_layout().axes,
 
     def _check_layout(self, layout: MutationLayout) -> None:
         """
@@ -606,8 +632,8 @@ class SpectrumDistribution(PhaseTypeDistribution, ABC):
             holds two singletons or tripletons and one doubleton.
         :param theta: The mutation rate :math:`\theta` per unit of branch length.
         :return: The probability :math:`\mathbb{P}(\mathbf{Y} = \mathbf{m})`.
-        :raises ValueError: If ``theta`` is negative or not finite, or if ``config`` does not have one non-negative
-            integer per bin.
+        :raises ValueError: If ``theta`` is negative or not finite, ``config`` does not have one non-negative integer
+            per bin, or its layout belongs to another spectrum.
         :raises NotImplementedError: If the coalescent has a positive start time or a finite end time.
         :raises ModelError: If some state carrying mass can never reach a common ancestor.
         """

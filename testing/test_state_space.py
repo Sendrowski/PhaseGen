@@ -871,6 +871,53 @@ def test_rescale_uses_sampled_population_size():
     testing.assert_allclose(np.asarray(s.S), np.asarray(fresh.S), rtol=1e-12)
 
 
+def test_two_deme_two_epoch_cdf_builds_each_rate_matrix_once(monkeypatch):
+    """
+    The tree-height CDF of a two-deme, two-epoch coalescent builds the rate matrix of each epoch once. Regression:
+    the absorption checks visit the last epoch before the sweep returns to the first, and the rate matrix of every
+    epoch was dropped on leaving it, so both were built twice.
+    """
+    build, built = pg.StateSpace._construct_numba, []
+    monkeypatch.setattr(pg.StateSpace, '_construct_numba', lambda ss: built.append(ss.epoch.start_time) or build(ss))
+
+    coal = pg.Coalescent(n={'pop_0': 3, 'pop_1': 3}, demography=pg.Demography(
+        pop_sizes={'pop_0': {0: 1, 0.5: 0.3}, 'pop_1': {0: 0.5}},
+        migration_rates={('pop_0', 'pop_1'): {0: 1}, ('pop_1', 'pop_0'): {0: 0.2}}
+    ))
+    coal.tree_height.cdf(np.linspace(0, 5, 50))
+
+    assert built == [0, 0.5]
+
+
+def test_update_epoch_restores_the_rate_matrix_of_the_epoch_left_last():
+    """
+    Returning to the epoch left last restores its rate matrix, equal to one built afresh for that epoch, and a third
+    epoch builds its own.
+    """
+    lineages = pg.LineageConfig({'a': 2, 'b': 2})
+    epochs = [pg.Epoch(start_time=i, pop_sizes={'a': 1 + i, 'b': 2}, migration_rates={('a', 'b'): 1, ('b', 'a'): 1})
+              for i in range(3)]
+    s = pg.LineageCountingStateSpace(lineage_config=lineages, model=pg.StandardCoalescent(), epoch=epochs[0])
+
+    S0 = s.S
+    s.update_epoch(epochs[1])
+    S1 = s.S
+    s.update_epoch(epochs[0])
+    assert s.S is S0
+    s.update_epoch(epochs[2])
+    s.update_epoch(epochs[1])
+    assert s.S is not S1
+
+    for epoch in [epochs[2], epochs[0]]:
+        s.update_epoch(epoch)
+        fresh = pg.LineageCountingStateSpace(lineage_config=lineages, model=pg.StandardCoalescent(), epoch=epoch)
+        testing.assert_array_equal(np.asarray(s.S), np.asarray(fresh.S))
+
+    s.drop_cache()
+    s.update_epoch(epochs[2])
+    assert 'S' not in s.__dict__
+
+
 @pytest.mark.parametrize('n_states, level', [(4999, None), (5000, 'slow'), (15000, 'very slow'),
                                               (50000, 'extremely slow')])
 def test_large_state_space_warns_once_at_the_highest_level(n_states, level, caplog):

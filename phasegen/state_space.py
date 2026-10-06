@@ -89,6 +89,9 @@ class StateSpace(ABC):
     #: Initial distribution over locus configurations, ``None`` for the single configuration :attr:`locus_config`
     locus_distribution: InitialDistribution | None = None
 
+    #: Rate matrix of the epoch left last, keyed by that epoch, restored by :meth:`update_epoch` on returning to it
+    _previous_S: Dict[Epoch, np.ndarray] = {}
+
     def __init__(
             self,
             lineage_config: LineageConfig | InitialDistribution,
@@ -380,7 +383,7 @@ class StateSpace(ABC):
         states. In the two-locus space, the state ``(n, 0) + (0, n)``, in which both loci have reached their MRCA on
         separate lineages, is absorbing. The mask does not depend on the epoch.
         """
-        return np.array([self._is_absorbing(s) for s in self.states])
+        return self._absorbing_mask(self.lineages)
 
     @cached_property
     def transition(self) -> 'Transition':
@@ -409,7 +412,13 @@ class StateSpace(ABC):
                 self.S *= self._get_scaling_factor(self.epoch, epoch)
 
             else:
-                self.drop_S()
+                # keep the rate matrix of the epoch being left, and restore that of the epoch entered if it was the
+                # one left last
+                previous = self._previous_S
+                self._previous_S = {self.epoch: self.__dict__.pop('S')} if 'S' in self.__dict__ else {}
+
+                if epoch in previous:
+                    self.__dict__['S'] = previous[epoch]
 
         self.epoch = epoch
 
@@ -474,10 +483,11 @@ class StateSpace(ABC):
 
     def drop_cache(self) -> None:
         """
-        Drop the rate matrix cache and current rate matrix.
+        Drop the rate matrix cache, the current rate matrix and that of the epoch left last.
         """
         self.drop_S()
 
+        self._previous_S = {}
         self._cache = {}
 
     @abstractmethod
@@ -489,14 +499,23 @@ class StateSpace(ABC):
 
     def _is_absorbing(self, state: 'State') -> bool:
         """
-        Whether the given state is absorbing. By default this is the single-process absorbing condition (a single
-        remaining lineage); state spaces with a different notion of absorption (e.g. two loci, which are absorbed
-        once both have reached their MRCA) override this.
+        Whether the given state is absorbing, see ``_absorbing_mask``.
 
         :param state: State.
         :return: Whether the state is absorbing.
         """
-        return state.is_absorbing()
+        return bool(self._absorbing_mask(state.lineages[None])[0])
+
+    def _absorbing_mask(self, lineages: np.ndarray) -> np.ndarray:
+        """
+        Which of the lineage configurations are absorbing. By default this is the single-process absorbing condition,
+        a single remaining lineage at every locus. State spaces with a different notion of absorption (e.g. two loci,
+        which are absorbed once both have reached their MRCA) override this.
+
+        :param lineages: Lineage configurations, indexed ``[state, locus, deme, block]``.
+        :return: Boolean mask over the configurations.
+        """
+        return np.all(lineages.sum(axis=(2, 3)) == 1, axis=1)
 
     def _use_numba(self) -> bool:
         """
@@ -1197,15 +1216,16 @@ class TwoLocusBlockCountingStateSpace(JointBlockCountingStateSpace):
 
         return State(data)
 
-    def _is_absorbing(self, state: 'State') -> bool:
+    def _absorbing_mask(self, lineages: np.ndarray) -> np.ndarray:
         """
         A two-locus state is absorbing once both loci have reached their MRCA, i.e. exactly one lineage carries
         ancestral material at locus 0 and exactly one carries it at locus 1 (covering both the single linked
         grand-MRCA ``(n, n)`` and the unlinked pair ``(n, 0) + (0, n)``).
-        """
-        lineages = state.lineages[0, 0]
 
-        return all(int(lineages[self.block_vectors[:, locus] > 0].sum()) == 1 for locus in range(2))
+        :param lineages: Lineage configurations, indexed ``[state, locus, deme, block]``.
+        :return: Boolean mask over the configurations.
+        """
+        return np.all(lineages[:, 0, 0] @ (self.block_vectors > 0) == 1, axis=1)
 
     def _numba_kind(self) -> int:
         """

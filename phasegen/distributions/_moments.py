@@ -1145,7 +1145,7 @@ class MomentEvaluator:
 
         # the state distribution propagated to the start of each finite epoch. Where the CDF there is still below the
         # absorption level, the epoch starts before the time of almost sure absorption, whose search is then spared
-        w, prev = np.asarray(th.state_space.alpha, dtype=float), None
+        w, prev = None, None
 
         # the transient mass reaching each epoch after the time of almost sure absorption, by epoch index, from a
         # propagation shared across orders that advances with the search, which visits the epochs in turn
@@ -1189,7 +1189,9 @@ class MomentEvaluator:
 
             if t_absorption is None:
                 # across the previous epoch, which ends where this one starts
-                if prev is not None:
+                if prev is None:
+                    w = np.asarray(th.state_space.alpha, dtype=float)
+                else:
                     w = th._sweep_to(w, prev.start_time, epoch.start_time, prev)
                 prev = epoch
 

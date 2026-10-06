@@ -11,16 +11,14 @@ from ..errors import ModelError
 from ..initial import InitialDistribution
 from ..lineage import LineageConfig
 from ..locus import LocusConfig
-from ..demography import Demography
-from ..rewards import Reward, UnfoldedSFSReward, UnitReward, CombinedReward, FoldedSFSReward, SFSReward, JointSFSReward, TwoLocusSFSReward, RestrictedReward
+from ..rewards import Reward, UnfoldedSFSReward, CombinedReward, FoldedSFSReward, SFSReward, JointSFSReward, TwoLocusSFSReward, RestrictedReward
 from ..settings import Settings
 from ..spectrum import SFS, TwoSFS, JointSFS, TwoLocusSFS
-from ..state_space import BlockCountingStateSpace, JointBlockCountingStateSpace, TwoLocusBlockCountingStateSpace
 
 from ._common import N_EMPIRICAL_SAMPLES, _descendant_config, _frequency_class, _make_hashable, _polymorphic_class, \
     _validate_order
 from .base import CumulativeDistributionFunction, DensityFunction, QuantileFunction
-from .phase_type import PhaseTypeDistribution, TreeHeightDistribution
+from .phase_type import PhaseTypeDistribution
 from .mutation_configs import MutationLayout, SpectrumDistribution
 
 if TYPE_CHECKING:
@@ -206,32 +204,6 @@ class SFSDistribution(SpectrumDistribution, ABC):
     def quantile(self) -> SFSQuantileFunction:
         """Per-bin SFS quantile functions (one per frequency class): callable (``quantile(q)``) and plottable."""
         return super().quantile
-
-    def __init__(
-            self,
-            state_space: BlockCountingStateSpace,
-            tree_height: TreeHeightDistribution,
-            demography: Demography,
-            reward: Reward = None
-    ) -> None:
-        """
-        Initialize the distribution.
-
-        :param state_space: Block-counting state space.
-        :param tree_height: The tree height distribution.
-        :param demography: The demography.
-        :param reward: The reward to multiply the SFS reward with. By default, the unit reward is used, which
-            has no effect.
-        """
-        if reward is None:
-            reward = UnitReward()
-
-        super().__init__(
-            state_space=state_space,
-            tree_height=tree_height,
-            demography=demography,
-            reward=reward
-        )
 
     @abstractmethod
     def _get_sfs_reward(self, i: int) -> SFSReward:
@@ -1320,32 +1292,6 @@ class JointSFSDistribution(SpectrumDistribution):
         """Per-bin (per descendant configuration) quantile functions: callable and plottable."""
         return super().quantile
 
-    def __init__(
-            self,
-            state_space: JointBlockCountingStateSpace,
-            tree_height: 'TreeHeightDistribution',
-            demography: Demography,
-            reward: Reward = None
-    ) -> None:
-        """
-        Initialize the distribution.
-
-        :param state_space: Joint block-counting state space.
-        :param tree_height: The tree height distribution.
-        :param demography: The demography.
-        :param reward: The reward to multiply the joint SFS reward with. By default, the unit reward is used, which
-            has no effect.
-        """
-        if reward is None:
-            reward = UnitReward()
-
-        super().__init__(
-            state_space=state_space,
-            tree_height=tree_height,
-            demography=demography,
-            reward=reward
-        )
-
     @cached_property
     def shape(self) -> Tuple[int, ...]:
         """
@@ -1891,27 +1837,6 @@ class TwoLocusSFSDistribution(SpectrumDistribution):
 
         mean, corr = sfs2.mean, sfs2.corr
     """
-
-    def __init__(
-            self,
-            state_space: TwoLocusBlockCountingStateSpace,
-            tree_height: 'TreeHeightDistribution',
-            demography: Demography,
-            reward: Reward = None
-    ) -> None:
-        """
-        Initialize the distribution.
-
-        :param state_space: Two-locus block-counting state space.
-        :param tree_height: The (two-locus) tree height distribution, whose absorption time is when both loci have
-            reached their MRCA.
-        :param demography: The demography.
-        :param reward: An optional reward to multiply the per-locus SFS rewards with. By default the unit reward.
-        """
-        if reward is None:
-            reward = UnitReward()
-
-        super().__init__(state_space=state_space, tree_height=tree_height, demography=demography, reward=reward)
 
     @cached_property
     def shape(self) -> Tuple[int, ...]:

@@ -543,6 +543,20 @@ def test_mutation_configs_raise_on_a_demography_that_does_not_absorb(rates, thet
         next(sfs.get_mutation_configs(theta, order='count'))
 
 
+def test_single_epoch_mutation_config_builds_one_state_space(monkeypatch):
+    """
+    A configuration probability of a single-epoch coalescent builds only the block-counting space. Regression: the
+    absorption check built the lineage-counting space of the tree height for its initial vector, which the epoch
+    search reads only for a demography with a finite epoch, adding about 0.3 ms to every fresh coalescent.
+    """
+    build, built = pg.StateSpace._construct_numba, []
+    monkeypatch.setattr(pg.StateSpace, '_construct_numba', lambda ss: built.append(type(ss)) or build(ss))
+
+    pg.Coalescent(n=5).sfs.get_mutation_config((1, 1, 0, 0), theta=1)
+
+    assert built == [pg.BlockCountingStateSpace]
+
+
 def test_multi_epoch_mutation_configs_follow_theta():
     """
     The multi-epoch configuration probabilities are cached per layout and theta, so a second theta on the same
@@ -621,6 +635,29 @@ def test_foreign_layouts_are_rejected():
 
     assert s4.mutation_layout().rebin([(1,), (2,)]) != s5.mutation_layout().rebin([(1,), (2,)])
     assert s4.get_mutation_config(s4.mutation_layout().rebin([(1,), (2, 3)]).config([1, 0]), theta=1) > 0
+
+
+def test_plain_layout_is_rejected_by_mixture_spectrum():
+    """
+    A layout of a spectrum started from one lineage configuration raises ValueError on a spectrum started from a
+    mixture over lineage configurations, exact and simulated, although both spectra share the array shape. Comparing
+    the lineages without their types raises AttributeError instead.
+    """
+    demography = pg.Demography(pop_sizes=TWO_DEME_SIZES[0], migration_rates=MIGRATION)
+    mixture = pg.InitialDistribution([(1, {'pop_0': 2, 'pop_1': 1}), (3, {'pop_0': 1, 'pop_1': 2})])
+    plain = pg.Coalescent(n={'pop_0': 2, 'pop_1': 1}, demography=demography).sfs.mutation_layout()
+    exact = pg.Coalescent(n=mixture, demography=demography).sfs
+    simulated = MsprimeCoalescent(n=mixture, demography=demography, num_replicates=20, n_threads=1,
+                                  parallelize=False, simulate_mutations=True, mutation_rate=1.0, seed=1).sfs
+
+    with pytest.raises(ValueError, match='does not belong'):
+        exact.get_mutation_config(plain.config([1, 0]), theta=1)
+
+    with pytest.raises(ValueError, match='does not belong'):
+        next(exact.get_mutation_configs(theta=1, layout=plain))
+
+    with pytest.raises(ValueError, match='does not belong'):
+        simulated.get_mutation_config(plain.config([1, 0]))
 
 
 @pytest.mark.parametrize('name', ['sfs', 'fsfs', 'jsfs', 'sfs2'])

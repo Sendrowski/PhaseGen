@@ -47,14 +47,12 @@ from .spectra import (
 from .mutation_configs import (
     MutationConfig,
     MutationLayout,
-    SpectrumDistribution,
 )
 from .coalescent import (
     AbstractCoalescent,
     Coalescent,
 )
 from .empirical import (
-    EmpiricalSpectrumDistribution,
     EmpiricalJointSFSDistribution,
     EmpiricalDistribution,
     EmpiricalSFSDistribution,

@@ -8,7 +8,7 @@ import itertools
 import logging
 import math
 from ..caching import cached_property, cache
-from typing import Generator, List, Callable, Tuple, Dict, Iterable, Iterator, NoReturn, Optional, Sequence, Type, \
+from typing import List, Callable, Tuple, Dict, Iterable, Iterator, NoReturn, Optional, Sequence, Type, \
     TYPE_CHECKING, Union
 import numpy as np
 from ..coalescent_models import StandardCoalescent, CoalescentModel, BetaCoalescent, DiracCoalescent
@@ -26,7 +26,7 @@ from .base import DensityAwareDistribution, CumulativeDistributionFunction, Dens
     QuantileFunction, CallableDistributionFunctions, JointCDF, JointDensity
 from .spectra import FoldedSFSDistribution, SFSDistribution, _TajimaSFSMixin, UnfoldedSFSDistribution, \
     JointSFSDistribution, TwoLocusSFSDistribution
-from .mutation_configs import MutationConfig, MutationLayout
+from .mutation_configs import MutationConfig, MutationLayout, _DefaultLayoutMixin
 from ._common import (
     _descendant_config, _frequency_class, _make_hashable, _polymorphic_class, _validate_order, _validate_reward,
     _validate_reward_count, _validate_rewards, _validate_start_time
@@ -988,7 +988,7 @@ class EmpiricalSFSDistribution(_EmpiricalSFSMixin, EmpiricalDistribution):  # pr
         return self.folded
 
 
-class EmpiricalSpectrumDistribution(EmpiricalDistribution):  # pragma: no cover
+class EmpiricalSpectrumDistribution(_DefaultLayoutMixin, EmpiricalDistribution):  # pragma: no cover
     """
     Base class for the empirical spectra, which hold the relative frequencies of the mutational configurations of
     any of their layouts among the simulated replicates.
@@ -1038,30 +1038,6 @@ class EmpiricalSpectrumDistribution(EmpiricalDistribution):  # pragma: no cover
         :return: The array indices of the entries.
         """
         raise NotImplementedError
-
-    def _default_layout(self) -> MutationLayout:
-        """
-        The layout of ``mutation_layout()`` with its default arguments, memoized.
-
-        :return: The layout.
-        """
-        layout = self.__dict__.get('_default_layout_memo')
-
-        if layout is None:
-            layout = self.mutation_layout()
-
-            if Settings.cache:
-                self.__dict__['_default_layout_memo'] = layout
-
-        return layout
-
-    def _layout_axes(self) -> Tuple[Tuple[str, ...], ...]:
-        """
-        The axes of the spectrum arrays of the layouts this spectrum provides.
-
-        :return: The axes of each kind of layout.
-        """
-        return self._default_layout().axes,
 
     def _entry_groups(self, layout: MutationLayout) -> List[List[int]]:
         """
@@ -2912,13 +2888,7 @@ class EmpiricalPhaseTypeSFSDistribution(_EmpiricalSFSMixin, EmpiricalPhaseTypeDi
 
         return [(i,) for i in classes]
 
-    def _layout_axes(self) -> Tuple[Tuple[str, ...], ...]:
-        """
-        The axes of the spectrum arrays of the plain and the deme-resolved layouts.
-
-        :return: The axes of each kind of layout.
-        """
-        return ('class',), ('deme', 'class')
+    _layout_axes = SFSDistribution._layout_axes
 
     def _entry_groups(self, layout: MutationLayout) -> List[List[int]]:
         """
