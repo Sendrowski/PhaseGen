@@ -65,12 +65,9 @@ class Settings(metaclass=_SettingsMeta):
     #: pure-Python construction.
     use_numba: bool = True
 
-    #: Matrix dimension at or above which a matrix exponential is applied to a vector by the sparse action algorithm
-    #: and not formed densely. It is compared against the Van Loan dimension for moments (see
-    #: :meth:`PhaseTypeDistribution.moment() <phasegen.distributions.PhaseTypeDistribution.moment>`), in closed form
-    #: only for stiff rates, against the number of states for the tree-height distribution functions, and against
-    #: the number of count vectors times the number of transient states for the multi-epoch mutational
-    #: configurations. The result is unchanged. Set to 0 or very large to force either path.
+    #: Matrix dimension at or above which a matrix exponential is applied to a vector by the action algorithm and not
+    #: formed densely. It applies to moments, distribution functions, mutational configurations and the Laplace
+    #: transforms of reward distributions. The result is unchanged. Set to 0 or very large to force either path.
     expm_action_min_dim: int = 1500
 
     #: Whether to evaluate moments until absorption with the Green's matrix of the unbounded last epoch, see

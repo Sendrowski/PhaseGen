@@ -196,3 +196,50 @@ def test_joint_inversion_sparse_matches_dense(label, make):
                                atol=1e-9, rtol=1e-7, err_msg=f"{label}: cdf (sparse-LU)")
     np.testing.assert_allclose(np.asarray(jd.pdf(xs, ys), dtype=float), d_pdf,
                                atol=1e-9, rtol=1e-7, err_msg=f"{label}: pdf (sparse-LU)")
+
+
+def _three_epoch_single():
+    return pg.Demography(pop_sizes={'pop_0': {0: 1.0, 0.3: 0.2, 0.8: 2.0}})
+
+
+# joint-reward inversion on multi-epoch spaces with the bounded epochs of the transform propagated by dense Pade
+# exponentials or by the Taylor action, forced through ``expm_action_min_dim``. The cases cover the shifted transform
+# (``lst``, the cosine CDF and density), its Taylor coefficients over the polynomial ring (``lst_taylor``), the
+# conditional mean with its jump heights, the marginal, and a sparse-stored final epoch.
+JOINT_ACTION_CASES = [
+    ("sfs within-tree joint (1,2) n=6 three epochs",
+     lambda: pg.Coalescent(n=6, demography=_three_epoch_single()).sfs.joint(1, 2), _HUGE),
+    ("tree height x total branch length n=5 three epochs",
+     lambda: pg.Coalescent(n=5, demography=_three_epoch_single()).joint(
+         pg.TreeHeightReward(), pg.TotalBranchLengthReward()), _HUGE),
+    ("jsfs joint (1,0)x(0,1) n=2+2 two epochs sparse final solve",
+     lambda: pg.Coalescent(n={'pop_0': 2, 'pop_1': 2}, demography=_two_epoch_two_deme()).jsfs.joint((1, 0), (0, 1)), 0),
+]
+
+
+@pytest.mark.parametrize("label, make, cf_min", JOINT_ACTION_CASES, ids=[c[0] for c in JOINT_ACTION_CASES])
+def test_joint_inversion_action_matches_dense(label, make, cf_min):
+    """The transform of a joint reward distribution, its Taylor coefficients, CDF, density, conditional mean and
+    marginal agree whether the bounded epochs use dense Pade exponentials or the Taylor action."""
+    pts = [(-1j * 0.5, -1j * 0.7), (-1j * 2.0, 1j * 3.0), (np.inf, -1j * 2.0), (-1j * 3.0, np.inf)]
+    xs, ys = np.array([0.3, 0.8, 1.4]), np.array([0.35, 0.9, 1.6])
+
+    def evaluate(action_min_dim):
+        Settings.expm_action_min_dim = action_min_dim
+        Settings.closed_form_sparse_min_states = cf_min
+        Settings.cos_terms_2d = 24
+        jd = make()
+        cond = jd.conditional('a', 0.8)
+        return dict(
+            lst=np.array([jd.lst(a, b) for a, b in pts]),
+            taylor=np.array(jd.lst_taylor(-1j * 0.6, on='a', order=2)),
+            cdf=np.asarray(jd.cdf(xs, ys), dtype=float),
+            pdf=np.asarray(jd.pdf(xs, ys), dtype=float),
+            cond_mean=cond.mean,
+            marginal_cdf=np.asarray(jd.marginal('b').cdf(ys), dtype=float),
+        )
+
+    dense, action = evaluate(_HUGE), evaluate(0)
+
+    for key in dense:
+        np.testing.assert_allclose(action[key], dense[key], atol=1e-9, rtol=1e-7, err_msg=f"{label}: {key}")
