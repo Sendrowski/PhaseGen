@@ -1,0 +1,4 @@
+F_ST              = 0.137
+f2(YRI, CEU)      = 0.346
+f2(CEU, CHB)      = 0.186
+f3(CEU; YRI, CHB) = 0.073

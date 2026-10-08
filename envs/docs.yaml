@@ -14,6 +14,7 @@ dependencies:
   - pip
   - pip:
     - msprime
+    - stdpopsim
     # paths relative to .snakemake/conda, where snakemake copies this file before creating the env (--use-conda)
     - -r ../../envs/requirements.txt
     - -e ../..

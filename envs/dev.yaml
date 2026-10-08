@@ -16,6 +16,7 @@ dependencies:
   - pip
   - pip:
     - msprime
+    - stdpopsim
     - moments-popgen
     - pytest
     - pytest-xdist

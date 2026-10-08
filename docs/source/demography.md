@@ -87,7 +87,7 @@ stopifnot(all(mapply(`==`, epochs(d_events), epochs(d))))
 ```
 
 +++
-This is similar to the [``msprime`` demography API](https://tskit.dev/msprime/docs/stable/demography.html), and a demography converts directly to an [``msprime.Demography``](https://tskit.dev/msprime/docs/stable/api.html#msprime.Demography) object. Note that the reverse, converting an ``msprime`` demography to a native {class}`~phasegen.demography.Demography` object, is not currently supported due to ``phasegen``'s inherent restriction to discrete rate changes.
+This is similar to the [``msprime`` demography API](https://tskit.dev/msprime/docs/stable/demography.html). A demography converts to an [``msprime.Demography``](https://tskit.dev/msprime/docs/stable/api.html#msprime.Demography) object with {meth}`Demography.to_msprime() <phasegen.demography.Demography.to_msprime>` and to a [``demes``](https://popsim-consortium.github.io/demes-docs/) graph with {meth}`Demography.to_demes() <phasegen.demography.Demography.to_demes>`. Conversely, {meth}`Demography.from_msprime() <phasegen.demography.Demography.from_msprime>` and {meth}`Demography.from_demes() <phasegen.demography.Demography.from_demes>` create a demography from either, discretizing exponential growth into piecewise constant sizes, as in the {doc}`examples`.
 
 ```{code-cell} python
 d_msprime = d.to_msprime()
@@ -335,4 +335,3 @@ library(patchwork)
 
 plot(coal$demography, which = "migration") + plot(coal$tree_height$pdf)
 ```
-
