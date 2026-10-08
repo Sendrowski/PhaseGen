@@ -761,7 +761,7 @@ class Demography:
         )
 
     def _plot(self, kind: str, t: np.ndarray, show: bool, file: str, title: str, ylabel: str, ax: 'plt.Axes',
-              kwargs: dict) -> 'plt.Axes':
+              alpha: float, kwargs: dict) -> 'plt.Axes':
         """
         Plot the trajectories of :meth:`_plot_data`.
 
@@ -772,13 +772,14 @@ class Demography:
         :param title: Title of the plot, ``None`` for the default title.
         :param ylabel: Label of the y-axis, ``None`` for the default label.
         :param ax: Axes object to plot to.
+        :param alpha: Opacity of the lines.
         :param kwargs: Keyword arguments to pass to the plotting function.
         :return: Axes object.
         """
         from .visualization import Visualization
 
         return Visualization.plot_rates(ax=ax, data=self._plot_data(t, kind), file=file, show=show, title=title,
-                                        ylabel=ylabel, kwargs=kwargs)
+                                        ylabel=ylabel, kwargs={'alpha': alpha} | (kwargs or {}))
 
     def plot_pop_sizes(
             self,
@@ -788,6 +789,7 @@ class Demography:
             title: str = None,
             ylabel: str = None,
             ax: 'plt.Axes' = None,
+            alpha: float = 0.7,
             kwargs: dict = None
     ) -> 'plt.Axes':
         """
@@ -801,10 +803,11 @@ class Demography:
         :param title: Title of the plot, ``None`` for the default title.
         :param ylabel: Label of the y-axis, ``None`` for the default label.
         :param ax: Axes object to plot to.
+        :param alpha: Opacity of the lines.
         :param kwargs: Keyword arguments to pass to the plotting function.
         :return: Axes object.
         """
-        return self._plot('pop_sizes', t, show, file, title, ylabel, ax, kwargs)
+        return self._plot('pop_sizes', t, show, file, title, ylabel, ax, alpha, kwargs)
 
     def plot_migration(
             self,
@@ -814,6 +817,7 @@ class Demography:
             title: str = None,
             ylabel: str = None,
             ax: 'plt.Axes' = None,
+            alpha: float = 0.7,
             kwargs: dict = None
     ) -> 'plt.Axes':
         """
@@ -827,10 +831,11 @@ class Demography:
         :param title: Title of the plot, ``None`` for the default title.
         :param ylabel: Label of the y-axis, ``None`` for the default label.
         :param ax: Axes object to plot to.
+        :param alpha: Opacity of the lines.
         :param kwargs: Keyword arguments to pass to the plotting function.
         :return: Axes object.
         """
-        return self._plot('migration', t, show, file, title, ylabel, ax, kwargs)
+        return self._plot('migration', t, show, file, title, ylabel, ax, alpha, kwargs)
 
     def plot(
             self,
@@ -840,6 +845,7 @@ class Demography:
             ylabel: str = None,
             ax: 'plt.Axes' = None,
             title: str = None,
+            alpha: float = 0.7,
             kwargs: dict = None
     ) -> 'plt.Axes':
         """
@@ -853,10 +859,11 @@ class Demography:
         :param ylabel: Label of the y-axis, ``None`` for the default label.
         :param ax: Axes object to plot to.
         :param title: Title of the plot, ``None`` for the default title.
+        :param alpha: Opacity of the lines.
         :param kwargs: Keyword arguments to pass to the plotting function.
         :return: Axes object.
         """
-        return self._plot('all', t, show, file, title, ylabel, ax, kwargs)
+        return self._plot('all', t, show, file, title, ylabel, ax, alpha, kwargs)
 
 class Epoch:
     r"""

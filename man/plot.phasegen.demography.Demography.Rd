@@ -10,6 +10,7 @@
   t = NULL,
   title = NULL,
   ylab = NULL,
+  alpha = 0.7,
   ...
 )
 }
@@ -23,6 +24,8 @@
 \item{title}{Plot title, \code{NULL} for the default.}
 
 \item{ylab}{Label of the y-axis, \code{NULL} for the default.}
+
+\item{alpha}{Opacity of the lines.}
 
 \item{...}{Unused.}
 }

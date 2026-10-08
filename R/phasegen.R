@@ -1104,6 +1104,7 @@ persp.sfsutils.spectrum.JointSFS <- function(x, pops = c(0, 1), title = NULL, ma
 #' @param t Times at which to evaluate the trajectories, `NULL` for the default.
 #' @param title Plot title, `NULL` for the default.
 #' @param ylab Label of the y-axis, `NULL` for the default.
+#' @param alpha Opacity of the lines.
 #' @param ... Unused.
 #'
 #' @return A ggplot object.
@@ -1122,13 +1123,15 @@ persp.sfsutils.spectrum.JointSFS <- function(x, pops = c(0, 1), title = NULL, ma
 #' @method plot phasegen.demography.Demography
 #' @export
 plot.phasegen.demography.Demography <- function(x, which = c("all", "pop_sizes", "migration"), t = NULL, title = NULL,
-                                                ylab = NULL, ...) {
+                                                ylab = NULL, alpha = 0.7, ...) {
 
   check_unused(...)
   curves <- x$`_plot_data`(np_or_null(t), match.arg(which))
+  data <- curve_frame(curves)
+  data$alpha <- rep(alpha, nrow(data))
 
   line_plot(
-    curve_frame(curves),
+    data,
     xlab = curves$xlabel,
     ylab = if (is.null(ylab)) curves$ylabel else ylab,
     title = if (is.null(title)) curves$title else title,
