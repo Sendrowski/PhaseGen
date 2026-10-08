@@ -1825,18 +1825,26 @@ class EmpiricalTwoLocusSFSDistribution(_EmpiricalAccumulating, EmpiricalSpectrum
         return TwoLocusSFS(super().moment(k, center=center))
 
     @cached_property
+    def cov(self) -> TwoLocusSFS:
+        r"""
+        Sample covariance between :math:`L^0_i` and :math:`L^1_j` for every pair of classes, the sampled counterpart
+        of :attr:`TwoLocusSFSDistribution.cov <phasegen.distributions.TwoLocusSFSDistribution.cov>`.
+        """
+        a = self._left - self._left.mean(axis=0)
+        b = self._right - self._right.mean(axis=0)
+
+        return TwoLocusSFS(a.T @ b / a.shape[0])
+
+    @cached_property
     def corr(self) -> TwoLocusSFS:
         r"""
         Sample Pearson correlation between :math:`L^0_i` and :math:`L^1_j` for every pair of classes, the sampled
         counterpart of :attr:`TwoLocusSFSDistribution.corr <phasegen.distributions.TwoLocusSFSDistribution.corr>`.
         Pairs without variance are set to zero.
         """
-        a = self._left - self._left.mean(axis=0)
-        b = self._right - self._right.mean(axis=0)
-        cov = a.T @ b / a.shape[0]
-
         with np.errstate(divide='ignore', invalid='ignore'):
-            return TwoLocusSFS(np.nan_to_num(cov / np.outer(a.std(axis=0), b.std(axis=0))))
+            return TwoLocusSFS(np.nan_to_num(
+                self.cov.data / np.outer(self._left.std(axis=0), self._right.std(axis=0))))
 
     def joint(self, i: int, j: int) -> 'EmpiricalJointDistribution':
         """

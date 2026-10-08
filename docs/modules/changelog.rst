@@ -9,6 +9,7 @@ Changelog
 - Add an ``alpha`` argument to the demography plots.
 - Keep the population names of the joint SFS in its standard deviation and in all sampled spectra.
 - Estimate F\ :sub:`ST` and the f-statistics on :class:`~phasegen.distributions.SampledCoalescent`.
+- Add the third and fourth raw moments (``m3``, ``m4``) to all exact distributions, the bin correlation :attr:`JointSFSDistribution.corr <phasegen.distributions.JointSFSDistribution.corr>` and the cross-locus covariance :attr:`TwoLocusSFSDistribution.cov <phasegen.distributions.TwoLocusSFSDistribution.cov>`, matching their sampled counterparts.
 
 [2.0.0] - 2026-10-06
 ^^^^^^^^^^^^^^^^^^^^

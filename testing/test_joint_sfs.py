@@ -549,3 +549,30 @@ def test_joint_sfs_moments_keep_population_names_exact_sampled_and_msprime():
         for spectrum in (jsfs.mean, jsfs.var, jsfs.std, jsfs.moment(2)):
             assert spectrum.pop_names == ['CEU', 'CHB'], type(coal).__name__
 
+
+def test_exact_and_sampled_spectra_share_raw_moments_and_correlations():
+    """
+    The exact spectra provide the third and fourth raw moments, the joint SFS bin correlation and the two-locus
+    cross-locus covariance that the sampled spectra provide, and the two agree within four standard errors.
+    """
+    demo = pg.Demography(pop_sizes={'a': 1, 'b': 1}, migration_rates={('a', 'b'): 1, ('b', 'a'): 1})
+    exact = pg.Coalescent(n={'a': 2, 'b': 2}, demography=demo)
+    n = 20000
+    sampled = exact.to_empirical(n, seed=1)
+
+    for k in (3, 4):
+        samples = sampled.tree_height.samples ** k
+        assert abs(getattr(exact.tree_height, f'm{k}') - samples.mean()) < 4 * samples.std() / np.sqrt(n)
+        assert type(getattr(exact.jsfs, f'm{k}')) is type(getattr(sampled.jsfs, f'm{k}'))
+
+    corr = exact.jsfs.corr
+    assert corr.shape == sampled.jsfs.corr.shape
+    assert np.all(np.abs(corr - sampled.jsfs.corr) < 4 * (1 - corr ** 2) / np.sqrt(n) + 1e-12)
+
+    exact2 = pg.Coalescent(n=4, loci=2, recombination_rate=1)
+    sampled2 = exact2.to_empirical(n, seed=1).sfs2
+    assert type(exact2.sfs2.cov) is type(sampled2.cov)
+
+    # the standard error of a sample covariance is at most sqrt(2) sd_i sd_j / sqrt(n)
+    bound = 4 * np.sqrt(2) * np.outer(sampled2._left.std(axis=0), sampled2._right.std(axis=0)) / np.sqrt(n)
+    assert np.all(np.abs(exact2.sfs2.cov.data - sampled2.cov.data) <= bound + 1e-12)

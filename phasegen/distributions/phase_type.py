@@ -165,6 +165,20 @@ class PhaseTypeDistribution(CallableDistributionFunctions, MomentEvaluator, Mome
         """
         return self.moment(k=2, center=False)
 
+    @cached_property
+    def m3(self) -> float | SFS:
+        """
+        Third (non-central) moment.
+        """
+        return self.moment(k=3, center=False)
+
+    @cached_property
+    def m4(self) -> float | SFS:
+        """
+        Fourth (non-central) moment.
+        """
+        return self.moment(k=4, center=False)
+
     def distribution(self, reward: Reward = None) -> 'RewardDistribution':
         r"""
         The distribution of the accumulated reward :math:`R`, as a :class:`~phasegen.distributions.RewardDistribution`

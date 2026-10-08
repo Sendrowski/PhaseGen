@@ -857,7 +857,7 @@ def test_empirical_spectrum_keeps_only_the_branch_lengths_of_the_two_loci():
     np.testing.assert_array_equal(e.mean.data, np.mean(y, axis=0))
     np.testing.assert_array_equal(e.var.data, np.var(y, axis=0))
     np.testing.assert_array_equal(e.moment(3).data, np.mean((y - np.mean(y, axis=0)) ** 3, axis=0))
-    np.testing.assert_array_equal(e.cov, np.cov(y.reshape(len(y), -1), rowvar=False, bias=True).reshape(5, 5, 5, 5))
+    np.testing.assert_allclose(e.cov.data, (left - left.mean(axis=0)).T @ (right - right.mean(axis=0)) / len(left))
 
     e._drop()
 
