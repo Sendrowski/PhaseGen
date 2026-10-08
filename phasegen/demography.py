@@ -19,6 +19,7 @@ from .errors import ModelError
 from .settings import Settings
 
 if TYPE_CHECKING:
+    import demes
     import msprime
     from matplotlib import pyplot as plt
     from .visualization import _CurveData
@@ -253,6 +254,180 @@ class Demography:
         d.sort_events()
 
         return d
+
+    @classmethod
+    def from_msprime(
+            cls,
+            demography: 'msprime.Demography',
+            ploidy: int = 2,
+            scale: float = 1,
+            growth_steps: int = 10
+    ) -> 'Demography':
+        r"""
+        Create a demography from an msprime demography. A population of :math:`N` individuals of ploidy :math:`k` has
+        size :math:`k N / s` and a time of :math:`t` generations becomes :math:`t / s`, where :math:`s` is ``scale``,
+        so that migration and growth rates per generation are multiplied by :math:`s`. With :math:`s = k N_A` the
+        unit of time is :math:`k N_A` generations and population sizes are relative to :math:`N_A`.
+
+        Exponential growth is discretized into ``growth_steps`` constant sizes per epoch (see
+        :class:`~phasegen.demography.ExponentialPopSizeChanges`). Population splits become
+        :class:`~phasegen.demography.PopulationSplit` events and mass migrations
+        :class:`~phasegen.demography.Pulse` events, or population splits for a proportion of 1 when no lineage
+        migrates into the source afterwards. Other events that move lineages, such as admixture and bottlenecks, and
+        growth in the last epoch are not supported and left out with a warning.
+
+        The following example loads the out-of-Africa model of Gutenkunst et al. (2009) from ``stdpopsim``, in units
+        of :math:`2 N_A` generations with :math:`N_A = 7300`.
+
+        ::
+
+            import stdpopsim
+
+            model = stdpopsim.get_species('HomSap').get_demographic_model('OutOfAfrica_3G09')
+            demography = pg.Demography.from_msprime(model.model, scale=2 * 7300)
+
+        :param demography: The msprime demography.
+        :param ploidy: The ploidy :math:`k` of the individuals.
+        :param scale: The scale :math:`s` of time and population sizes.
+        :param growth_steps: Number of constant sizes per epoch of exponential growth.
+        :return: The demography.
+        :raise ImportError: If msprime is not installed.
+        """
+        try:
+            import msprime as ms
+        except ImportError:
+            raise ImportError('Msprime must be installed to use this method.')
+
+        log = logger.getChild(cls.__name__)
+        demography = demography.copy()
+        demography.sort_events()
+        epochs = demography.debug().epochs
+        name = {p.id: p.name for p in demography.populations}
+
+        def resolve(pop) -> str:
+            return demography[pop].name
+
+        def immigration_after(pop, time: float) -> bool:
+            """Whether lineages can enter ``pop`` after ``time``, by migration or a lineage-moving event."""
+            target = demography[pop].id
+            if any(e.migration_matrix[:, target].any() for e in epochs if e.start_time >= time):
+                return True
+            for e in demography.events:
+                if e.time <= time:
+                    continue
+                if isinstance(e, ms.demography.MassMigration) and demography[e.dest].id == target:
+                    return True
+                if isinstance(e, (ms.demography.PopulationSplit, ms.demography.Admixture)) and any(
+                        demography[a].id == target for a in np.atleast_1d(e.ancestral)):
+                    return True
+            return False
+
+        # lineage-moving events, and the time from which each population is empty
+        events: List[DemographicEvent] = []
+        emptied: Dict[str, float] = {}
+        for event in demography.events:
+            time = event.time / scale
+
+            if isinstance(event, ms.demography.PopulationSplit):
+                derived = [resolve(p) for p in event.derived]
+                events.append(PopulationSplit(time=time, derived=derived, ancestral=resolve(event.ancestral)))
+                emptied.update({p: event.time for p in derived if p not in emptied})
+
+            elif isinstance(event, ms.demography.MassMigration) and event.proportion < 1:
+                events.append(Pulse(time=time, source=resolve(event.source), dest=resolve(event.dest),
+                                    proportion=event.proportion))
+
+            elif isinstance(event, ms.demography.MassMigration) and not immigration_after(event.source, event.time):
+                events.append(PopulationSplit(time=time, derived=resolve(event.source), ancestral=resolve(event.dest)))
+                emptied.setdefault(resolve(event.source), event.time)
+
+            elif not isinstance(event, (ms.demography.PopulationParametersChange, ms.demography.MigrationRateChange,
+                                        ms.demography.SymmetricMigrationRateChange,
+                                        ms.demography.ActivatePopulationEvent, ms.demography.CensusEvent)):
+                log.warning('The msprime event %s is not supported and is left out.', event)
+
+        # the sizes of an emptied population stay at their value when it was emptied
+        pop_sizes: Dict[str, Dict[float, float]] = defaultdict(dict)
+        migration_rates: Dict[Tuple[str, str], Dict[float, float]] = defaultdict(dict)
+        size, rate = {}, {}
+
+        for epoch in epochs:
+            t0, t1 = epoch.start_time / scale, epoch.end_time / scale
+
+            for p in epoch.populations:
+                if p.start_size <= 0 or epoch.start_time >= emptied.get(p.name, np.inf):
+                    continue
+
+                if p.growth_rate != 0 and np.isfinite(t1):
+                    events.append(ExponentialPopSizeChanges(
+                        initial_size={p.name: ploidy * p.start_size / scale},
+                        growth_rate=p.growth_rate * scale,
+                        start_time=t0,
+                        end_time=t1,
+                        step_size=(t1 - t0) / growth_steps
+                    ))
+                    size[p.name] = None
+                    continue
+
+                if p.growth_rate != 0:
+                    log.warning('Population %s grows in the last epoch, which is not supported. Its size is kept at '
+                                '%g from time %g on.', p.name, p.start_size, epoch.start_time)
+
+                if size.get(p.name) != p.start_size:
+                    pop_sizes[p.name][t0] = ploidy * p.start_size / scale
+                    size[p.name] = p.start_size
+
+            for (i, j), m in np.ndenumerate(epoch.migration_matrix):
+                if i != j and rate.get((i, j), 0) != m:
+                    migration_rates[(name[i], name[j])][t0] = m * scale
+                    rate[(i, j)] = m
+
+        return cls(
+            pop_sizes=dict(pop_sizes),
+            migration_rates={k: v for k, v in migration_rates.items() if any(v.values())},
+            events=events
+        )
+
+    @classmethod
+    def from_demes(
+            cls,
+            graph: 'demes.Graph',
+            ploidy: int = 2,
+            scale: float = 1,
+            growth_steps: int = 10
+    ) -> 'Demography':
+        """
+        Create a demography from a ``demes`` graph, by way of :meth:`msprime.Demography.from_demes` and
+        :meth:`Demography.from_msprime() <phasegen.demography.Demography.from_msprime>`, whose parameters it shares.
+
+        :param graph: The ``demes`` graph.
+        :param ploidy: The ploidy of the individuals.
+        :param scale: The scale of time and population sizes.
+        :param growth_steps: Number of constant sizes per epoch of exponential growth.
+        :return: The demography.
+        :raise ImportError: If msprime is not installed.
+        """
+        try:
+            import msprime as ms
+        except ImportError:
+            raise ImportError('Msprime must be installed to use this method.')
+
+        return cls.from_msprime(ms.Demography.from_demes(graph), ploidy=ploidy, scale=scale,
+                                growth_steps=growth_steps)
+
+    def to_demes(self, max_epochs: int = 1000) -> 'demes.Graph':
+        """
+        Convert to a ``demes`` graph, by way of :meth:`Demography.to_msprime()
+        <phasegen.demography.Demography.to_msprime>`. Sizes and times are taken over unchanged, so
+        :meth:`Demography.from_demes() <phasegen.demography.Demography.from_demes>` with ``ploidy=1`` recovers the
+        demography.
+
+        :param max_epochs: Maximum number of epoch changes to use, as for :meth:`Demography.to_msprime()
+            <phasegen.demography.Demography.to_msprime>`.
+        :return: The ``demes`` graph.
+        :raise ImportError: If msprime is not installed.
+        """
+        return self.to_msprime(max_epochs=max_epochs).to_demes()
 
     @property
     def _msprime_names(self) -> Dict[str, str]:

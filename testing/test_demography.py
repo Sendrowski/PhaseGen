@@ -1204,3 +1204,102 @@ def test_pulse_inside_another_window_opens_when_it_closes():
     for e, dest in zip(epochs[1:], ['pop_1', 'pop_1', 'pop_3', 'pop_2']):
         assert {k: r for k, r in e.migration_rates.items() if r > 0} == {('pop_0', dest): pytest.approx(rate)}
     assert epochs[4].end_time == pytest.approx(0.5 + 3 * delta)
+
+
+def _msprime_three_population_model():
+    """A diploid msprime model with growth, a native split, a partial mass migration and a proportion-1 split."""
+    import msprime as ms
+
+    d = ms.Demography()
+    d.add_population(name='A', initial_size=2000, growth_rate=0.004)
+    d.add_population(name='B', initial_size=1000)
+    d.add_population(name='C', initial_size=1500)
+    d.add_population(name='D', initial_size=3000, initially_active=False)
+    d.set_symmetric_migration_rate(['A', 'B'], 2e-4)
+    d.add_mass_migration(time=150, source='B', dest='C', proportion=0.3)
+    d.add_population_split(time=300, derived=['A', 'B'], ancestral='D')
+    d.add_mass_migration(time=600, source='C', dest='D', proportion=1)
+    d.sort_events()
+
+    return d
+
+
+@pytest.mark.parametrize('pair', [{'A': 2}, {'B': 2}, {'C': 2}, {'A': 1, 'B': 1}, {'A': 1, 'C': 1}])
+def test_from_msprime_matches_msprime_pairwise_coalescence_times(pair):
+    """
+    The mean pairwise coalescence time of a demography converted from msprime agrees with msprime simulations of the
+    same model to four standard errors, with time measured in generations through ``scale``.
+    """
+    import msprime as ms
+
+    md = _msprime_three_population_model()
+    scale = 2 * 1000
+    d = pg.Demography.from_msprime(md, scale=scale, growth_steps=20)
+
+    exact = pg.Coalescent(n={p: 0 for p in d.pop_names} | pair, demography=d).tree_height.mean * scale
+
+    reps = ms.sim_ancestry(
+        samples=[ms.SampleSet(k, population=p, ploidy=1) for p, k in pair.items()],
+        demography=md, ploidy=2, num_replicates=20000, random_seed=7
+    )
+    times = np.array([ts.first().time(ts.first().root) for ts in reps])
+
+    assert abs(exact - times.mean()) < 4 * times.std() / np.sqrt(len(times))
+
+
+def test_from_msprime_maps_rates_and_events():
+    """Sizes are scaled by ploidy over ``scale``, migration rates by ``scale``, and splits and pulses are mapped."""
+    md = _msprime_three_population_model()
+    d = pg.Demography.from_msprime(md, scale=100)
+
+    epoch = d.get_epoch(0)
+    assert epoch.pop_sizes['B'] == pytest.approx(2 * 1000 / 100)
+    assert epoch.migration_rates[('A', 'B')] == pytest.approx(2e-4 * 100)
+    assert {type(e).__name__ for e in d.events} >= {'PopulationSplit', 'Pulse', 'ExponentialPopSizeChanges'}
+
+
+def test_from_msprime_warns_on_unsupported_events(caplog):
+    """An event moving lineages in a way phasegen does not model is left out with a warning."""
+    import msprime as ms
+
+    md = ms.Demography.island_model([1000, 1000], migration_rate=1e-4)
+    md.add_instantaneous_bottleneck(time=100, population=0, strength=50)
+
+    with caplog.at_level('WARNING'):
+        pg.Demography.from_msprime(md)
+
+    assert any('not supported' in r.getMessage() for r in caplog.records)
+
+
+def test_from_msprime_keeps_a_refilled_population_open(caplog):
+    """
+    A proportion-1 mass migration out of a population that later receives lineages again is not a split, so it is
+    left out with a warning instead of draining the population for good.
+    """
+    import msprime as ms
+
+    md = ms.Demography.island_model([1000, 1000], migration_rate=0)
+    md.add_mass_migration(time=100, source='pop_0', dest='pop_1', proportion=1)
+    md.add_mass_migration(time=200, source='pop_1', dest='pop_0', proportion=1)
+
+    with caplog.at_level('WARNING'):
+        d = pg.Demography.from_msprime(md)
+
+    assert sum(type(e).__name__ == 'PopulationSplit' for e in d.events) == 1
+    assert any('not supported' in r.getMessage() for r in caplog.records)
+
+
+def test_demes_round_trip_recovers_the_demography():
+    """``from_demes(to_demes(d), ploidy=1)`` recovers the epochs and the tree height of a demography."""
+    d = pg.Demography(
+        pop_sizes={'pop_0': {0: 1, 0.5: 0.3}, 'pop_1': 2},
+        migration_rates={('pop_0', 'pop_1'): 0.5, ('pop_1', 'pop_0'): {0: 0.2, 1: 0.7}}
+    )
+    d2 = pg.Demography.from_demes(d.to_demes(), ploidy=1)
+
+    times = np.array([0, 0.6, 1.2])
+    assert list(d.get_epochs(times)) == list(d2.get_epochs(times))
+
+    n = {'pop_0': 2, 'pop_1': 2}
+    assert pg.Coalescent(n=n, demography=d2).tree_height.mean == pytest.approx(
+        pg.Coalescent(n=n, demography=d).tree_height.mean, rel=1e-12)

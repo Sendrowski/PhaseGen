@@ -3,6 +3,10 @@
 Changelog
 =========
 
+[Unreleased]
+^^^^^^^^^^^^
+- Create demographies from ``msprime`` and ``demes`` models with :meth:`Demography.from_msprime() <phasegen.demography.Demography.from_msprime>` and :meth:`Demography.from_demes() <phasegen.demography.Demography.from_demes>`, and convert to ``demes`` with :meth:`Demography.to_demes() <phasegen.demography.Demography.to_demes>`.
+
 [2.0.0] - 2026-10-06
 ^^^^^^^^^^^^^^^^^^^^
 - Expose the full distribution of any accumulated reward as callable, plottable ``pdf`` / ``cdf`` / ``quantile`` objects, and the joint distribution of two rewards (:class:`~phasegen.distributions.JointRewardDistribution`) with its marginal and conditional distributions.
