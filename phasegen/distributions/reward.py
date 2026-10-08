@@ -63,7 +63,7 @@ _VAR_TOL = 1e-2
 
 #: Largest number of matrix entries ``_lst_from_shift_batch`` exponentiates in one stack, or of vector entries it
 #: propagates by the Taylor action, which bounds its memory.
-_LST_BATCH_ENTRIES = 2 ** 17
+_LST_BATCH_ENTRIES = 2 ** 20
 
 #: Aliasing level :math:`\varepsilon` of the de Hoog contour of ``_dehoog_invert``, the double-precision machine
 #: epsilon to the power 2/3.
@@ -796,8 +796,8 @@ class JointRewardDistribution(CallableDistributionFunctions):
     def _lst_grid(self, s_a_vals: np.ndarray, s_b_vals: np.ndarray) -> np.ndarray:
         """``Phi`` on the outer grid ``s_a_vals x s_b_vals``. For one dense epoch, one QZ decomposition of the pencil
         ``(diag(s r_outer) - T, diag(r_inner))`` per node of the shorter axis solves every node of the other axis by
-        triangular back-substitution. The pencil may be singular. Several epochs or a sparse space evaluate
-        ``lst_batch`` along the longer axis at each node of the shorter one. The rows and columns of an infinite
+        triangular back-substitution. The pencil may be singular. Several epochs or a sparse space evaluate the whole
+        grid in one ``lst_batch``. The rows and columns of an infinite
         argument are evaluated by ``lst_batch``."""
         st = self._setup
         s_a_vals, s_b_vals = np.asarray(s_a_vals, dtype=complex), np.asarray(s_b_vals, dtype=complex)
@@ -813,11 +813,8 @@ class JointRewardDistribution(CallableDistributionFunctions):
             return out
 
         if st['sparse'] or len(st['T_epochs']) != 1:
-            if len(s_a_vals) >= len(s_b_vals):
-                cols = [self.lst_batch(s_a_vals, sb) for sb in s_b_vals]
-                return np.array(cols, dtype=complex).reshape(len(s_b_vals), len(s_a_vals)).T
-            rows = [self.lst_batch(sa, s_b_vals) for sa in s_a_vals]
-            return np.array(rows, dtype=complex).reshape(len(s_a_vals), len(s_b_vals))
+            flat = self.lst_batch(np.repeat(s_a_vals, len(s_b_vals)), np.tile(s_b_vals, len(s_a_vals)))
+            return flat.reshape(len(s_a_vals), len(s_b_vals))
 
         tau = st['tau']
         Tm = np.asarray(st['T_epochs'][-1][0], dtype=float)
