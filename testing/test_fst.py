@@ -252,3 +252,30 @@ def test_simulated_f_statistics_hold_for_single_lineages_and_repeated_population
     assert ms.f2('a', 'c') == pytest.approx(coal.f2('a', 'c'), abs=0.3)
     assert ms.f3('c', 'a', 'b') == pytest.approx(coal.f3('c', 'a', 'b'), abs=0.3)
     assert ms.f4('a', 'b', 'c', 'a') == pytest.approx(coal.f4('a', 'b', 'c', 'a'), abs=0.3)
+
+
+def test_sampled_coalescent_mirrors_fst_and_f_statistics():
+    """
+    ``SampledCoalescent`` estimates each pairwise coalescence time within four standard errors of the exact one, and
+    builds F_ST and the f-statistics from those times as ``Coalescent`` does, reproducibly for a given seed.
+    """
+    from phasegen.distributions import SampledCoalescent
+
+    exact = pg.Coalescent(n={'pop_0': 2, 'pop_1': 2, 'pop_2': 2, 'pop_3': 2}, demography=_tree4())
+    sampled = SampledCoalescent(exact, n_samples=2000, seed=3)
+    pops = exact.demography.pop_names
+
+    for i, a in enumerate(pops):
+        for b in pops[i:]:
+            n = {p: 0 for p in pops} | ({a: 2} if a == b else {a: 1, b: 1})
+            height = pg.Coalescent(n=n, demography=exact.demography).tree_height
+            se = height.std / np.sqrt(2000 * 10)
+            assert abs(sampled._pairwise_coalescence_time(a, b) - height.mean) < 4 * se
+
+    t = sampled._pairwise_coalescence_time
+    assert sampled.f2('pop_0', 'pop_1') == 2 * t('pop_0', 'pop_1') - t('pop_0', 'pop_0') - t('pop_1', 'pop_1')
+    assert sampled.f4('pop_0', 'pop_1', 'pop_2', 'pop_3') == pytest.approx(
+        exact.f4('pop_0', 'pop_1', 'pop_2', 'pop_3'), abs=0.1)
+    assert sampled.fst == pytest.approx(exact.fst, abs=0.02)
+    assert SampledCoalescent(exact, n_samples=2000, seed=3).f3('pop_0', 'pop_1', 'pop_2') == sampled.f3(
+        'pop_0', 'pop_1', 'pop_2')

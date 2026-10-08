@@ -5335,7 +5335,8 @@ class SampledCoalescent(AbstractCoalescent):  # pragma: no cover
     """
 
     #: Per-statistic spawn keys so each distribution is sampled reproducibly and independently of access order.
-    _spawn_keys = dict(tree_height=0, total_branch_length=1, sfs=2, fsfs=3, jsfs=4, sfs2=5, joint=6, moment=7)
+    _spawn_keys = dict(tree_height=0, total_branch_length=1, sfs=2, fsfs=3, jsfs=4, sfs2=5, joint=6, moment=7,
+                       pairwise=8)
 
     def __init__(
             self,
@@ -5454,6 +5455,88 @@ class SampledCoalescent(AbstractCoalescent):  # pragma: no cover
             raise NotImplementedError(_NO_GENEALOGIES.format(statistic="statistic", holder="coalescent"))
 
         return self._coalescent
+
+    def _pairwise_coalescence_time(self, pop_i: str, pop_j: str) -> float:
+        """
+        Sampled estimate of the expected coalescence time of one lineage sampled in ``pop_i`` and one in ``pop_j``,
+        two in ``pop_i`` when they coincide, from a two-lineage coalescent as :class:`Coalescent` computes it. It uses
+        ten times the samples of a statistic, seeded per pair. Memoized per pair.
+
+        :param pop_i: Name of the first population.
+        :param pop_j: Name of the second population.
+        :return: The mean coalescence time.
+        :raises ValueError: If a population is unknown.
+        :raises NotImplementedError: If the wrapped coalescent has been dropped.
+        """
+        coal = self._require_coalescent()
+        names = coal.demography.pop_names
+        for pop in (pop_i, pop_j):
+            if pop not in names:
+                raise ValueError(f"Unknown population '{pop}'. Available populations: {names}.")
+
+        key = tuple(sorted((pop_i, pop_j)))
+        cache = self.__dict__.setdefault('_pairwise_times', {})
+
+        if key not in cache:
+            counts = {p: (2 if p == pop_i else 0) if pop_i == pop_j else int(p in key) for p in names}
+            pair = Coalescent(n=counts, demography=coal.demography, model=coal.model, start_time=coal.start_time,
+                              end_time=coal.end_time)
+            seed = np.random.SeedSequence(self.seed, spawn_key=(self._spawn_keys['pairwise'],
+                                                                names.index(key[0]), names.index(key[1])))
+            cache[key] = SampledCoalescent(pair, self.n_samples * _PAIRWISE_REPLICATE_FACTOR,
+                                           seed=np.random.default_rng(seed)).tree_height.mean
+
+        return cache[key]
+
+    @cached_property
+    def fst(self) -> float:
+        """
+        Sampled estimate of Hudson's :math:`F_{ST}` from pairwise coalescence times. Matches
+        :attr:`Coalescent.fst <phasegen.distributions.Coalescent.fst>`.
+
+        :raises ValueError: If fewer than two populations are sampled, none carries two sampled lineages, or the
+            lineage configurations of an initial distribution differ.
+        """
+        self._assert_single_lineage_config("F_ST")
+
+        counts = self.lineage_config.lineage_dict
+        sampled = [q for q in self._require_coalescent().demography.pop_names if counts.get(q, 0) >= 1]
+
+        if len(sampled) < 2:
+            raise ValueError(f"F_ST requires at least two sampled populations (got {len(sampled)}).")
+
+        t_within = [self._pairwise_coalescence_time(q, q) for q in sampled if counts[q] >= 2]
+
+        if not t_within:
+            raise ValueError("F_ST requires a population with at least two sampled lineages.")
+
+        t_between = [self._pairwise_coalescence_time(a, b) for i, a in enumerate(sampled) for b in sampled[i + 1:]]
+
+        return float(1 - np.mean(t_within) / np.mean(t_between))
+
+    def f2(self, pop_0: str, pop_1: str) -> float:
+        """
+        Sampled estimate of ``f2`` from pairwise coalescence times. Matches
+        :meth:`Coalescent.f2() <phasegen.distributions.Coalescent.f2>`.
+        """
+        t = self._pairwise_coalescence_time
+        return 2 * t(pop_0, pop_1) - t(pop_0, pop_0) - t(pop_1, pop_1)
+
+    def f3(self, pop_target: str, pop_0: str, pop_1: str) -> float:
+        """
+        Sampled estimate of ``f3`` from pairwise coalescence times. Matches
+        :meth:`Coalescent.f3() <phasegen.distributions.Coalescent.f3>`.
+        """
+        t = self._pairwise_coalescence_time
+        return t(pop_target, pop_0) + t(pop_target, pop_1) - t(pop_0, pop_1) - t(pop_target, pop_target)
+
+    def f4(self, pop_0: str, pop_1: str, pop_2: str, pop_3: str) -> float:
+        """
+        Sampled estimate of ``f4`` from pairwise coalescence times. Matches
+        :meth:`Coalescent.f4() <phasegen.distributions.Coalescent.f4>`.
+        """
+        t = self._pairwise_coalescence_time
+        return t(pop_0, pop_3) + t(pop_1, pop_2) - t(pop_0, pop_2) - t(pop_1, pop_3)
 
     def accumulate(
             self,

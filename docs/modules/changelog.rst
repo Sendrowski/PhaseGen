@@ -8,6 +8,7 @@ Changelog
 - Create demographies from ``msprime`` and ``demes`` models with :meth:`Demography.from_msprime() <phasegen.demography.Demography.from_msprime>` and :meth:`Demography.from_demes() <phasegen.demography.Demography.from_demes>`, and convert to ``demes`` with :meth:`Demography.to_demes() <phasegen.demography.Demography.to_demes>`.
 - Add an ``alpha`` argument to the demography plots.
 - Keep the population names of the joint SFS in its standard deviation and in all sampled spectra.
+- Estimate F\ :sub:`ST` and the f-statistics on :class:`~phasegen.distributions.SampledCoalescent`.
 
 [2.0.0] - 2026-10-06
 ^^^^^^^^^^^^^^^^^^^^
