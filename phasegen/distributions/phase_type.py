@@ -19,7 +19,7 @@ from ..settings import Settings
 from ..spectrum import SFS, AbstractSpectrum
 from ..state_space import LineageCountingStateSpace, StateSpace
 
-from ._common import N_EMPIRICAL_SAMPLES, _validate_order, _validate_reward, _validate_start_time
+from ._common import N_EMPIRICAL_SAMPLES, _validate_order, _validate_reward, _validate_start_time, _sqrt_spectrum
 from .base import CallableDistributionFunctions, DensityAwareDistribution, DistributionFunction, \
     MarginalDemeDistributions, MarginalLocusDistributions, MomentAwareDistribution, _LogSurvivalGrid, \
     _GridCumulativeDistributionFunction, _GridDensityFunction, _GridQuantileFunction
@@ -154,7 +154,7 @@ class PhaseTypeDistribution(CallableDistributionFunctions, MomentEvaluator, Mome
         var = self.var
 
         if isinstance(var, AbstractSpectrum):
-            return type(var)(np.maximum(np.asarray(var.data, dtype=float), 0.0) ** 0.5)
+            return _sqrt_spectrum(var)
 
         return max(float(var), 0.0) ** 0.5
 

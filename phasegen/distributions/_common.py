@@ -1,4 +1,5 @@
 """Shared helpers for the distributions package."""
+import copy
 import functools
 
 import numpy as np
@@ -171,3 +172,17 @@ def _descendant_config(config: Sequence[int], full: Tuple[int, ...]) -> Tuple[in
         )
 
     return tuple(int(c) for c in config)
+
+
+def _sqrt_spectrum(var):
+    """
+    The entrywise square root of a variance spectrum, with entries that rounding leaves marginally below zero read as
+    zero, keeping the type and metadata of the spectrum, such as its population names.
+
+    :param var: The variance spectrum.
+    :return: The standard-deviation spectrum.
+    """
+    out = copy.copy(var)
+    out.data = np.maximum(np.asarray(var.data, dtype=float), 0.0) ** 0.5
+
+    return out

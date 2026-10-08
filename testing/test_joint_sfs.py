@@ -530,3 +530,22 @@ def test_joint_plot_accumulation_takes_a_label():
 
     ax = coal.jsfs.plot_accumulation(end_times=[0.5, 1.0], show=False, label='x')
     assert ax.get_lines()
+
+
+def test_joint_sfs_moments_keep_population_names_exact_sampled_and_msprime():
+    """
+    The mean, variance, standard deviation and second moment of the joint SFS carry the population names in the
+    exact, sampled and msprime coalescents alike, so their plots label the axes by population.
+    """
+    from phasegen.distributions import MsprimeCoalescent
+
+    demo = pg.Demography(pop_sizes={'CEU': 1, 'CHB': 1}, migration_rates={('CEU', 'CHB'): 1, ('CHB', 'CEU'): 1})
+    n = {'CEU': 2, 'CHB': 2}
+    exact = pg.Coalescent(n=n, demography=demo)
+
+    for coal in [exact, exact.to_empirical(200, seed=1),
+                 MsprimeCoalescent(n=n, demography=demo, num_replicates=200, seed=1, parallelize=False)]:
+        jsfs = coal.jsfs
+        for spectrum in (jsfs.mean, jsfs.var, jsfs.std, jsfs.moment(2)):
+            assert spectrum.pop_names == ['CEU', 'CHB'], type(coal).__name__
+
