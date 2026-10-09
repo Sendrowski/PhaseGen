@@ -1333,3 +1333,34 @@ def test_from_msprime_admixture_matches_msprime_pairwise_coalescence_times(pair)
     times = np.array([ts.first().time(ts.first().root) for ts in reps])
 
     assert abs(exact - times.mean()) < 4 * times.std() / np.sqrt(len(times))
+
+
+@pytest.mark.parametrize('model', [
+    pg.StandardCoalescent(),
+    pg.BetaCoalescent(alpha=1.5),
+    pg.DiracCoalescent(psi=0.5, c=1),
+])
+def test_pulse_agrees_with_msprime_mass_migration_under_every_coalescent_model(model):
+    """
+    The mean tree height with a pulse of proportion 0.5 from pop_0 to pop_1 at time 0.5 agrees within four standard
+    errors with msprime simulations of an exact mass migration under the same coalescent model, the pulse window being
+    sized from the model's pairwise merger rate and time scale.
+    """
+    import msprime as ms
+
+    from phasegen.distributions import MsprimeCoalescent
+
+    n = {'pop_0': 2, 'pop_1': 2}
+    pulse = pg.Pulse(time=0.5, source='pop_0', dest='pop_1', proportion=0.5)
+    exact = pg.Coalescent(n=n, model=model, demography=_pulse_demography(pulse)).tree_height.mean
+
+    md = _pulse_demography().to_msprime()
+    md.add_mass_migration(time=0.5, source='pop_0', dest='pop_1', proportion=0.5)
+    md.sort_events()
+
+    ms_model = MsprimeCoalescent(n=n, model=model, demography=_pulse_demography()).get_coalescent_model()
+    reps = ms.sim_ancestry(samples=[ms.SampleSet(k, population=p, ploidy=1) for p, k in n.items()], demography=md,
+                           model=ms_model, ploidy=1, num_replicates=20000, random_seed=3)
+    heights = np.array([ts.first().time(ts.first().root) for ts in reps])
+
+    assert abs(exact - heights.mean()) < 4 * heights.std() / np.sqrt(len(heights))
