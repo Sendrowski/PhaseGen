@@ -1829,8 +1829,7 @@ class JointSFSDistribution(SpectrumDistribution):
         deviations of both bins, of shape :attr:`shape` ``+`` :attr:`shape`. Pairs without variance are set to zero.
         """
         cov = np.asarray(self.cov, dtype=float)
-        n = int(np.sqrt(cov.size))
-        flat = cov.reshape(n, n)
+        flat = cov.reshape(int(np.prod(self.shape)), -1)
         std = np.sqrt(np.maximum(np.diag(flat), 0.0))
         denom = np.outer(std, std)
 
