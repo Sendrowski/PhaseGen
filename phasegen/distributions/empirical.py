@@ -52,6 +52,9 @@ _JOINT_CDF_DIRECT_MAX = 16
 #: Multiple of the replicate count with which a pairwise coalescence time is simulated, for the f-statistics.
 _PAIRWISE_REPLICATE_FACTOR = 10
 
+#: First entry of the spawn keys of the msprime seeds of the pairwise coalescence times, one key per pair.
+_PAIRWISE_SPAWN_KEY = 2 ** 16
+
 #: Message of the error raised where the simulated genealogies or sampled trajectories are not held.
 _NO_GENEALOGIES = (
     "The {statistic} requires the genealogies simulated by MsprimeCoalescent or the trajectories sampled by "
@@ -5056,8 +5059,8 @@ class MsprimeCoalescent(AbstractCoalescent):
     def _pair_time(self, pair: Tuple[str, str]) -> float:
         """
         msprime estimate of the mean tree height of two lineages, one in each population of ``pair``, two when they
-        coincide, from ten times the replicates of this coalescent. Memoized per pair, and kept when the demography
-        is dropped.
+        coincide, from ten times the replicates of this coalescent, seeded per pair. Memoized per pair, and kept when
+        the demography is dropped.
 
         :param pair: The two populations, sorted.
         :return: The mean tree height.
@@ -5068,8 +5071,11 @@ class MsprimeCoalescent(AbstractCoalescent):
         cache = self.__dict__.setdefault('_pairwise_times', {})
 
         if pair not in cache:
-            names = self._require_demography()._msprime_names
+            demography = self._require_demography()
+            names = demography._msprime_names
             samples = {names[p]: k for p, k in self._pair_lineages(pair).items() if k}
+            seed = np.random.SeedSequence(self.seed, spawn_key=(_PAIRWISE_SPAWN_KEY,
+                                                                *(demography.pop_names.index(p) for p in pair)))
 
             times = np.array([ts.first().time(ts.first().root) for ts in ms.sim_ancestry(
                 samples=samples,
@@ -5078,7 +5084,7 @@ class MsprimeCoalescent(AbstractCoalescent):
                 model=self.get_coalescent_model(),
                 ploidy=1,
                 num_replicates=self.num_replicates * _PAIRWISE_REPLICATE_FACTOR,
-                random_seed=self._msprime_seed(),
+                random_seed=self._msprime_seeds(seed, 1)[0],
             )])
 
             # an end time bounds the accumulation of the tree height, as in the exact computation
