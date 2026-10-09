@@ -6,7 +6,7 @@ Changelog
 [Unreleased]
 ^^^^^^^^^^^^
 - Create demographies from :class:`msprime.Demography` and :class:`demes.Graph` objects with :meth:`Demography.from_msprime() <phasegen.demography.Demography.from_msprime>` and :meth:`Demography.from_demes() <phasegen.demography.Demography.from_demes>`, and convert to a :class:`demes.Graph` with :meth:`Demography.to_demes() <phasegen.demography.Demography.to_demes>`.
-- Add an ``alpha`` argument to the demography plots.
+- Add an :paramref:`~phasegen.demography.Demography.plot.alpha` argument to the demography plots.
 - Keep the population names of the joint SFS in its standard deviation and in all sampled spectra.
 - Estimate F\ :sub:`ST` and the f-statistics on :class:`~phasegen.distributions.SampledCoalescent`.
 - Add the third and fourth raw moments (:attr:`PhaseTypeDistribution.m3 <phasegen.distributions.PhaseTypeDistribution.m3>`, :attr:`PhaseTypeDistribution.m4 <phasegen.distributions.PhaseTypeDistribution.m4>`) to all exact distributions, the bin correlation :attr:`JointSFSDistribution.corr <phasegen.distributions.JointSFSDistribution.corr>` and the cross-locus covariance :attr:`TwoLocusSFSDistribution.cov <phasegen.distributions.TwoLocusSFSDistribution.cov>`, matching their sampled counterparts.

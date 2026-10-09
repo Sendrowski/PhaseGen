@@ -338,8 +338,8 @@ class AbstractCoalescent(ABC):
 
             f_2(A, B) = 2\, \mathbb{E}[T_{AB}] - \mathbb{E}[T_{AA}] - \mathbb{E}[T_{BB}],
 
-        with :math:`T_{XY}` the coalescence time of one lineage sampled in population :math:`X` and one in
-        population :math:`Y`, matching the branch mode of ``tskit``. It measures the drift separating the two
+        with :math:`T_{XY}` the coalescence time of one lineage sampled in population :math:`X` and one in population
+        :math:`Y`, matching the branch mode of :meth:`tskit.TreeSequence.f2`. It measures the drift separating the two
         populations.
 
         :param pop_0: Name of population ``A``.
@@ -359,8 +359,8 @@ class AbstractCoalescent(ABC):
 
             f_3(C; A, B) = \mathbb{E}[T_{CA}] + \mathbb{E}[T_{CB}] - \mathbb{E}[T_{AB}] - \mathbb{E}[T_{CC}],
 
-        matching the branch mode of ``tskit``. A negative value indicates that the target population :math:`C` is
-        admixed between :math:`A` and :math:`B`.
+        matching the branch mode of :meth:`tskit.TreeSequence.f3`. A negative value indicates that the target population
+        :math:`C` is admixed between :math:`A` and :math:`B`.
 
         :param pop_target: Name of the (potentially admixed) target population ``C``.
         :param pop_0: Name of source population ``A``.
@@ -380,8 +380,8 @@ class AbstractCoalescent(ABC):
 
             f_4(A, B; C, D) = \mathbb{E}[T_{AD}] + \mathbb{E}[T_{BC}] - \mathbb{E}[T_{AC}] - \mathbb{E}[T_{BD}],
 
-        matching the branch mode of ``tskit``. It tests treeness and detects gene flow between the two population
-        pairs.
+        matching the branch mode of :meth:`tskit.TreeSequence.f4`. It tests treeness and detects gene flow between the
+        two population pairs.
 
         :param pop_0: Name of population ``A``.
         :param pop_1: Name of population ``B``.
