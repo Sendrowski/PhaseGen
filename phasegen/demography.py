@@ -279,8 +279,9 @@ class Demography:
         events. A mass migration of proportion 1 becomes a population split if no lineage enters the source
         afterwards, and a pulse of proportion :math:`1 - 10^{-9}` otherwise. An admixture from sources with
         proportions :math:`p_1, \dots, p_K` becomes a pulse to each source :math:`i < K` with proportion
-        :math:`p_i / (1 - \sum_{j < i} p_j)` and a split into source :math:`K`. Bottlenecks and growth in the last
-        epoch are not supported and left out with a warning.
+        :math:`p_i / (1 - \sum_{j < i} p_j)` and a split into source :math:`K`. Bottlenecks are not supported and left
+        out with a warning, and a population growing in the last epoch is held at its size at the start of that epoch,
+        also with a warning.
 
         The following example loads the out-of-Africa model of Gutenkunst et al. (2009) as a
         :class:`stdpopsim.DemographicModel`, in units of :math:`2 N_A` generations with :math:`N_A = 7300`.
@@ -783,7 +784,7 @@ class Demography:
         )
 
     def _plot(self, kind: str, t: np.ndarray, show: bool, file: str, title: str, ylabel: str, ax: 'plt.Axes',
-              alpha: float, kwargs: dict) -> 'plt.Axes':
+              kwargs: dict, alpha: float) -> 'plt.Axes':
         """
         Plot the trajectories of :meth:`_plot_data`.
 
@@ -794,8 +795,8 @@ class Demography:
         :param title: Title of the plot, ``None`` for the default title.
         :param ylabel: Label of the y-axis, ``None`` for the default label.
         :param ax: Axes object to plot to.
-        :param alpha: Opacity of the lines.
         :param kwargs: Keyword arguments to pass to the plotting function.
+        :param alpha: Opacity of the lines.
         :return: Axes object.
         """
         from .visualization import Visualization
@@ -811,8 +812,8 @@ class Demography:
             title: str = None,
             ylabel: str = None,
             ax: 'plt.Axes' = None,
-            alpha: float = 0.7,
-            kwargs: dict = None
+            kwargs: dict = None,
+            alpha: float = 0.7
     ) -> 'plt.Axes':
         """
         Plot the population size over time.
@@ -825,11 +826,11 @@ class Demography:
         :param title: Title of the plot, ``None`` for the default title.
         :param ylabel: Label of the y-axis, ``None`` for the default label.
         :param ax: Axes object to plot to.
-        :param alpha: Opacity of the lines.
         :param kwargs: Keyword arguments to pass to the plotting function.
+        :param alpha: Opacity of the lines.
         :return: Axes object.
         """
-        return self._plot('pop_sizes', t, show, file, title, ylabel, ax, alpha, kwargs)
+        return self._plot('pop_sizes', t, show, file, title, ylabel, ax, kwargs, alpha)
 
     def plot_migration(
             self,
@@ -839,8 +840,8 @@ class Demography:
             title: str = None,
             ylabel: str = None,
             ax: 'plt.Axes' = None,
-            alpha: float = 0.7,
-            kwargs: dict = None
+            kwargs: dict = None,
+            alpha: float = 0.7
     ) -> 'plt.Axes':
         """
         Plot the migration rates over time.
@@ -853,11 +854,11 @@ class Demography:
         :param title: Title of the plot, ``None`` for the default title.
         :param ylabel: Label of the y-axis, ``None`` for the default label.
         :param ax: Axes object to plot to.
-        :param alpha: Opacity of the lines.
         :param kwargs: Keyword arguments to pass to the plotting function.
+        :param alpha: Opacity of the lines.
         :return: Axes object.
         """
-        return self._plot('migration', t, show, file, title, ylabel, ax, alpha, kwargs)
+        return self._plot('migration', t, show, file, title, ylabel, ax, kwargs, alpha)
 
     def plot(
             self,
@@ -867,8 +868,8 @@ class Demography:
             ylabel: str = None,
             ax: 'plt.Axes' = None,
             title: str = None,
-            alpha: float = 0.7,
-            kwargs: dict = None
+            kwargs: dict = None,
+            alpha: float = 0.7
     ) -> 'plt.Axes':
         """
         Plot the population sizes and migration rates over time.
@@ -881,11 +882,11 @@ class Demography:
         :param ylabel: Label of the y-axis, ``None`` for the default label.
         :param ax: Axes object to plot to.
         :param title: Title of the plot, ``None`` for the default title.
-        :param alpha: Opacity of the lines.
         :param kwargs: Keyword arguments to pass to the plotting function.
+        :param alpha: Opacity of the lines.
         :return: Axes object.
         """
-        return self._plot('all', t, show, file, title, ylabel, ax, alpha, kwargs)
+        return self._plot('all', t, show, file, title, ylabel, ax, kwargs, alpha)
 
 class Epoch:
     r"""
