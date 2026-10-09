@@ -2393,16 +2393,18 @@ class _ShiftedGenerator:
     def dense(self) -> np.ndarray:
         """The matrices, of shape ``(K, dim, dim)``."""
         Td = self.T.toarray() if sp.issparse(self.T) else np.asarray(self.T)
-        nt, n_aug, K = self.nt, self.nt + 1, len(self.shifts)
-        diag = np.arange(nt)
-        M = np.zeros((K, self.dim, self.dim), dtype=complex)
-        for i in range(self.k):
-            o = i * n_aug
-            M[:, o:o + nt, o:o + nt] = Td
-            M[:, o + diag, o + diag] -= self.shifts
-            M[:, o:o + nt, o + nt] = self.q
-            if i + 1 < self.k:
-                M[:, o + diag, o + n_aug + diag] = -self.deriv
+        nt, diag = self.nt, np.arange(self.nt)
+
+        M = np.zeros((len(self.shifts), nt + 1, nt + 1), dtype=complex)
+        M[:, :nt, :nt] = Td
+        M[:, diag, diag] -= self.shifts
+        M[:, :nt, nt] = self.q
+
+        if self.k > 1:
+            M1 = np.zeros((nt + 1, nt + 1), dtype=complex)
+            M1[diag, diag] = -self.deriv
+            M = np.array([_ring_matrix(m, M1, self.k - 1) for m in M])
+
         return M * self.dt
 
     def propagate(self, W: np.ndarray, action: bool) -> np.ndarray:
@@ -2444,9 +2446,15 @@ class _TaylorAction:
         #: The bound on the 1-norm of the shifted matrices.
         self.norm: float = min(plain, shifted)
 
-        #: Degree of the Taylor polynomial and number of steps.
-        self.m, self.s = min(((m * max(1, int(np.ceil(self.norm / th))), m, max(1, int(np.ceil(self.norm / th))))
-                              for m, th in _TAYLOR_THETA.items()))[1:] if self.norm > 0 else (0, 1)
+        #: Degree of the Taylor polynomial and number of steps, the pair of fewest products whose scaled norm is
+        #: within the bound of the degree.
+        self.m, self.s = 0, 1
+        if self.norm > 0:
+            cost = np.inf
+            for m, theta in _TAYLOR_THETA.items():
+                steps = max(1, int(np.ceil(self.norm / theta)))
+                if m * steps < cost:
+                    cost, self.m, self.s = m * steps, m, steps
 
     def apply(self, W: np.ndarray, product) -> np.ndarray:
         """
