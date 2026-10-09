@@ -1271,10 +1271,11 @@ def test_from_msprime_warns_on_unsupported_events(caplog):
     assert any('not supported' in r.getMessage() for r in caplog.records)
 
 
-def test_from_msprime_keeps_a_refilled_population_open(caplog):
+def test_from_msprime_keeps_a_refilled_population_open():
     """
-    A proportion-1 mass migration out of a population that later receives lineages again is not a split, so it is
-    left out with a warning instead of draining the population for good.
+    A proportion-1 mass migration out of a population that later receives lineages again becomes a near-complete
+    pulse, which leaves the population open, while the final one, after which nothing enters its source, becomes a
+    split. Regression: the first was left out with a warning, so its lineages stayed in the source.
     """
     import msprime as ms
 
@@ -1282,11 +1283,49 @@ def test_from_msprime_keeps_a_refilled_population_open(caplog):
     md.add_mass_migration(time=100, source='pop_0', dest='pop_1', proportion=1)
     md.add_mass_migration(time=200, source='pop_1', dest='pop_0', proportion=1)
 
-    with caplog.at_level('WARNING'):
-        d = pg.Demography.from_msprime(md)
+    d = pg.Demography.from_msprime(md)
 
-    assert sum(type(e).__name__ == 'PopulationSplit' for e in d.events) == 1
-    assert any('not supported' in r.getMessage() for r in caplog.records)
+    assert sorted(type(e).__name__ for e in d.events if type(e).__name__ in ('Pulse', 'PopulationSplit')) == \
+        ['PopulationSplit', 'Pulse']
+
+
+def _msprime_refill_model(same_time: bool):
+    """Two diploid demes of sizes 1000 and 100 without migration: all lineages leave pop_0 for pop_1 at 100
+    generations and half of those in pop_1 return at 100 (``same_time``) or 300 generations, after which pop_1 merges
+    into pop_0 at 600 generations."""
+    import msprime as ms
+
+    md = ms.Demography.island_model([1000, 100], migration_rate=0)
+    md.add_mass_migration(time=100, source='pop_0', dest='pop_1', proportion=1)
+    md.add_mass_migration(time=100 if same_time else 300, source='pop_1', dest='pop_0', proportion=0.5)
+    md.add_mass_migration(time=600, source='pop_1', dest='pop_0', proportion=1)
+    md.sort_events()
+
+    return md
+
+
+@pytest.mark.parametrize('same_time', [False, True])
+@pytest.mark.parametrize('pair', [{'pop_0': 2}, {'pop_0': 1, 'pop_1': 1}])
+def test_from_msprime_refilled_population_matches_msprime(same_time, pair):
+    """
+    Mean pairwise coalescence times with a proportion-1 mass migration out of a population that receives lineages
+    again, later or at the same time, agree with msprime simulations within four standard errors. Regression: the
+    refill at the same time was missed, so the source was frozen as emptied, and a later refill made the first
+    migration be left out.
+    """
+    import msprime as ms
+
+    md = _msprime_refill_model(same_time)
+    scale = 2 * 1000
+    d = pg.Demography.from_msprime(md, scale=scale)
+
+    exact = pg.Coalescent(n={p: 0 for p in d.pop_names} | pair, demography=d).tree_height.mean * scale
+
+    reps = ms.sim_ancestry(samples=[ms.SampleSet(k, population=p, ploidy=1) for p, k in pair.items()],
+                           demography=md, ploidy=2, num_replicates=20000, random_seed=13)
+    times = np.array([ts.first().time(ts.first().root) for ts in reps])
+
+    assert abs(exact - times.mean()) < 4 * times.std() / np.sqrt(len(times))
 
 
 def test_demes_round_trip_recovers_the_demography():

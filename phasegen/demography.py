@@ -26,6 +26,10 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger('phasegen')
 
+#: Proportion of the pulse that stands for a mass migration of all lineages out of a population that later receives
+#: lineages again, the largest a pulse allows to within a negligible remainder.
+_FULL_PULSE_PROPORTION = 1 - 1e-9
+
 
 class Demography:
     r"""
@@ -271,11 +275,12 @@ class Demography:
 
         Exponential growth is discretized into ``growth_steps`` constant sizes per epoch (see
         :class:`~phasegen.demography.ExponentialPopSizeChanges`). Population splits become
-        :class:`~phasegen.demography.PopulationSplit` events and mass migrations
-        :class:`~phasegen.demography.Pulse` events, or population splits for a proportion of 1 when no lineage
-        migrates into the source afterwards. An admixture from sources with proportions :math:`p_1, \dots, p_K`
-        becomes a pulse to each source :math:`i < K` with proportion :math:`p_i / (1 - \sum_{j < i} p_j)` and a split
-        into source :math:`K`. Bottlenecks and growth in the last epoch are not supported and left out with a warning.
+        :class:`~phasegen.demography.PopulationSplit` events and mass migrations :class:`~phasegen.demography.Pulse`
+        events. A mass migration of proportion 1 becomes a population split if no lineage enters the source
+        afterwards, and a pulse of proportion :math:`1 - 10^{-9}` otherwise. An admixture from sources with
+        proportions :math:`p_1, \dots, p_K` becomes a pulse to each source :math:`i < K` with proportion
+        :math:`p_i / (1 - \sum_{j < i} p_j)` and a split into source :math:`K`. Bottlenecks and growth in the last
+        epoch are not supported and left out with a warning.
 
         The following example loads the out-of-Africa model of Gutenkunst et al. (2009) from ``stdpopsim``, in units
         of :math:`2 N_A` generations with :math:`N_A = 7300`.
@@ -308,14 +313,13 @@ class Demography:
         def resolve(pop) -> str:
             return demography[pop].name
 
-        def immigration_after(pop, time: float) -> bool:
-            """Whether lineages can enter ``pop`` after ``time``, by migration or a lineage-moving event."""
+        def immigration_after(pop, index: int) -> bool:
+            """Whether lineages can enter ``pop`` after the event at ``index``, by migration or a later event."""
             target = demography[pop].id
+            time = demography.events[index].time
             if any(e.migration_matrix[:, target].any() for e in epochs if e.start_time >= time):
                 return True
-            for e in demography.events:
-                if e.time <= time:
-                    continue
+            for e in demography.events[index + 1:]:
                 if isinstance(e, ms.demography.MassMigration) and demography[e.dest].id == target:
                     return True
                 if isinstance(e, (ms.demography.PopulationSplit, ms.demography.Admixture)) and any(
@@ -326,7 +330,7 @@ class Demography:
         # lineage-moving events, and the time from which each population is empty
         events: List[DemographicEvent] = []
         emptied: Dict[str, float] = {}
-        for event in demography.events:
+        for index, event in enumerate(demography.events):
             time = event.time / scale
 
             if isinstance(event, ms.demography.PopulationSplit):
@@ -338,9 +342,13 @@ class Demography:
                 events.append(Pulse(time=time, source=resolve(event.source), dest=resolve(event.dest),
                                     proportion=event.proportion))
 
-            elif isinstance(event, ms.demography.MassMigration) and not immigration_after(event.source, event.time):
+            elif isinstance(event, ms.demography.MassMigration) and not immigration_after(event.source, index):
                 events.append(PopulationSplit(time=time, derived=resolve(event.source), ancestral=resolve(event.dest)))
                 emptied.setdefault(resolve(event.source), event.time)
+
+            elif isinstance(event, ms.demography.MassMigration):
+                events.append(Pulse(time=time, source=resolve(event.source), dest=resolve(event.dest),
+                                    proportion=_FULL_PULSE_PROPORTION))
 
             elif isinstance(event, ms.demography.Admixture):
                 derived = resolve(event.derived)
