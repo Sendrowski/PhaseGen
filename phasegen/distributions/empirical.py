@@ -5044,31 +5044,23 @@ class MsprimeCoalescent(AbstractCoalescent):
 
         return float(1 - within.mean() / between.mean())
 
-    def _pairwise_coalescence_time(self, pop_i: str, pop_j: str) -> float:
+    def _pair_time(self, pair: Tuple[str, str]) -> float:
         """
-        msprime estimate of the expected coalescence time of one lineage sampled in ``pop_i`` and one in ``pop_j``,
-        two in ``pop_i`` when they coincide, simulated for that pair alone as :class:`Coalescent` computes it. It does
-        not depend on the sample configuration of this coalescent, and uses ten times its replicates. Memoized per pair.
+        msprime estimate of the mean tree height of two lineages, one in each population of ``pair``, two when they
+        coincide, from ten times the replicates of this coalescent. Memoized per pair, and kept when the demography
+        is dropped.
 
-        :param pop_i: Name of the first population.
-        :param pop_j: Name of the second population.
-        :return: The mean coalescence time.
-        :raises ValueError: If a population is unknown.
-        :raises NotImplementedError: If the demography has been dropped, as for serialization.
+        :param pair: The two populations, sorted.
+        :return: The mean tree height.
+        :raises NotImplementedError: If the demography has been dropped and the pair is not memoized.
         """
         import msprime as ms
 
-        names = self._require_demography().pop_names
-        for pop in (pop_i, pop_j):
-            if pop not in names:
-                raise ValueError(f"Unknown population '{pop}'. Available populations: {names}.")
-
-        key = tuple(sorted((pop_i, pop_j)))
         cache = self.__dict__.setdefault('_pairwise_times', {})
 
-        if key not in cache:
-            names = self.demography._msprime_names
-            samples = {names[pop_i]: 2} if pop_i == pop_j else {names[pop_i]: 1, names[pop_j]: 1}
+        if pair not in cache:
+            names = self._require_demography()._msprime_names
+            samples = {names[p]: k for p, k in self._pair_lineages(pair).items() if k}
 
             times = np.array([ts.first().time(ts.first().root) for ts in ms.sim_ancestry(
                 samples=samples,
@@ -5081,9 +5073,9 @@ class MsprimeCoalescent(AbstractCoalescent):
             )])
 
             # an end time bounds the accumulation of the tree height, as in the exact computation
-            cache[key] = float(np.mean(times if self.end_time is None else np.minimum(times, self.end_time)))
+            cache[pair] = float(np.mean(times if self.end_time is None else np.minimum(times, self.end_time)))
 
-        return cache[key]
+        return cache[pair]
 
     def _trajectory_records(self) -> _Trajectories:
         """
@@ -5440,37 +5432,29 @@ class SampledCoalescent(AbstractCoalescent):  # pragma: no cover
 
         return self._coalescent
 
-    def _pairwise_coalescence_time(self, pop_i: str, pop_j: str) -> float:
+    def _pair_time(self, pair: Tuple[str, str]) -> float:
         """
-        Sampled estimate of the expected coalescence time of one lineage sampled in ``pop_i`` and one in ``pop_j``,
-        two in ``pop_i`` when they coincide, from a two-lineage coalescent as :class:`Coalescent` computes it. It uses
-        ten times the samples of a statistic, seeded per pair. Memoized per pair.
+        Sampled estimate of the mean tree height of two lineages, one in each population of ``pair``, two when they
+        coincide, from ten times the samples of a statistic, seeded per pair. Memoized per pair, and kept when the
+        wrapped coalescent is dropped.
 
-        :param pop_i: Name of the first population.
-        :param pop_j: Name of the second population.
-        :return: The mean coalescence time.
-        :raises ValueError: If a population is unknown.
-        :raises NotImplementedError: If the wrapped coalescent has been dropped.
+        :param pair: The two populations, sorted.
+        :return: The mean tree height.
+        :raises NotImplementedError: If the wrapped coalescent has been dropped and the pair is not memoized.
         """
-        coal = self._require_coalescent()
-        names = coal.demography.pop_names
-        for pop in (pop_i, pop_j):
-            if pop not in names:
-                raise ValueError(f"Unknown population '{pop}'. Available populations: {names}.")
-
-        key = tuple(sorted((pop_i, pop_j)))
         cache = self.__dict__.setdefault('_pairwise_times', {})
 
-        if key not in cache:
-            counts = {p: (2 if p == pop_i else 0) if pop_i == pop_j else int(p in key) for p in names}
-            pair = Coalescent(n=counts, demography=coal.demography, model=coal.model, start_time=coal.start_time,
-                              end_time=coal.end_time)
+        if pair not in cache:
+            coal = self._require_coalescent()
+            names = coal.demography.pop_names
+            exact = Coalescent(n=self._pair_lineages(pair), demography=coal.demography, model=coal.model,
+                               start_time=coal.start_time, end_time=coal.end_time)
             seed = np.random.SeedSequence(self.seed, spawn_key=(self._spawn_keys['pairwise'],
-                                                                names.index(key[0]), names.index(key[1])))
-            cache[key] = SampledCoalescent(pair, self.n_samples * _PAIRWISE_REPLICATE_FACTOR,
-                                           seed=np.random.default_rng(seed)).tree_height.mean
+                                                                names.index(pair[0]), names.index(pair[1])))
+            cache[pair] = SampledCoalescent(exact, self.n_samples * _PAIRWISE_REPLICATE_FACTOR,
+                                            seed=np.random.default_rng(seed)).tree_height.mean
 
-        return cache[key]
+        return cache[pair]
 
     def accumulate(
             self,

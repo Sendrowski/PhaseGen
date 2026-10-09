@@ -281,3 +281,27 @@ def test_sampled_coalescent_mirrors_fst_and_f_statistics():
     assert sampled.fst == pytest.approx(exact.fst, abs=0.02)
     assert SampledCoalescent(exact, n_samples=2000, seed=3).f3('pop_0', 'pop_1', 'pop_2') == sampled.f3(
         'pop_0', 'pop_1', 'pop_2')
+
+
+def test_dropped_sampled_coalescent_serves_its_memoized_f_statistics():
+    """
+    After the wrapped coalescent is dropped, as for serialization, F_ST and the f-statistics whose pairwise times are
+    memoized are still served, and one needing a new pairwise time raises NotImplementedError. Regression: F_ST read
+    the dropped demography and raised AttributeError, and the memoized times were unreachable.
+    """
+    from phasegen.distributions import SampledCoalescent
+
+    demo = _island(0.5)
+    sampled = SampledCoalescent(pg.Coalescent(n={'pop_0': 2, 'pop_1': 2}, demography=demo), n_samples=500, seed=1)
+    fst, f2 = sampled.fst, sampled.f2('pop_0', 'pop_1')
+
+    sampled._drop()
+
+    assert sampled.fst == fst
+    assert sampled.f2('pop_0', 'pop_1') == f2
+
+    fresh = SampledCoalescent(pg.Coalescent(n={'pop_0': 2, 'pop_1': 2}, demography=demo), n_samples=500, seed=1)
+    fresh._drop()
+
+    with pytest.raises(NotImplementedError):
+        fresh.f2('pop_0', 'pop_1')

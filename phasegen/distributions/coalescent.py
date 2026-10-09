@@ -4,7 +4,7 @@ import copy
 import logging
 from abc import ABC, abstractmethod
 from ..caching import cached_property, cache
-from typing import List, Dict, Iterable, Sequence, TYPE_CHECKING
+from typing import List, Dict, Iterable, Sequence, Tuple, TYPE_CHECKING
 import numpy as np
 from ..coalescent_models import StandardCoalescent, CoalescentModel
 from ..demography import Demography, PopSizeChanges
@@ -249,17 +249,43 @@ class AbstractCoalescent(ABC):
         """
         pass
 
-    @abstractmethod
     def _pairwise_coalescence_time(self, pop_i: str, pop_j: str) -> float:
         """
         Expected coalescence time of one lineage sampled in ``pop_i`` and one in ``pop_j``, two in ``pop_i`` when they
-        coincide, under this demography and coalescent model.
+        coincide, under this demography and coalescent model. It is the mean tree height of a two-lineage coalescent,
+        so it does not depend on the configured sample sizes nor on the number of loci.
 
         :param pop_i: Name of the first population.
         :param pop_j: Name of the second population.
         :return: The expected pairwise coalescence time.
+        :raises ValueError: If a population is unknown.
+        """
+        pops = self.lineage_config.pop_names
+
+        for p in (pop_i, pop_j):
+            if p not in pops:
+                raise ValueError(f"Unknown population {p!r}; available: {pops}.")
+
+        return self._pair_time(tuple(sorted((pop_i, pop_j))))
+
+    @abstractmethod
+    def _pair_time(self, pair: Tuple[str, str]) -> float:
+        """
+        The mean tree height of two lineages, one in each population of ``pair``, two when they coincide.
+
+        :param pair: The two populations, sorted.
+        :return: The mean tree height.
         """
         pass
+
+    def _pair_lineages(self, pair: Tuple[str, str]) -> Dict[str, int]:
+        """
+        The lineage configuration of ``pair``, two lineages and none in every other population.
+
+        :param pair: The two populations, sorted.
+        :return: The number of lineages per population.
+        """
+        return {p: pair.count(p) for p in self.lineage_config.pop_names}
 
     @cached_property
     def fst(self) -> float:
@@ -284,7 +310,7 @@ class AbstractCoalescent(ABC):
         self._assert_single_lineage_config("F_ST")
 
         counts = self.lineage_config.lineage_dict
-        sampled = [q for q in self.demography.pop_names if counts.get(q, 0) >= 1]
+        sampled = [q for q in self.lineage_config.pop_names if counts.get(q, 0) >= 1]
 
         if len(sampled) < 2:
             raise ValueError(f"F_ST requires at least two sampled populations (got {len(sampled)}).")
@@ -616,29 +642,16 @@ class Coalescent(AbstractCoalescent, Serializable):
             demography=self.demography
         )
 
-    def _pairwise_coalescence_time(self, pop_i: str, pop_j: str) -> float:
+    @cache
+    def _pair_time(self, pair: Tuple[str, str]) -> float:
         """
-        Expected coalescence time of two lineages, one sampled in ``pop_i`` and one in ``pop_j`` (or both in the same
-        population when ``pop_i == pop_j``), under this demography and coalescent model. Computed from a two-lineage
-        sub-coalescent, so it is independent of the configured sample sizes and number of loci.
+        The mean tree height of two lineages, one in each population of ``pair``, two when they coincide.
 
-        :param pop_i: Name of the first population.
-        :param pop_j: Name of the second population.
-        :return: Expected pairwise coalescence time ``T_{ij}``.
+        :param pair: The two populations, sorted.
+        :return: The mean tree height.
         """
-        pops = self.demography.pop_names
-
-        for p in (pop_i, pop_j):
-            if p not in pops:
-                raise ValueError(f"Unknown population {p!r}; available: {pops}.")
-
-        if pop_i == pop_j:
-            counts = {p: (2 if p == pop_i else 0) for p in pops}
-        else:
-            counts = {p: (1 if p in (pop_i, pop_j) else 0) for p in pops}
-
         return Coalescent(
-            n=counts,
+            n=self._pair_lineages(pair),
             demography=self.demography,
             model=self.model,
             start_time=self.start_time,
