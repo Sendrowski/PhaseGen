@@ -182,7 +182,7 @@ def _sqrt_spectrum(var):
     :param var: The variance spectrum.
     :return: The standard-deviation spectrum.
     """
-    out = copy.copy(var)
+    out = copy.deepcopy(var)
     out.data = np.maximum(np.asarray(var.data, dtype=float), 0.0) ** 0.5
 
     return out

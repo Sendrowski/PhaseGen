@@ -243,3 +243,13 @@ def test_joint_inversion_action_matches_dense(label, make, cf_min):
 
     for key in dense:
         np.testing.assert_allclose(action[key], dense[key], atol=1e-9, rtol=1e-7, err_msg=f"{label}: {key}")
+
+
+def test_taylor_action_rejects_non_finite_matrices():
+    """A matrix with a non-finite entry raises in the Taylor action instead of returning the vector unpropagated."""
+    from phasegen.distributions.reward import _TaylorAction
+
+    diag = np.array([[-1.0, np.nan]], dtype=complex)
+
+    with pytest.raises(ValueError, match="finite"):
+        _TaylorAction(diag, np.array([1.0, 1.0]))

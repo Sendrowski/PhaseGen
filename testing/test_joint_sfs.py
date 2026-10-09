@@ -576,3 +576,14 @@ def test_exact_and_sampled_spectra_share_raw_moments_and_correlations():
     # the standard error of a sample covariance is at most sqrt(2) sd_i sd_j / sqrt(n)
     bound = 4 * np.sqrt(2) * np.outer(sampled2._left.std(axis=0), sampled2._right.std(axis=0)) / np.sqrt(n)
     assert np.all(np.abs(exact2.sfs2.cov.data - sampled2.cov.data) <= bound + 1e-12)
+
+
+def test_joint_sfs_standard_deviation_does_not_share_metadata_with_the_variance():
+    """Relabelling the standard deviation of the joint SFS leaves the cached variance unchanged. Regression: the two
+    shared one list of population names."""
+    demo = pg.Demography(pop_sizes={'a': 1, 'b': 1}, migration_rates={('a', 'b'): 1, ('b', 'a'): 1})
+    jsfs = pg.Coalescent(n={'a': 2, 'b': 2}, demography=demo).jsfs
+
+    jsfs.std.pop_names[0] = 'x'
+
+    assert jsfs.var.pop_names == ['a', 'b']

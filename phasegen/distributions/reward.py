@@ -2433,6 +2433,9 @@ class _TaylorAction:
         plain = float((off_norm + np.abs(diag)).max(initial=0.0))
         shifted = float((off_norm + np.abs(diag - mu[:, None])).max(initial=0.0))
 
+        if not np.isfinite(plain):
+            raise ValueError(f'The matrices of the Taylor action must be finite, got a 1-norm bound of {plain}.')
+
         #: The shifts of the diagonals.
         self.mu: np.ndarray = mu if shifted < plain else np.zeros_like(mu)
 
