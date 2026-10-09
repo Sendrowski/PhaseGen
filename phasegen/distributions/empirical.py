@@ -1299,6 +1299,15 @@ class EmpiricalJointSFSDistribution(_EmpiricalAccumulating, EmpiricalSpectrumDis
         #: The loci the replicates start from.
         self._layout_loci = locus_config
 
+    def _spectrum(self, data: np.ndarray) -> JointSFS:
+        """
+        A joint SFS of the given data, with the population names of the axes.
+
+        :param data: The data.
+        :return: The joint SFS.
+        """
+        return JointSFS(data, pop_names=self._pop_names)
+
     @property
     def _pop_names(self) -> Optional[List[str]]:
         """
@@ -1429,28 +1438,28 @@ class EmpiricalJointSFSDistribution(_EmpiricalAccumulating, EmpiricalSpectrumDis
         r"""
         Sample mean over all replicates, :math:`\hat M_1`.
         """
-        return JointSFS(self._moments[0], pop_names=self._pop_names)
+        return self._spectrum(self._moments[0])
 
     @cached_property
     def var(self) -> JointSFS:
         r"""
         Sample variance over all replicates, :math:`\hat M_2 - \hat M_1^2`.
         """
-        return JointSFS(self._moments[1] - self._moments[0] ** 2, pop_names=self._pop_names)
+        return self._spectrum(self._moments[1] - self._moments[0] ** 2)
 
     @cached_property
     def m2(self) -> JointSFS:
         r"""
         Second raw sample moment over all replicates, :math:`\hat M_2`.
         """
-        return JointSFS(self._moments[1], pop_names=self._pop_names)
+        return self._spectrum(self._moments[1])
 
     @cached_property
     def m3(self) -> JointSFS:
         r"""
         Third raw sample moment over all replicates, :math:`\hat M_3`.
         """
-        return JointSFS(self._moments[2], pop_names=self._pop_names)
+        return self._spectrum(self._moments[2])
 
     @cached_property
     def m4(self) -> JointSFS:
@@ -1458,7 +1467,7 @@ class EmpiricalJointSFSDistribution(_EmpiricalAccumulating, EmpiricalSpectrumDis
         Fourth raw sample moment of the stored samples, see
         :meth:`EmpiricalDistribution.moment() <phasegen.distributions.EmpiricalDistribution.moment>`.
         """
-        return JointSFS(super().m4, pop_names=self._pop_names)
+        return self._spectrum(super().m4)
 
     def moment(
             self,
@@ -1499,20 +1508,20 @@ class EmpiricalJointSFSDistribution(_EmpiricalAccumulating, EmpiricalSpectrumDis
         k = _validate_order(k)
 
         if rewards is not None or start_time is not None or end_time is not None:
-            return JointSFS(self._require_accumulator().moment(k, rewards, start_time, end_time, center, permute), pop_names=self._pop_names)
+            return self._spectrum(self._require_accumulator().moment(k, rewards, start_time, end_time, center, permute))
 
         if k > 3:
             if self.samples is None:
                 raise ValueError("Moments above order three need the per-replicate samples, which have been dropped.")
 
-            return JointSFS(super().moment(k, center=center), pop_names=self._pop_names)
+            return self._spectrum(super().moment(k, center=center))
 
         raw = [np.ones(self._moments.shape[1:])] + list(self._moments)
 
         if not center or k < 2:
-            return JointSFS(raw[k], pop_names=self._pop_names)
+            return self._spectrum(raw[k])
 
-        return JointSFS(sum(math.comb(k, o) * raw[o] * (-raw[1]) ** (k - o) for o in range(k + 1)), pop_names=self._pop_names)
+        return self._spectrum(sum(math.comb(k, o) * raw[o] * (-raw[1]) ** (k - o) for o in range(k + 1)))
 
     @property
     def data(self) -> np.ndarray:
