@@ -249,6 +249,123 @@ class AbstractCoalescent(ABC):
         """
         pass
 
+    @abstractmethod
+    def _pairwise_coalescence_time(self, pop_i: str, pop_j: str) -> float:
+        """
+        Expected coalescence time of one lineage sampled in ``pop_i`` and one in ``pop_j``, two in ``pop_i`` when they
+        coincide, under this demography and coalescent model.
+
+        :param pop_i: Name of the first population.
+        :param pop_j: Name of the second population.
+        :return: The expected pairwise coalescence time.
+        """
+        pass
+
+    @cached_property
+    def fst(self) -> float:
+        r"""
+        Hudson's fixation index
+
+        .. math::
+
+            F_{ST} = 1 - \frac{\overline{\mathbb{E}[T_{PP}]}}{\overline{\mathbb{E}[T_{PP'}]}},
+
+        where :math:`T_{PP'}` is the coalescence time of one lineage sampled in population :math:`P` and one in
+        population :math:`P'`, the numerator averages :math:`\mathbb{E}[T_{PP}]` over the populations with at least
+        two sampled lineages and the denominator averages :math:`\mathbb{E}[T_{PP'}]` over the unordered pairs
+        :math:`P \ne P'` of sampled populations. Each expectation is the mean tree height of a two-lineage coalescent
+        with the same demography and coalescent model, so the result depends on which populations carry at least one
+        and which at least two sampled lineages, but not on larger counts, nor on the number of loci.
+
+        :return: Hudson's :math:`F_{ST}`.
+        :raises ValueError: if fewer than two populations are sampled, none carries two sampled lineages, or the
+            lineage configurations of an initial distribution differ.
+        """
+        self._assert_single_lineage_config("F_ST")
+
+        counts = self.lineage_config.lineage_dict
+        sampled = [q for q in self.demography.pop_names if counts.get(q, 0) >= 1]
+
+        if len(sampled) < 2:
+            raise ValueError(f"F_ST requires at least two sampled populations (got {len(sampled)}).")
+
+        # within-population pairwise times, where two lineages can be sampled in the same population
+        t_within = [self._pairwise_coalescence_time(q, q) for q in sampled if counts[q] >= 2]
+
+        if not t_within:
+            raise ValueError("F_ST requires a population with at least two sampled lineages.")
+
+        # between-population pairwise times (one lineage in each of two distinct sampled populations)
+        t_between = [
+            self._pairwise_coalescence_time(a, b)
+            for i, a in enumerate(sampled) for b in sampled[i + 1:]
+        ]
+
+        return float(1 - np.mean(t_within) / np.mean(t_between))
+
+    def f2(self, pop_0: str, pop_1: str) -> float:
+        r"""
+        Branch form of Patterson's :math:`f_2(A, B) = \mathbb{E}[(p_A - p_B)^2]`, where :math:`p_A` and :math:`p_B`
+        are the allele frequencies in populations :math:`A` and :math:`B`,
+
+        .. math::
+
+            f_2(A, B) = 2\, \mathbb{E}[T_{AB}] - \mathbb{E}[T_{AA}] - \mathbb{E}[T_{BB}],
+
+        with :math:`T_{XY}` the coalescence time of one lineage sampled in population :math:`X` and one in
+        population :math:`Y`, matching the branch mode of ``tskit``. It measures the drift separating the two
+        populations.
+
+        :param pop_0: Name of population ``A``.
+        :param pop_1: Name of population ``B``.
+        :return: :math:`f_2(A, B)`.
+        """
+        t = self._pairwise_coalescence_time
+        return float(2 * t(pop_0, pop_1) - t(pop_0, pop_0) - t(pop_1, pop_1))
+
+    def f3(self, pop_target: str, pop_0: str, pop_1: str) -> float:
+        r"""
+        Branch form of Patterson's :math:`f_3(C; A, B) = \mathbb{E}[(p_C - p_A)(p_C - p_B)]`, with allele
+        frequencies and pairwise coalescence times :math:`T_{XY}` as in :meth:`Coalescent.f2()
+        <phasegen.distributions.Coalescent.f2>`,
+
+        .. math::
+
+            f_3(C; A, B) = \mathbb{E}[T_{CA}] + \mathbb{E}[T_{CB}] - \mathbb{E}[T_{AB}] - \mathbb{E}[T_{CC}],
+
+        matching the branch mode of ``tskit``. A negative value indicates that the target population :math:`C` is
+        admixed between :math:`A` and :math:`B`.
+
+        :param pop_target: Name of the (potentially admixed) target population ``C``.
+        :param pop_0: Name of source population ``A``.
+        :param pop_1: Name of source population ``B``.
+        :return: :math:`f_3(C; A, B)`.
+        """
+        t = self._pairwise_coalescence_time
+        return float(t(pop_target, pop_0) + t(pop_target, pop_1) - t(pop_0, pop_1) - t(pop_target, pop_target))
+
+    def f4(self, pop_0: str, pop_1: str, pop_2: str, pop_3: str) -> float:
+        r"""
+        Branch form of Patterson's :math:`f_4(A, B; C, D) = \mathbb{E}[(p_A - p_B)(p_C - p_D)]`, with allele
+        frequencies and pairwise coalescence times :math:`T_{XY}` as in :meth:`Coalescent.f2()
+        <phasegen.distributions.Coalescent.f2>`,
+
+        .. math::
+
+            f_4(A, B; C, D) = \mathbb{E}[T_{AD}] + \mathbb{E}[T_{BC}] - \mathbb{E}[T_{AC}] - \mathbb{E}[T_{BD}],
+
+        matching the branch mode of ``tskit``. It tests treeness and detects gene flow between the two population
+        pairs.
+
+        :param pop_0: Name of population ``A``.
+        :param pop_1: Name of population ``B``.
+        :param pop_2: Name of population ``C``.
+        :param pop_3: Name of population ``D``.
+        :return: :math:`f_4(A, B; C, D)`.
+        """
+        t = self._pairwise_coalescence_time
+        return float(t(pop_0, pop_3) + t(pop_1, pop_2) - t(pop_0, pop_2) - t(pop_1, pop_3))
+
 
 class Coalescent(AbstractCoalescent, Serializable):
     """
@@ -499,48 +616,6 @@ class Coalescent(AbstractCoalescent, Serializable):
             demography=self.demography
         )
 
-    @cached_property
-    def fst(self) -> float:
-        r"""
-        Hudson's fixation index
-
-        .. math::
-
-            F_{ST} = 1 - \frac{\overline{\mathbb{E}[T_{PP}]}}{\overline{\mathbb{E}[T_{PP'}]}},
-
-        where :math:`T_{PP'}` is the coalescence time of one lineage sampled in population :math:`P` and one in
-        population :math:`P'`, the numerator averages :math:`\mathbb{E}[T_{PP}]` over the populations with at least
-        two sampled lineages and the denominator averages :math:`\mathbb{E}[T_{PP'}]` over the unordered pairs
-        :math:`P \ne P'` of sampled populations. Each expectation is the mean tree height of a two-lineage coalescent
-        with the same demography and coalescent model, so the result depends on which populations carry at least one
-        and which at least two sampled lineages, but not on larger counts, nor on the number of loci.
-
-        :return: Hudson's :math:`F_{ST}`.
-        :raises ValueError: if fewer than two populations are sampled, none carries two sampled lineages, or the
-            lineage configurations of an initial distribution differ.
-        """
-        self._assert_single_lineage_config("F_ST")
-
-        counts = self.lineage_config.lineage_dict
-        sampled = [q for q in self.demography.pop_names if counts.get(q, 0) >= 1]
-
-        if len(sampled) < 2:
-            raise ValueError(f"F_ST requires at least two sampled populations (got {len(sampled)}).")
-
-        # within-population pairwise times, where two lineages can be sampled in the same population
-        t_within = [self._pairwise_coalescence_time(q, q) for q in sampled if counts[q] >= 2]
-
-        if not t_within:
-            raise ValueError("F_ST requires a population with at least two sampled lineages.")
-
-        # between-population pairwise times (one lineage in each of two distinct sampled populations)
-        t_between = [
-            self._pairwise_coalescence_time(a, b)
-            for i, a in enumerate(sampled) for b in sampled[i + 1:]
-        ]
-
-        return float(1 - np.mean(t_within) / np.mean(t_between))
-
     def _pairwise_coalescence_time(self, pop_i: str, pop_j: str) -> float:
         """
         Expected coalescence time of two lineages, one sampled in ``pop_i`` and one in ``pop_j`` (or both in the same
@@ -569,69 +644,6 @@ class Coalescent(AbstractCoalescent, Serializable):
             start_time=self.start_time,
             end_time=self.end_time
         ).tree_height.mean
-
-    def f2(self, pop_0: str, pop_1: str) -> float:
-        r"""
-        Branch form of Patterson's :math:`f_2(A, B) = \mathbb{E}[(p_A - p_B)^2]`, where :math:`p_A` and :math:`p_B`
-        are the allele frequencies in populations :math:`A` and :math:`B`,
-
-        .. math::
-
-            f_2(A, B) = 2\, \mathbb{E}[T_{AB}] - \mathbb{E}[T_{AA}] - \mathbb{E}[T_{BB}],
-
-        with :math:`T_{XY}` the coalescence time of one lineage sampled in population :math:`X` and one in
-        population :math:`Y`, matching the branch mode of ``tskit``. It measures the drift separating the two
-        populations.
-
-        :param pop_0: Name of population ``A``.
-        :param pop_1: Name of population ``B``.
-        :return: :math:`f_2(A, B)`.
-        """
-        t = self._pairwise_coalescence_time
-        return float(2 * t(pop_0, pop_1) - t(pop_0, pop_0) - t(pop_1, pop_1))
-
-    def f3(self, pop_target: str, pop_0: str, pop_1: str) -> float:
-        r"""
-        Branch form of Patterson's :math:`f_3(C; A, B) = \mathbb{E}[(p_C - p_A)(p_C - p_B)]`, with allele
-        frequencies and pairwise coalescence times :math:`T_{XY}` as in :meth:`Coalescent.f2()
-        <phasegen.distributions.Coalescent.f2>`,
-
-        .. math::
-
-            f_3(C; A, B) = \mathbb{E}[T_{CA}] + \mathbb{E}[T_{CB}] - \mathbb{E}[T_{AB}] - \mathbb{E}[T_{CC}],
-
-        matching the branch mode of ``tskit``. A negative value indicates that the target population :math:`C` is
-        admixed between :math:`A` and :math:`B`.
-
-        :param pop_target: Name of the (potentially admixed) target population ``C``.
-        :param pop_0: Name of source population ``A``.
-        :param pop_1: Name of source population ``B``.
-        :return: :math:`f_3(C; A, B)`.
-        """
-        t = self._pairwise_coalescence_time
-        return float(t(pop_target, pop_0) + t(pop_target, pop_1) - t(pop_0, pop_1) - t(pop_target, pop_target))
-
-    def f4(self, pop_0: str, pop_1: str, pop_2: str, pop_3: str) -> float:
-        r"""
-        Branch form of Patterson's :math:`f_4(A, B; C, D) = \mathbb{E}[(p_A - p_B)(p_C - p_D)]`, with allele
-        frequencies and pairwise coalescence times :math:`T_{XY}` as in :meth:`Coalescent.f2()
-        <phasegen.distributions.Coalescent.f2>`,
-
-        .. math::
-
-            f_4(A, B; C, D) = \mathbb{E}[T_{AD}] + \mathbb{E}[T_{BC}] - \mathbb{E}[T_{AC}] - \mathbb{E}[T_{BD}],
-
-        matching the branch mode of ``tskit``. It tests treeness and detects gene flow between the two population
-        pairs.
-
-        :param pop_0: Name of population ``A``.
-        :param pop_1: Name of population ``B``.
-        :param pop_2: Name of population ``C``.
-        :param pop_3: Name of population ``D``.
-        :return: :math:`f_4(A, B; C, D)`.
-        """
-        t = self._pairwise_coalescence_time
-        return float(t(pop_0, pop_3) + t(pop_1, pop_2) - t(pop_0, pop_2) - t(pop_1, pop_3))
 
     def _get_dist(self, k: int, rewards: Iterable[Reward] = None) -> PhaseTypeDistribution:
         """

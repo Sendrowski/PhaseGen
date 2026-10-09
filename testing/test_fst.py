@@ -273,6 +273,8 @@ def test_sampled_coalescent_mirrors_fst_and_f_statistics():
             assert abs(sampled._pairwise_coalescence_time(a, b) - height.mean) < 4 * se
 
     t = sampled._pairwise_coalescence_time
+    assert all(type(v) is float for v in (sampled.fst, sampled.f2('pop_0', 'pop_1'),
+                                         sampled.f3('pop_0', 'pop_1', 'pop_2'), sampled.f4('pop_0', 'pop_1', 'pop_2', 'pop_3')))
     assert sampled.f2('pop_0', 'pop_1') == 2 * t('pop_0', 'pop_1') - t('pop_0', 'pop_0') - t('pop_1', 'pop_1')
     assert sampled.f4('pop_0', 'pop_1', 'pop_2', 'pop_3') == pytest.approx(
         exact.f4('pop_0', 'pop_1', 'pop_2', 'pop_3'), abs=0.1)

@@ -5085,30 +5085,6 @@ class MsprimeCoalescent(AbstractCoalescent):
 
         return cache[key]
 
-    def f2(self, pop_0: str, pop_1: str) -> float:
-        """
-        msprime ``f2`` ground truth from simulated pairwise coalescence times. Matches
-        :meth:`Coalescent.f2() <phasegen.distributions.Coalescent.f2>`.
-        """
-        t = self._pairwise_coalescence_time
-        return 2 * t(pop_0, pop_1) - t(pop_0, pop_0) - t(pop_1, pop_1)
-
-    def f3(self, pop_target: str, pop_0: str, pop_1: str) -> float:
-        """
-        msprime ``f3`` ground truth from simulated pairwise coalescence times. Matches
-        :meth:`Coalescent.f3() <phasegen.distributions.Coalescent.f3>`.
-        """
-        t = self._pairwise_coalescence_time
-        return t(pop_target, pop_0) + t(pop_target, pop_1) - t(pop_0, pop_1) - t(pop_target, pop_target)
-
-    def f4(self, pop_0: str, pop_1: str, pop_2: str, pop_3: str) -> float:
-        """
-        msprime ``f4`` ground truth from simulated pairwise coalescence times. Matches
-        :meth:`Coalescent.f4() <phasegen.distributions.Coalescent.f4>`.
-        """
-        t = self._pairwise_coalescence_time
-        return t(pop_0, pop_3) + t(pop_1, pop_2) - t(pop_0, pop_2) - t(pop_1, pop_3)
-
     def _trajectory_records(self) -> _Trajectories:
         """
         The lineage trajectories of the replicates, simulated on first use from the seeds of :meth:`simulate`.
@@ -5495,56 +5471,6 @@ class SampledCoalescent(AbstractCoalescent):  # pragma: no cover
                                            seed=np.random.default_rng(seed)).tree_height.mean
 
         return cache[key]
-
-    @cached_property
-    def fst(self) -> float:
-        """
-        Sampled estimate of Hudson's :math:`F_{ST}` from pairwise coalescence times. Matches
-        :attr:`Coalescent.fst <phasegen.distributions.Coalescent.fst>`.
-
-        :raises ValueError: If fewer than two populations are sampled, none carries two sampled lineages, or the
-            lineage configurations of an initial distribution differ.
-        """
-        self._assert_single_lineage_config("F_ST")
-
-        counts = self.lineage_config.lineage_dict
-        sampled = [q for q in self._require_coalescent().demography.pop_names if counts.get(q, 0) >= 1]
-
-        if len(sampled) < 2:
-            raise ValueError(f"F_ST requires at least two sampled populations (got {len(sampled)}).")
-
-        t_within = [self._pairwise_coalescence_time(q, q) for q in sampled if counts[q] >= 2]
-
-        if not t_within:
-            raise ValueError("F_ST requires a population with at least two sampled lineages.")
-
-        t_between = [self._pairwise_coalescence_time(a, b) for i, a in enumerate(sampled) for b in sampled[i + 1:]]
-
-        return float(1 - np.mean(t_within) / np.mean(t_between))
-
-    def f2(self, pop_0: str, pop_1: str) -> float:
-        """
-        Sampled estimate of ``f2`` from pairwise coalescence times. Matches
-        :meth:`Coalescent.f2() <phasegen.distributions.Coalescent.f2>`.
-        """
-        t = self._pairwise_coalescence_time
-        return 2 * t(pop_0, pop_1) - t(pop_0, pop_0) - t(pop_1, pop_1)
-
-    def f3(self, pop_target: str, pop_0: str, pop_1: str) -> float:
-        """
-        Sampled estimate of ``f3`` from pairwise coalescence times. Matches
-        :meth:`Coalescent.f3() <phasegen.distributions.Coalescent.f3>`.
-        """
-        t = self._pairwise_coalescence_time
-        return t(pop_target, pop_0) + t(pop_target, pop_1) - t(pop_0, pop_1) - t(pop_target, pop_target)
-
-    def f4(self, pop_0: str, pop_1: str, pop_2: str, pop_3: str) -> float:
-        """
-        Sampled estimate of ``f4`` from pairwise coalescence times. Matches
-        :meth:`Coalescent.f4() <phasegen.distributions.Coalescent.f4>`.
-        """
-        t = self._pairwise_coalescence_time
-        return t(pop_0, pop_3) + t(pop_1, pop_2) - t(pop_0, pop_2) - t(pop_1, pop_3)
 
     def accumulate(
             self,
