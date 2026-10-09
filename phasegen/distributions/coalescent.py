@@ -153,9 +153,9 @@ class AbstractCoalescent(ABC):
         # population names present in the demography but not in the population configuration, in demography order
         unspecified_lineages = [p for p in demography.pop_names if p not in self.lineage_config.pop_names]
 
-        # warn if population names are present in the demography but not in the population configuration
+        # report the unsampled populations of the demography, which start with 0 lineages
         if len(unspecified_lineages) > 0:
-            self._logger.warning(
+            self._logger.info(
                 f"The following population names are present in the demography but not "
                 f"in the population configuration: {list(unspecified_lineages)}. "
                 f"Adding these populations with 0 lineages."

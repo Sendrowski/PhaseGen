@@ -13,6 +13,7 @@ Changelog
 - Speed up joint densities on multi-epoch demographies by evaluating the whole transform grid in one batch.
 - Add a User Guide page of real-world examples, starting with the out-of-Africa model of Gutenkunst et al. (2009).
 - Convert ``msprime`` admixture events to pulses and a population split in :meth:`Demography.from_msprime() <phasegen.demography.Demography.from_msprime>`.
+- Report populations of the demography without sampled lineages at the info level rather than as a warning.
 
 [2.0.0] - 2026-10-06
 ^^^^^^^^^^^^^^^^^^^^
