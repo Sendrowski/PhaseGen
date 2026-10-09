@@ -61,9 +61,11 @@ _MOMENT_N0_MAX = 1920
 #: ``ConditionalRewardDistribution._raw_moments`` above which ``ConditionalRewardDistribution.var`` warns.
 _VAR_TOL = 1e-2
 
-#: Largest number of matrix entries ``_lst_from_shift_batch`` exponentiates in one stack, or of vector entries it
-#: propagates by the Taylor action, which bounds its memory.
-_LST_BATCH_ENTRIES = 2 ** 20
+#: Largest number of matrix entries the transform exponentiates densely in one stack, which bounds its memory.
+_LST_MATRIX_ENTRIES = 2 ** 19
+
+#: Largest number of shift-vector entries the transform propagates or holds in one batch, which bounds its memory.
+_LST_VECTOR_ENTRIES = 2 ** 20
 
 #: Aliasing level :math:`\varepsilon` of the de Hoog contour of ``_dehoog_invert``, the double-precision machine
 #: epsilon to the power 2/3.
@@ -532,7 +534,7 @@ def _lst_taylor_from_shift(shifts: np.ndarray, deriv: np.ndarray, alpha: np.ndar
     K = len(shifts)
 
     action = k * n_aug >= Settings.expm_action_min_dim
-    chunk = max(1, _LST_BATCH_ENTRIES // (k * n_aug) ** (1 if action else 2))
+    chunk = max(1, (_LST_VECTOR_ENTRIES // (k * n_aug)) if action else (_LST_MATRIX_ENTRIES // (k * n_aug) ** 2))
     if K > chunk:
         return np.concatenate([_lst_taylor_from_shift(shifts[i:i + chunk], deriv, alpha, T_epochs, sparse, perm, order)
                                for i in range(0, K, chunk)])
@@ -796,9 +798,9 @@ class JointRewardDistribution(CallableDistributionFunctions):
     def _lst_grid(self, s_a_vals: np.ndarray, s_b_vals: np.ndarray) -> np.ndarray:
         """``Phi`` on the outer grid ``s_a_vals x s_b_vals``. For one dense epoch, one QZ decomposition of the pencil
         ``(diag(s r_outer) - T, diag(r_inner))`` per node of the shorter axis solves every node of the other axis by
-        triangular back-substitution. The pencil may be singular. Several epochs or a sparse space evaluate the whole
-        grid in one ``lst_batch``. The rows and columns of an infinite
-        argument are evaluated by ``lst_batch``."""
+        triangular back-substitution. The pencil may be singular. Several epochs or a sparse space evaluate the grid
+        by ``lst_batch`` in blocks of rows holding at most ``_LST_VECTOR_ENTRIES`` shift entries. The rows and columns
+        of an infinite argument are evaluated by ``lst_batch``."""
         st = self._setup
         s_a_vals, s_b_vals = np.asarray(s_a_vals, dtype=complex), np.asarray(s_b_vals, dtype=complex)
 
@@ -813,8 +815,14 @@ class JointRewardDistribution(CallableDistributionFunctions):
             return out
 
         if st['sparse'] or len(st['T_epochs']) != 1:
-            flat = self.lst_batch(np.repeat(s_a_vals, len(s_b_vals)), np.tile(s_b_vals, len(s_a_vals)))
-            return flat.reshape(len(s_a_vals), len(s_b_vals))
+            nb = len(s_b_vals)
+            rows = max(1, _LST_VECTOR_ENTRIES // max(1, nb * (st['nt'] + 1)))
+            out = np.empty((len(s_a_vals), nb), dtype=complex)
+            for i in range(0, len(s_a_vals), rows):
+                block = s_a_vals[i:i + rows]
+                phi = self.lst_batch(np.repeat(block, nb), np.tile(s_b_vals, len(block)))
+                out[i:i + rows] = phi.reshape(len(block), nb)
+            return out
 
         tau = st['tau']
         Tm = np.asarray(st['T_epochs'][-1][0], dtype=float)
@@ -1075,8 +1083,10 @@ class JointRewardDistribution(CallableDistributionFunctions):
             p = np.zeros(k * nC, dtype=complex)
             p[:nC] = cls['alpha']
             p_at = [p]
-            for Me in M * cls['dtC']:
-                p = _expm_rows(p[None], Me[None])[0]
+            M = M * cls['dtC']
+            steps = _expm_batch(M) if M.shape[-1] < Settings.expm_action_min_dim else None
+            for e in range(len(M)):
+                p = p @ steps[e] if steps is not None else _expm_rows(p[None], M[e][None])[0]
                 p_at.append(p)
 
             # k_s over the ring at the start of each epoch from the first jump on, from the last epoch backwards
@@ -1095,11 +1105,13 @@ class JointRewardDistribution(CallableDistributionFunctions):
                 M1[:-1, :-1] = -DZ
                 M = M0 if order == 0 else np.array([_ring_matrix(m, M1, order, lower=True) for m in M0])
                 M = M * cls['dtZ']
+                steps = _expm_batch(M) if M.shape[-1] < Settings.expm_action_min_dim else None
                 for i in reversed(range(len(M))):
                     aug = np.zeros((k, nZ + 1), dtype=complex)
                     aug[:, :-1] = y.reshape(k, nZ)
                     aug[0, -1] = 1.0
-                    y = _expm_rows(aug.ravel()[None], M[i].T[None])[0].reshape(k, nZ + 1)[:, :-1].ravel()
+                    w = steps[i] @ aug.ravel() if steps is not None else _expm_rows(aug.ravel()[None], M[i].T[None])[0]
+                    y = w.reshape(k, nZ + 1)[:, :-1].ravel()
                     k_at[first + i] = y
 
             for e, dCZ, daC in zip(cls['epochs'], cls['dCZ'], cls['daC']):
@@ -2512,10 +2524,10 @@ def _lst_from_shift_batch(shifts: np.ndarray, alpha, T_epochs, exits: list, spar
     The transform of ``RewardDistribution.lst`` with the diagonal shift :math:`s \mathbf{r}_T` replaced by an
     arbitrary vector, which is :math:`s_a \mathbf{r}_a + s_b \mathbf{r}_b` for the joint transform, at each row of
     a stack of shift vectors ``(k, nt)``. The bounded epochs propagate the batch by ``_ShiftedGenerator.propagate``,
-    as in ``_expm_rows``, in chunks of at most ``_LST_BATCH_ENTRIES`` vector or matrix entries. A dense last epoch is solved as one
-    stacked ``np.linalg.solve``, a sparse one by the block-triangular sparse LU of ``MomentEvaluator._lu_solver`` per
-    shift, with ``perm`` the ordering of the last-epoch sub-intensity matrix, which depends only on its sparsity
-    pattern. An infinite shift removes its state, which gives the limit of the shift growing without bound: the rows
+    as in ``_expm_rows``, in chunks of at most ``_LST_VECTOR_ENTRIES`` vector or ``_LST_MATRIX_ENTRIES`` matrix
+    entries. A dense last epoch is solved as one stacked ``np.linalg.solve``, a sparse one by the block-triangular
+    sparse LU of ``MomentEvaluator._lu_solver`` per shift, with ``perm`` the ordering of the last-epoch sub-intensity
+    matrix, which depends only on its sparsity pattern. An infinite shift removes its state, which gives the limit of the shift growing without bound: the rows
     sharing the same removed states are evaluated on the remaining ones, with the exit vectors of the full process.
 
     :param shifts: The shift vectors.
@@ -2545,7 +2557,7 @@ def _lst_from_shift_batch(shifts: np.ndarray, alpha, T_epochs, exits: list, spar
         return out
 
     action = nt + 1 >= Settings.expm_action_min_dim
-    chunk = max(1, _LST_BATCH_ENTRIES // (nt + 1) ** (1 if action else 2))
+    chunk = max(1, (_LST_VECTOR_ENTRIES // (nt + 1)) if action else (_LST_MATRIX_ENTRIES // (nt + 1) ** 2))
     if k > chunk:
         return np.concatenate([_lst_from_shift_batch(shifts[i:i + chunk], alpha, T_epochs, exits, sparse, perm)
                                for i in range(0, k, chunk)])
@@ -2898,7 +2910,7 @@ class _NestedConditional(ConditionalRewardDistribution):
         element of ``s``, at each truncation from the nodes of the largest (``_euler_series``), with the jumps along
         that axis subtracted (``JointRewardDistribution._jump_correction``). ``Phi`` is evaluated on the outer product
         of ``s`` and the nodes by ``JointRewardDistribution.lst_batch``, in blocks of ``s`` whose shift vectors hold at
-        most ``_LST_BATCH_ENTRIES`` entries.
+        most ``_LST_VECTOR_ENTRIES`` entries.
 
         :param s: The arguments of the other reward, a 1D array.
         :param truncations: The truncations ``N0``.
@@ -2906,7 +2918,7 @@ class _NestedConditional(ConditionalRewardDistribution):
         """
         u, weights = _euler_series(self._value, truncations)
         vals = np.empty((len(s), len(u)), dtype=complex)
-        block = max(1, _LST_BATCH_ENTRIES // (len(u) * len(self._joint._setup['alpha'])))
+        block = max(1, _LST_VECTOR_ENTRIES // (len(u) * len(self._joint._setup['alpha'])))
         for i in range(0, len(s), block):
             other = np.repeat(s[i:i + block], len(u))
             cond = np.tile(u, len(other) // len(u))
