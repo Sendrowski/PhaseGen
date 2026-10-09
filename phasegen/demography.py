@@ -268,7 +268,7 @@ class Demography:
             growth_steps: int = 10
     ) -> 'Demography':
         r"""
-        Create a demography from an msprime demography. A population of :math:`N` individuals of ploidy :math:`k` has
+        Create a demography from an :class:`msprime.Demography`. A population of :math:`N` individuals of ploidy :math:`k` has
         size :math:`k N / s` and a time of :math:`t` generations becomes :math:`t / s`, where :math:`s` is ``scale``,
         so that migration and growth rates per generation are multiplied by :math:`s`. With :math:`s = k N_A` the
         unit of time is :math:`k N_A` generations and population sizes are relative to :math:`N_A`.
@@ -282,8 +282,8 @@ class Demography:
         :math:`p_i / (1 - \sum_{j < i} p_j)` and a split into source :math:`K`. Bottlenecks and growth in the last
         epoch are not supported and left out with a warning.
 
-        The following example loads the out-of-Africa model of Gutenkunst et al. (2009) from ``stdpopsim``, in units
-        of :math:`2 N_A` generations with :math:`N_A = 7300`.
+        The following example loads the out-of-Africa model of Gutenkunst et al. (2009) as a
+        :class:`stdpopsim.DemographicModel`, in units of :math:`2 N_A` generations with :math:`N_A = 7300`.
 
         ::
 
@@ -292,7 +292,7 @@ class Demography:
             model = stdpopsim.get_species('HomSap').get_demographic_model('OutOfAfrica_3G09')
             demography = pg.Demography.from_msprime(model.model, scale=2 * 7300)
 
-        :param demography: The msprime demography.
+        :param demography: The :class:`msprime.Demography`.
         :param ploidy: The ploidy :math:`k` of the individuals.
         :param scale: The scale :math:`s` of time and population sizes.
         :param growth_steps: Number of constant sizes per epoch of exponential growth.
@@ -419,10 +419,10 @@ class Demography:
             growth_steps: int = 10
     ) -> 'Demography':
         """
-        Create a demography from a ``demes`` graph, by way of :meth:`msprime.Demography.from_demes` and
+        Create a demography from a :class:`demes.Graph`, by way of :meth:`msprime.Demography.from_demes` and
         :meth:`Demography.from_msprime() <phasegen.demography.Demography.from_msprime>`, whose parameters it shares.
 
-        :param graph: The ``demes`` graph.
+        :param graph: The :class:`demes.Graph`.
         :param ploidy: The ploidy of the individuals.
         :param scale: The scale of time and population sizes.
         :param growth_steps: Number of constant sizes per epoch of exponential growth.
@@ -439,14 +439,14 @@ class Demography:
 
     def to_demes(self, max_epochs: int = 1000) -> 'demes.Graph':
         """
-        Convert to a ``demes`` graph, by way of :meth:`Demography.to_msprime()
+        Convert to a :class:`demes.Graph`, by way of :meth:`Demography.to_msprime()
         <phasegen.demography.Demography.to_msprime>`. Sizes and times are taken over unchanged, so
         :meth:`Demography.from_demes() <phasegen.demography.Demography.from_demes>` with ``ploidy=1`` recovers the
         demography.
 
         :param max_epochs: Maximum number of epoch changes to use, as for :meth:`Demography.to_msprime()
             <phasegen.demography.Demography.to_msprime>`.
-        :return: The ``demes`` graph.
+        :return: The :class:`demes.Graph`.
         :raise ImportError: If msprime is not installed.
         """
         return self.to_msprime(max_epochs=max_epochs).to_demes()

@@ -40,6 +40,8 @@ extensions = [
 intersphinx_mapping = {
     'sfsutils': ('https://sfsutils.readthedocs.io/en/latest/', None),
     'msprime': ('https://tskit.dev/msprime/docs/stable/', None),
+    'demes': ('https://popsim-consortium.github.io/demes-docs/latest/', None),
+    'stdpopsim': ('https://popsim-consortium.github.io/stdpopsim-docs/stable/', None),
     'python': ('https://docs.python.org/3', None),
     'numpy': ('https://numpy.org/doc/stable/', None),
     'pandas': ('https://pandas.pydata.org/docs/', None),
