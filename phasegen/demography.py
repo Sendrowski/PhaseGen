@@ -200,7 +200,7 @@ class Demography:
         :param max_epochs: Maximum number of epoch changes to use, a warning being logged if the demography has more. Note
             that the number of epochs may be infinite.
         :return: msprime demography object.
-        :raise ImportError: If Msprime is not installed.
+        :raises ImportError: If Msprime is not installed.
         """
         try:
             import msprime as ms
@@ -298,7 +298,7 @@ class Demography:
         :param scale: The scale :math:`s` of time and population sizes.
         :param growth_steps: Number of constant sizes per epoch of exponential growth.
         :return: The demography.
-        :raise ImportError: If msprime is not installed.
+        :raises ImportError: If msprime is not installed.
         """
         try:
             import msprime as ms
@@ -428,7 +428,7 @@ class Demography:
         :param scale: The scale of time and population sizes.
         :param growth_steps: Number of constant sizes per epoch of exponential growth.
         :return: The demography.
-        :raise ImportError: If msprime is not installed.
+        :raises ImportError: If msprime is not installed.
         """
         try:
             import msprime as ms
@@ -448,7 +448,7 @@ class Demography:
         :param max_epochs: Maximum number of epoch changes to use, as for :meth:`Demography.to_msprime()
             <phasegen.demography.Demography.to_msprime>`.
         :return: The :class:`demes.Graph`.
-        :raise ImportError: If msprime is not installed.
+        :raises ImportError: If msprime is not installed.
         """
         return self.to_msprime(max_epochs=max_epochs).to_demes()
 
