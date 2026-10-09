@@ -253,3 +253,22 @@ def test_taylor_action_rejects_non_finite_matrices():
 
     with pytest.raises(ValueError, match="finite"):
         _TaylorAction(diag, np.array([1.0, 1.0]))
+
+
+def test_taylor_action_in_norm_sorted_chunks_matches_dense(monkeypatch):
+    """The transform and its Taylor coefficients at many arguments, propagated by the Taylor action in chunks of
+    rows sorted by shift size, equal the dense exponentials at every argument in its original position."""
+    from phasegen.distributions import reward
+
+    jd = pg.Coalescent(n=5, demography=_three_epoch_single()).sfs.joint(1, 2)
+    s_a = np.array([0.3, -40j, 2.0, 0.1j, -7 + 3j, 15.0, 0.0, -2j])
+    s_b = s_a[::-1].copy()
+
+    Settings.expm_action_min_dim = _HUGE
+    dense = jd.lst_batch(s_a, s_b)
+    dense_taylor = np.array([jd.lst_taylor(x, on='a', order=2) for x in s_a])
+
+    Settings.expm_action_min_dim = 0
+    monkeypatch.setattr(reward, '_LST_VECTOR_ENTRIES', 1)
+    np.testing.assert_allclose(jd.lst_batch(s_a, s_b), dense, rtol=1e-9, atol=1e-12)
+    np.testing.assert_allclose(jd._lst_taylor_batch(s_a, 'a', 2), dense_taylor, rtol=1e-9, atol=1e-12)

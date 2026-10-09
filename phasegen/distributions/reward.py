@@ -536,8 +536,14 @@ def _lst_taylor_from_shift(shifts: np.ndarray, deriv: np.ndarray, alpha: np.ndar
     action = k * n_aug >= Settings.expm_action_min_dim
     chunk = max(1, (_LST_VECTOR_ENTRIES // (k * n_aug)) if action else (_LST_MATRIX_ENTRIES // (k * n_aug) ** 2))
     if K > chunk:
-        return np.concatenate([_lst_taylor_from_shift(shifts[i:i + chunk], deriv, alpha, T_epochs, sparse, perm, order)
-                               for i in range(0, K, chunk)])
+        # the Taylor action of a chunk costs as many products as its largest shift needs, so chunk similar shifts
+        by_size = np.argsort(np.abs(shifts).max(axis=1), kind='stable') if action else np.arange(K)
+        out = np.empty((K, k), dtype=complex)
+        out[by_size] = np.concatenate([
+            _lst_taylor_from_shift(shifts[by_size[i:i + chunk]], deriv, alpha, T_epochs, sparse, perm, order)
+            for i in range(0, K, chunk)
+        ])
+        return out
 
     diag = np.arange(nt)
 
@@ -1083,10 +1089,9 @@ class JointRewardDistribution(CallableDistributionFunctions):
             p = np.zeros(k * nC, dtype=complex)
             p[:nC] = cls['alpha']
             p_at = [p]
-            M = M * cls['dtC']
-            steps = _expm_batch(M) if M.shape[-1] < Settings.expm_action_min_dim else None
+            steps = _EpochSteps(M * cls['dtC'])
             for e in range(len(M)):
-                p = p @ steps[e] if steps is not None else _expm_rows(p[None], M[e][None])[0]
+                p = steps.row(e, p)
                 p_at.append(p)
 
             # k_s over the ring at the start of each epoch from the first jump on, from the last epoch backwards
@@ -1104,14 +1109,12 @@ class JointRewardDistribution(CallableDistributionFunctions):
                 M1 = np.zeros((nZ + 1, nZ + 1), dtype=complex)
                 M1[:-1, :-1] = -DZ
                 M = M0 if order == 0 else np.array([_ring_matrix(m, M1, order, lower=True) for m in M0])
-                M = M * cls['dtZ']
-                steps = _expm_batch(M) if M.shape[-1] < Settings.expm_action_min_dim else None
+                steps = _EpochSteps(M * cls['dtZ'])
                 for i in reversed(range(len(M))):
                     aug = np.zeros((k, nZ + 1), dtype=complex)
                     aug[:, :-1] = y.reshape(k, nZ)
                     aug[0, -1] = 1.0
-                    w = steps[i] @ aug.ravel() if steps is not None else _expm_rows(aug.ravel()[None], M[i].T[None])[0]
-                    y = w.reshape(k, nZ + 1)[:, :-1].ravel()
+                    y = steps.column(i, aug.ravel()).reshape(k, nZ + 1)[:, :-1].ravel()
                     k_at[first + i] = y
 
             for e, dCZ, daC in zip(cls['epochs'], cls['dCZ'], cls['daC']):
@@ -2358,9 +2361,8 @@ class _ShiftedGenerator:
         col = np.asarray(abs(self.T).sum(axis=0)).ravel() - np.abs(self._diag_T)
         block = np.append(col, np.abs(self.q).sum())
         out = np.tile(block, self.k)
-        if self.k > 1:
-            for i in range(1, self.k):
-                out[i * (self.nt + 1):i * (self.nt + 1) + self.nt] += np.abs(self.deriv)
+        for i in range(1, self.k):
+            out[i * (self.nt + 1):i * (self.nt + 1) + self.nt] += np.abs(self.deriv)
         return out * self.dt
 
     def _times_T(self, B: np.ndarray) -> np.ndarray:
@@ -2472,20 +2474,45 @@ class _TaylorAction:
         return F
 
 
-def _expm_rows(W: np.ndarray, M: np.ndarray) -> np.ndarray:
+class _EpochSteps:
+    r"""
+    The exponentials :math:`e^{\mathbf{M}_e}` of a stack of epoch matrices applied to single vectors, formed densely
+    by ``_expm_batch`` below :attr:`Settings.expm_action_min_dim
+    <phasegen.settings.Settings.expm_action_min_dim>` and applied by ``_TaylorAction`` at or above it.
     """
-    The rows :math:`\\mathbf{w}_k e^{\\mathbf{M}_k}`, by ``_TaylorAction`` from dimension
-    :attr:`Settings.expm_action_min_dim <phasegen.settings.Settings.expm_action_min_dim>` on, else by ``_expm_batch``.
 
-    :param W: The row vectors, of shape ``(K, n)``.
-    :param M: The matrices, of shape ``(K, n, n)``.
-    :return: The propagated rows.
-    """
-    if M.shape[-1] >= Settings.expm_action_min_dim:
-        diag = np.diagonal(M, axis1=1, axis2=2)
-        off_norm = (np.abs(M).sum(axis=1) - np.abs(diag)).max(axis=0)
-        return _TaylorAction(diag, off_norm).apply(W, lambda B: np.einsum('ki,kij->kj', B, M))
-    return np.einsum('ki,kij->kj', W, _expm_batch(M))
+    def __init__(self, M: np.ndarray):
+        """
+        :param M: The matrices, of shape ``(E, n, n)``.
+        """
+        self.M = M
+        self._dense = _expm_batch(M) if M.shape[-1] < Settings.expm_action_min_dim else None
+
+    def _action(self, w: np.ndarray, M: np.ndarray) -> np.ndarray:
+        r"""The row :math:`\mathbf{w} e^{\mathbf{M}}` by ``_TaylorAction``."""
+        diag = np.diagonal(M)[None]
+        off_norm = np.abs(M).sum(axis=0) - np.abs(diag[0])
+        return _TaylorAction(diag, off_norm).apply(w[None], lambda B: B @ M)[0]
+
+    def row(self, e: int, w: np.ndarray) -> np.ndarray:
+        r"""
+        The row :math:`\mathbf{w} e^{\mathbf{M}_e}`.
+
+        :param e: The index of the matrix.
+        :param w: The row vector.
+        :return: The propagated row.
+        """
+        return w @ self._dense[e] if self._dense is not None else self._action(w, self.M[e])
+
+    def column(self, e: int, w: np.ndarray) -> np.ndarray:
+        r"""
+        The column :math:`e^{\mathbf{M}_e} \mathbf{w}`.
+
+        :param e: The index of the matrix.
+        :param w: The column vector.
+        :return: The propagated column.
+        """
+        return self._dense[e] @ w if self._dense is not None else self._action(w, self.M[e].T)
 
 
 def _expm_batch(A: np.ndarray) -> np.ndarray:
@@ -2524,13 +2551,13 @@ def _expm_batch(A: np.ndarray) -> np.ndarray:
 def _lst_from_shift_batch(shifts: np.ndarray, alpha, T_epochs, exits: list, sparse: bool,
                           perm=_AUTO_PERM) -> np.ndarray:
     r"""
-    The transform of ``RewardDistribution.lst`` with the diagonal shift :math:`s \mathbf{r}_T` replaced by an
-    arbitrary vector, which is :math:`s_a \mathbf{r}_a + s_b \mathbf{r}_b` for the joint transform, at each row of
-    a stack of shift vectors ``(k, nt)``. The bounded epochs propagate the batch by ``_ShiftedGenerator.propagate``,
-    as in ``_expm_rows``, in chunks of at most ``_LST_VECTOR_ENTRIES`` vector or ``_LST_MATRIX_ENTRIES`` matrix
-    entries. A dense last epoch is solved as one stacked ``np.linalg.solve``, a sparse one by the block-triangular
-    sparse LU of ``MomentEvaluator._lu_solver`` per shift, with ``perm`` the ordering of the last-epoch sub-intensity
-    matrix, which depends only on its sparsity pattern. An infinite shift removes its state, which gives the limit of the shift growing without bound: the rows
+    The transform of ``RewardDistribution.lst`` with the diagonal shift :math:`s \mathbf{r}_T` replaced by an arbitrary
+    vector, which is :math:`s_a \mathbf{r}_a + s_b \mathbf{r}_b` for the joint transform, at each row of a stack of
+    shift vectors ``(k, nt)``. The bounded epochs propagate the batch by ``_ShiftedGenerator.propagate``, in chunks of
+    at most ``_LST_VECTOR_ENTRIES`` vector or ``_LST_MATRIX_ENTRIES`` matrix entries. A dense last epoch is solved as
+    one stacked ``np.linalg.solve``, a sparse one by the block-triangular sparse LU of ``MomentEvaluator._lu_solver``
+    per shift, with ``perm`` the ordering of the last-epoch sub-intensity matrix, which depends only on its sparsity
+    pattern. An infinite shift removes its state, which gives the limit of the shift growing without bound: the rows
     sharing the same removed states are evaluated on the remaining ones, with the exit vectors of the full process.
 
     :param shifts: The shift vectors.
@@ -2562,8 +2589,12 @@ def _lst_from_shift_batch(shifts: np.ndarray, alpha, T_epochs, exits: list, spar
     action = nt + 1 >= Settings.expm_action_min_dim
     chunk = max(1, (_LST_VECTOR_ENTRIES // (nt + 1)) if action else (_LST_MATRIX_ENTRIES // (nt + 1) ** 2))
     if k > chunk:
-        return np.concatenate([_lst_from_shift_batch(shifts[i:i + chunk], alpha, T_epochs, exits, sparse, perm)
-                               for i in range(0, k, chunk)])
+        # the Taylor action of a chunk costs as many products as its largest shift needs, so chunk similar shifts
+        by_size = np.argsort(np.abs(shifts).max(axis=1), kind='stable') if action else np.arange(k)
+        out = np.empty(k, dtype=complex)
+        out[by_size] = np.concatenate([_lst_from_shift_batch(shifts[by_size[i:i + chunk]], alpha, T_epochs, exits,
+                                                             sparse, perm) for i in range(0, k, chunk)])
+        return out
 
     diag = np.arange(nt)
     vec = np.zeros((k, nt + 1), dtype=complex)
