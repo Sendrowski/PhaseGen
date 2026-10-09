@@ -273,8 +273,9 @@ class Demography:
         :class:`~phasegen.demography.ExponentialPopSizeChanges`). Population splits become
         :class:`~phasegen.demography.PopulationSplit` events and mass migrations
         :class:`~phasegen.demography.Pulse` events, or population splits for a proportion of 1 when no lineage
-        migrates into the source afterwards. Other events that move lineages, such as admixture and bottlenecks, and
-        growth in the last epoch are not supported and left out with a warning.
+        migrates into the source afterwards. An admixture from sources with proportions :math:`p_1, \dots, p_K`
+        becomes a pulse to each source :math:`i < K` with proportion :math:`p_i / (1 - \sum_{j < i} p_j)` and a split
+        into source :math:`K`. Bottlenecks and growth in the last epoch are not supported and left out with a warning.
 
         The following example loads the out-of-Africa model of Gutenkunst et al. (2009) from ``stdpopsim``, in units
         of :math:`2 N_A` generations with :math:`N_A = 7300`.
@@ -340,6 +341,19 @@ class Demography:
             elif isinstance(event, ms.demography.MassMigration) and not immigration_after(event.source, event.time):
                 events.append(PopulationSplit(time=time, derived=resolve(event.source), ancestral=resolve(event.dest)))
                 emptied.setdefault(resolve(event.source), event.time)
+
+            elif isinstance(event, ms.demography.Admixture):
+                derived = resolve(event.derived)
+                sources = [(resolve(a), p) for a, p in zip(event.ancestral, event.proportions) if p > 0]
+
+                # each source but the last takes its share of the lineages still in the derived population
+                remaining = 1.0
+                for source, p in sources[:-1]:
+                    events.append(Pulse(time=time, source=derived, dest=source, proportion=p / remaining))
+                    remaining -= p
+
+                events.append(PopulationSplit(time=time, derived=derived, ancestral=sources[-1][0]))
+                emptied.setdefault(derived, event.time)
 
             elif not isinstance(event, (ms.demography.PopulationParametersChange, ms.demography.MigrationRateChange,
                                         ms.demography.SymmetricMigrationRateChange,

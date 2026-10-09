@@ -12,6 +12,7 @@ Changelog
 - Add the third and fourth raw moments (``m3``, ``m4``) to all exact distributions, the bin correlation :attr:`JointSFSDistribution.corr <phasegen.distributions.JointSFSDistribution.corr>` and the cross-locus covariance :attr:`TwoLocusSFSDistribution.cov <phasegen.distributions.TwoLocusSFSDistribution.cov>`, matching their sampled counterparts.
 - Speed up joint densities on multi-epoch demographies by evaluating the whole transform grid in one batch.
 - Add a User Guide page of real-world examples, starting with the out-of-Africa model of Gutenkunst et al. (2009).
+- Convert ``msprime`` admixture events to pulses and a population split in :meth:`Demography.from_msprime() <phasegen.demography.Demography.from_msprime>`.
 
 [2.0.0] - 2026-10-06
 ^^^^^^^^^^^^^^^^^^^^

@@ -1303,3 +1303,33 @@ def test_demes_round_trip_recovers_the_demography():
     n = {'pop_0': 2, 'pop_1': 2}
     assert pg.Coalescent(n=n, demography=d2).tree_height.mean == pytest.approx(
         pg.Coalescent(n=n, demography=d).tree_height.mean, rel=1e-12)
+
+
+@pytest.mark.parametrize('pair', [{'A': 2}, {'A': 1, 'B': 1}, {'A': 1, 'C': 1}, {'B': 1, 'C': 1}])
+def test_from_msprime_admixture_matches_msprime_pairwise_coalescence_times(pair):
+    """
+    An msprime admixture into a population from three sources, converted to pulses and a final split, gives mean
+    pairwise coalescence times within four standard errors of msprime simulations of the same model.
+    """
+    import msprime as ms
+
+    md = ms.Demography()
+    for name, size in [('A', 1000), ('B', 2000), ('C', 1500), ('E', 1000), ('D', 3000)]:
+        md.add_population(name=name, initial_size=size, initially_active=name != 'D')
+    md.set_symmetric_migration_rate(['B', 'C'], 1e-4)
+    md.set_symmetric_migration_rate(['C', 'E'], 1e-4)
+    md.add_admixture(time=200, derived='A', ancestral=['B', 'C', 'E'], proportions=[0.2, 0.5, 0.3])
+    md.add_population_split(time=1500, derived=['B', 'C', 'E'], ancestral='D')
+
+    scale = 2 * 1000
+    d = pg.Demography.from_msprime(md, scale=scale)
+
+    exact = pg.Coalescent(n={p: 0 for p in d.pop_names} | pair, demography=d).tree_height.mean * scale
+
+    reps = ms.sim_ancestry(
+        samples=[ms.SampleSet(k, population=p, ploidy=1) for p, k in pair.items()],
+        demography=md, ploidy=2, num_replicates=20000, random_seed=11
+    )
+    times = np.array([ts.first().time(ts.first().root) for ts in reps])
+
+    assert abs(exact - times.mean()) < 4 * times.std() / np.sqrt(len(times))
