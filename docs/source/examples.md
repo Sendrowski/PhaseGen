@@ -15,7 +15,7 @@ options(repr.plot.width = 4.4, repr.plot.height = 3.3)
 
 +++
 ## Out of Africa
-We consider the three-population out-of-Africa model of [Gutenkunst et al. (2009)](https://doi.org/10.1371/journal.pgen.1000695) for the Yoruba in Ibadan (YRI), Utah residents of northern and western European ancestry (CEU) and Han Chinese in Beijing (CHB). Backward in time, CEU and CHB, which have grown exponentially since their split 848 generations ago, merge into a bottlenecked out-of-Africa population, which merges with YRI 5,600 generations ago. We load the model from [``stdpopsim``](https://popsim-consortium.github.io/stdpopsim-docs/stable/catalog.html#sec_catalog_homsap_models_outofafrica_3g09) and convert it with {meth}`Demography.from_msprime() <phasegen.demography.Demography.from_msprime>`. Population sizes in the model are numbers of diploid individuals, and with a scale of 2N<sub>A</sub>, for the ancestral size N<sub>A</sub> = 7,300, the converted sizes are relative to N<sub>A</sub> and one unit of time is 14,600 generations. Exponential growth is discretized into piecewise constant sizes.
+We consider the three-population out-of-Africa model of [Gutenkunst et al. (2009)](https://doi.org/10.1371/journal.pgen.1000695) for the Yoruba in Ibadan (YRI), Utah residents of northern and western European ancestry (CEU) and Han Chinese in Beijing (CHB). In this model, an ancestral African population expands and persists at constant size as YRI. A small group leaves Africa 5,600 generations ago and stays small, the out-of-Africa bottleneck, until it splits 848 generations ago into the still smaller founding populations of CEU and CHB, which have grown exponentially since. The populations exchange migrants throughout. We load the model from [``stdpopsim``](https://popsim-consortium.github.io/stdpopsim-docs/stable/catalog.html#sec_catalog_homsap_models_outofafrica_3g09) and convert it with {meth}`Demography.from_msprime() <phasegen.demography.Demography.from_msprime>`. Population sizes in the model are numbers of diploid individuals, and with a scale of 2N<sub>A</sub>, for the ancestral size N<sub>A</sub> = 7,300, the converted sizes are relative to N<sub>A</sub> and one unit of time is 14,600 generations. Exponential growth is discretized into piecewise constant sizes.
 
 ```{code-cell} python
 :tags: [full-width]
@@ -66,7 +66,7 @@ options(repr.plot.width = 4.4, repr.plot.height = 3.3)
 ```
 
 +++
-The coalescence time of two lineages carries the imprint of this history. The density for pairs sampled within CEU or within CHB peaks sharply just after the split of CEU and CHB, in their small founding populations, whereas a pair sampled across YRI and CEU coalesces only through migration before the out-of-Africa split. The densities jump where the rate of coalescence changes abruptly, such as at the ancestral expansion. Each density is that of the tree height of a coalescent with two sampled lineages, and populations without samples are given 0 lineages.
+We next compute the density of the coalescence time of two lineages sampled within one population or across two. Each density is that of the tree height of a coalescent with two sampled lineages, and populations without samples are given 0 lineages. The densities plotted below carry the imprint of the history shown above. Those for pairs sampled within CEU or within CHB peak sharply just after the split of CEU and CHB, in their small founding populations, whereas a pair sampled within YRI, whose population stays large, coalesces over a broad range of times. A pair sampled across YRI and CEU coalesces only through migration before the out-of-Africa split. The densities jump where the rate of coalescence changes abruptly, such as at the ancestral expansion.
 
 ```{code-cell} python
 pairs = {
@@ -151,12 +151,12 @@ stopifnot(coal$fst > 0, coal$fst < 1, coal$f2("YRI", "CEU") > coal$f2("CEU", "CH
 ```
 
 +++
-The joint SFS of three lineages each from CEU and CHB, with YRI unsampled, is marginalized onto the CEU and CHB axes for plotting, the populations being ordered by name. Most of its mass lies on low-frequency alleles private to one of the two populations.
+We can also compute the joint SFS, here of three lineages each from CEU and CHB, with YRI unsampled. It is marginalized onto the CEU and CHB axes for plotting, the populations being ordered by name. Most of its mass lies on low-frequency alleles private to one of the two populations.
 
 ```{code-cell} python
 coal = pg.Coalescent(n=unsampled | {'CEU': 3, 'CHB': 3}, demography=d)
 
-coal.jsfs.mean.marginalize([0, 1]).plot_surface(title='Mean joint SFS of CEU and CHB');
+coal.jsfs.mean.marginalize([0, 1]).plot(title='Mean joint SFS of CEU and CHB', log_scale=False);
 ```
 
 ```{code-cell} python
@@ -168,7 +168,7 @@ assert abs(jsfs.sum() - jsfs[0, 0] - jsfs[-1, -1] - coal.total_branch_length.mea
 ```{code-cell} r
 coal <- pg$Coalescent(n = modifyList(unsampled, list(CEU = 3, CHB = 3)), demography = d)
 
-persp(coal$jsfs$mean$marginalize(c(0L, 1L)), title = "Mean joint SFS of CEU and CHB")
+plot(coal$jsfs$mean$marginalize(c(0L, 1L)), title = "Mean joint SFS of CEU and CHB", log_scale = FALSE)
 ```
 
 ```{code-cell} r
@@ -178,7 +178,7 @@ stopifnot(abs(sum(jsfs) - jsfs[1, 1] - jsfs[nrow(jsfs), ncol(jsfs)] - coal$total
 ```
 
 +++
-Any two quantities of the same genealogy have a joint distribution. Below we take two lineages each from CEU and YRI, and consider the tree height together with the length of the branches subtending exactly one CEU lineage and no other, along which a mutation gives a CEU-private singleton. Both grow with the depth of the genealogy, so they are positively correlated.
+Any two quantities of the same genealogy have a joint distribution. Below we take two lineages each from CEU and YRI, and consider the tree height, the time to the most recent common ancestor of all four lineages, together with the CEU singleton length, the total length of the branches ancestral to a single CEU lineage and to no other sampled lineage. A mutation on such a branch is a singleton private to CEU. Both grow with the depth of the genealogy, so they are positively correlated.
 
 ```{code-cell} python
 coal = pg.Coalescent(n=unsampled | {'CEU': 2, 'YRI': 2}, demography=d)
@@ -207,28 +207,56 @@ stopifnot(joint$corr > 0, joint$corr < 1)
 ```
 
 +++
-Inverting the joint density exactly requires the transform at many points for each epoch of the model, so we estimate it from genealogies sampled with {meth}`Coalescent.to_empirical() <phasegen.distributions.Coalescent.to_empirical>` instead. The bright band at short singleton branches comes from genealogies in which the two CEU lineages coalesce in the out-of-Africa bottleneck, so that their private branches stay short however deep the genealogy is. The rays above it come from genealogies in which a CEU lineage remains on its own until close to the root, and the breaks at the out-of-Africa split and the ancestral expansion mark abrupt changes in the rate of coalescence.
+We can also access the full joint distribution of the two quantities. Its density, shown below with the two marginal densities beside it, is estimated here from genealogies sampled with {meth}`Coalescent.to_empirical() <phasegen.distributions.Coalescent.to_empirical>`, which is faster than exact inversion for a model with this many epochs. The bright band at short singleton branches comes from genealogies in which the two CEU lineages coalesce in the out-of-Africa bottleneck, so that their private branches stay short however deep the genealogy is. The rays above it come from genealogies in which a CEU lineage remains on its own until close to the root, and the breaks at the out-of-Africa split and the ancestral expansion mark abrupt changes in the rate of coalescence.
 
 ```{code-cell} python
+:tags: [full-width]
 sampled = coal.to_empirical(1000000, seed=42)
+sampled_joint = sampled.joint(pg.TreeHeightReward(), pg.JointSFSReward((1, 0, 0)))
 
-sampled.joint(pg.TreeHeightReward(), pg.JointSFSReward((1, 0, 0))).pdf.plot(n_points=150);
+_, axs = plt.subplots(1, 2, figsize=(7, 3), width_ratios=[1.25, 1])
+sampled_joint.pdf.plot(ax=axs[0], n_points=150, show=False, title='Joint density')
+axs[0].set_xlabel('tree height')
+axs[0].set_ylabel('CEU singleton length')
+
+x = np.linspace(0, 3, 400)
+sampled_joint.marginal('a').pdf.plot(ax=axs[1], t=x, show=False, label='tree height')
+sampled_joint.marginal('b').pdf.plot(
+    ax=axs[1], t=x, show=False, label='CEU singleton length', title='Marginal densities'
+);
 ```
 
 ```{code-cell} python
 :tags: [remove-cell]
-corr = sampled.joint(pg.TreeHeightReward(), pg.JointSFSReward((1, 0, 0))).corr
-assert abs(corr - joint.corr) < 4 * (1 - joint.corr ** 2) / np.sqrt(1000000)
-```
-
-```{code-cell} r
-sampled <- coal$to_empirical(1000000L, seed = 42L)
-
-plot(sampled$joint(pg$TreeHeightReward(), pg$JointSFSReward(c(1L, 0L, 0L)))$pdf, n_points = 150L)
+assert abs(sampled_joint.corr - joint.corr) < 4 * (1 - joint.corr ** 2) / np.sqrt(1000000)
 ```
 
 ```{code-cell} r
 :tags: [remove-cell]
-corr <- sampled$joint(pg$TreeHeightReward(), pg$JointSFSReward(c(1L, 0L, 0L)))$corr
-stopifnot(abs(corr - joint$corr) < 4 * (1 - joint$corr^2) / sqrt(1000000))
+options(repr.plot.width = 7, repr.plot.height = 3)
+```
+
+```{code-cell} r
+:tags: [full-width]
+sampled <- coal$to_empirical(1000000L, seed = 42L)
+sampled_joint <- sampled$joint(pg$TreeHeightReward(), pg$JointSFSReward(c(1L, 0L, 0L)))
+
+x <- seq(0, 3, length.out = 400)
+p <- plot(sampled_joint$marginal("a")$pdf, t = x, label = "tree height")
+p <- plot(sampled_joint$marginal("b")$pdf, t = x, add = p, label = "CEU singleton length",
+          title = "Marginal densities")
+
+plot(sampled_joint$pdf, n_points = 150L, title = "Joint density") +
+    ggplot2::labs(x = "tree height", y = "CEU singleton length") +
+    p + ggplot2::theme(legend.position.inside = c(1, 1), legend.justification = c(1, 1))
+```
+
+```{code-cell} r
+:tags: [remove-cell]
+options(repr.plot.width = 4.4, repr.plot.height = 3.3)
+```
+
+```{code-cell} r
+:tags: [remove-cell]
+stopifnot(abs(sampled_joint$corr - joint$corr) < 4 * (1 - joint$corr^2) / sqrt(1000000))
 ```
