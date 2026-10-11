@@ -178,12 +178,12 @@ stopifnot(abs(sum(jsfs) - jsfs[1, 1] - jsfs[nrow(jsfs), ncol(jsfs)] - coal$total
 ```
 
 +++
-Any two quantities of the same genealogy have a joint distribution. Below we take two lineages each from CEU and YRI, and consider the tree height, the time to the most recent common ancestor of all four lineages, together with the CEU singleton length, the total length of the branches ancestral to a single CEU lineage and to no other sampled lineage. A mutation on such a branch is a singleton private to CEU. Both grow with the depth of the genealogy, so they are positively correlated.
+Any two quantities of the same genealogy have a joint distribution. Below we take two lineages each from CEU and YRI, and consider the tree height, the time to the most recent common ancestor of all four lineages, together with the CEU singleton length, the total length of the branches ancestral to a single CEU lineage and to no other sampled lineage. A mutation on such a branch is a singleton private to CEU, and the length is specified by a {class}`~phasegen.rewards.JointSFSReward` with one descendant in CEU and none in the other populations. Both grow with the depth of the genealogy, so they are positively correlated.
 
 ```{code-cell} python
 coal = pg.Coalescent(n=unsampled | {'CEU': 2, 'YRI': 2}, demography=d)
 
-joint = coal.joint(pg.TreeHeightReward(), pg.JointSFSReward((1, 0, 0)))
+joint = coal.joint(pg.TreeHeightReward(), pg.JointSFSReward({'CEU': 1}))
 
 joint.corr
 ```
@@ -196,7 +196,7 @@ assert 0 < joint.corr < 1
 ```{code-cell} r
 coal <- pg$Coalescent(n = modifyList(unsampled, list(CEU = 2, YRI = 2)), demography = d)
 
-joint <- coal$joint(pg$TreeHeightReward(), pg$JointSFSReward(c(1L, 0L, 0L)))
+joint <- coal$joint(pg$TreeHeightReward(), pg$JointSFSReward(list(CEU = 1L)))
 
 joint$corr
 ```
@@ -212,7 +212,7 @@ We can also access the full joint distribution of the two quantities. Its densit
 ```{code-cell} python
 :tags: [full-width]
 sampled = coal.to_empirical(1000000, seed=42)
-sampled_joint = sampled.joint(pg.TreeHeightReward(), pg.JointSFSReward((1, 0, 0)))
+sampled_joint = sampled.joint(pg.TreeHeightReward(), pg.JointSFSReward({'CEU': 1}))
 
 _, axs = plt.subplots(1, 2, figsize=(7, 3), width_ratios=[1.25, 1])
 sampled_joint.pdf.plot(ax=axs[0], n_points=150, show=False, title='Joint density')
@@ -239,7 +239,7 @@ options(repr.plot.width = 7, repr.plot.height = 3)
 ```{code-cell} r
 :tags: [full-width]
 sampled <- coal$to_empirical(1000000L, seed = 42L)
-sampled_joint <- sampled$joint(pg$TreeHeightReward(), pg$JointSFSReward(c(1L, 0L, 0L)))
+sampled_joint <- sampled$joint(pg$TreeHeightReward(), pg$JointSFSReward(list(CEU = 1L)))
 
 x <- seq(0, 3, length.out = 400)
 p <- plot(sampled_joint$marginal("a")$pdf, t = x, label = "tree height")

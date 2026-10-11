@@ -587,3 +587,42 @@ def test_joint_sfs_standard_deviation_does_not_share_metadata_with_the_variance(
     jsfs.std.pop_names[0] = 'x'
 
     assert jsfs.var.pop_names == ['a', 'b']
+
+
+def test_descendant_configuration_by_name(two_pop_coalescent):
+    """
+    A descendant configuration given by population name selects the bin of its positional form, populations left out
+    having a count of zero, and an unknown population name raises.
+    """
+    coal, jsfs = two_pop_coalescent, two_pop_coalescent.jsfs
+    named, positional = {'pop_1': 1}, (0, 1)
+    both, both_positional = {'pop_0': 1, 'pop_1': 1}, (1, 1)
+
+    assert pg.JointSFSReward({'pop_1': 1, 'pop_0': 0}) == pg.JointSFSReward(named)
+    assert coal.moment(k=1, rewards=[pg.JointSFSReward(named)]) == coal.moment(
+        k=1, rewards=[pg.JointSFSReward(positional)]
+    )
+
+    assert jsfs.get_cov(named, both) == jsfs.get_cov(positional, both_positional)
+    assert jsfs.bin(named).mean == jsfs.bin(*positional).mean
+    assert jsfs.joint(named, both).corr == jsfs.joint(positional, both_positional).corr
+
+    t = np.array([0.5, 1.0])
+    np.testing.assert_array_equal(
+        jsfs.pdf._plot_data(t=t, configs=[named]).y, jsfs.pdf._plot_data(t=t, configs=[positional]).y
+    )
+
+    sampled = coal.to_empirical(200, seed=1)
+    assert sampled.jsfs.get_cov(named, both) == sampled.jsfs.get_cov(positional, both_positional)
+    assert sampled.jsfs.bin(named).mean == sampled.jsfs.bin(*positional).mean
+    assert sampled.jsfs.joint(named, both).corr == sampled.jsfs.joint(positional, both_positional).corr
+    assert sampled.moment(k=1, rewards=[pg.JointSFSReward(named)]) == sampled.moment(
+        k=1, rewards=[pg.JointSFSReward(positional)]
+    )
+
+    with pytest.raises(ValueError, match="given by name"):
+        coal.moment(k=1, rewards=[pg.JointSFSReward({'pop_2': 1})])
+
+    for spectrum in (jsfs, sampled.jsfs):
+        with pytest.raises(ValueError, match="given by name"):
+            spectrum.get_cov({'pop_2': 1}, positional)

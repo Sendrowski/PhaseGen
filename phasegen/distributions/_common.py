@@ -3,9 +3,9 @@ import copy
 import functools
 
 import numpy as np
-from typing import Callable, Sequence, Tuple
+from typing import Callable, Mapping, Sequence, Tuple
 
-from ..rewards import Reward
+from ..rewards import JointSFSReward, Reward
 
 #: Number of samples ``to_empirical`` draws by default.
 N_EMPIRICAL_SAMPLES = 100000
@@ -148,16 +148,22 @@ def _polymorphic_class(i: 'int | float', first: int, last: int) -> int:
     return int(i)
 
 
-def _descendant_config(config: Sequence[int], full: Tuple[int, ...]) -> Tuple[int, ...]:
+def _descendant_config(
+        config: Sequence[int] | Mapping[str, int],
+        full: Tuple[int, ...],
+        pop_names: Sequence[str] | None
+) -> Tuple[int, ...]:
     """
     Validate the descendant configuration of a polymorphic joint SFS bin.
 
-    :param config: The descendant configuration, one count per population.
+    :param config: The descendant configuration, as one count per population or as a mapping from population names
+        to counts.
     :param full: The sample size of each population.
+    :param pop_names: The population names in the order of the counts, ``None`` if unknown.
     :return: The configuration as a tuple of integers.
     :raises ValueError: if ``config`` is not the descendant configuration of a polymorphic joint SFS bin.
     """
-    config = tuple(config)
+    config = JointSFSReward._positional(config, pop_names)
 
     if (
             len(config) != len(full)

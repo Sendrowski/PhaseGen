@@ -8,7 +8,7 @@ import itertools
 import logging
 import math
 from ..caching import cached_property, cache
-from typing import List, Callable, Tuple, Dict, Iterable, Iterator, NoReturn, Optional, Sequence, Type, \
+from typing import List, Callable, Tuple, Dict, Iterable, Iterator, Mapping, NoReturn, Optional, Sequence, Type, \
     TYPE_CHECKING, Union
 import numpy as np
 from ..coalescent_models import StandardCoalescent, CoalescentModel, BetaCoalescent, DiracCoalescent
@@ -321,7 +321,7 @@ class _EmpiricalJointSFSFunction:  # pragma: no cover
 
     _bin_legend = 'config'
 
-    def _configs(self, configs: Sequence[Tuple[int, ...]] | None) -> List[Tuple[int, ...]] | None:
+    def _configs(self, configs: Sequence[Tuple[int, ...] | Mapping[str, int]] | None) -> List[Tuple[int, ...]] | None:
         """
         Validate the descendant configurations of the joint bins.
 
@@ -331,7 +331,7 @@ class _EmpiricalJointSFSFunction:  # pragma: no cover
         """
         return None if configs is None else [self._distribution._bin_config(c) for c in configs]
 
-    def _plot_data(self, t: np.ndarray = None, configs: Sequence[Tuple[int, ...]] = None,
+    def _plot_data(self, t: np.ndarray = None, configs: Sequence[Tuple[int, ...] | Mapping[str, int]] = None,
                    n_points: int = None) -> '_CurveData':
         """
         The curves :meth:`plot` draws, one per joint bin.
@@ -348,7 +348,7 @@ class _EmpiricalJointSFSFunction:  # pragma: no cover
             self,
             ax: 'plt.Axes' = None,
             t: np.ndarray = None,
-            configs: Sequence[Tuple[int, ...]] = None,
+            configs: Sequence[Tuple[int, ...] | Mapping[str, int]] = None,
             n_points: int = None,
             show: bool = True,
             file: str = None,
@@ -391,7 +391,7 @@ class _EmpiricalJointSFSDensity(_EmpiricalJointSFSFunction, _EmpiricalDensityFun
 class _EmpiricalJointSFSQuantileFunction(_EmpiricalJointSFSFunction, _EmpiricalQuantileFunction):  # pragma: no cover
     """The sample quantile of every bin of an empirical joint spectrum, with the bins selected by configuration."""
 
-    def _plot_data(self, q: np.ndarray = None, configs: Sequence[Tuple[int, ...]] = None,
+    def _plot_data(self, q: np.ndarray = None, configs: Sequence[Tuple[int, ...] | Mapping[str, int]] = None,
                    n_points: int = None) -> '_CurveData':
         """
         The empirical quantile curves :meth:`plot` draws, one per joint bin.
@@ -408,7 +408,7 @@ class _EmpiricalJointSFSQuantileFunction(_EmpiricalJointSFSFunction, _EmpiricalQ
             self,
             ax: 'plt.Axes' = None,
             q: np.ndarray = None,
-            configs: Sequence[Tuple[int, ...]] = None,
+            configs: Sequence[Tuple[int, ...] | Mapping[str, int]] = None,
             n_points: int = None,
             show: bool = True,
             file: str = None,
@@ -1363,33 +1363,39 @@ class EmpiricalJointSFSDistribution(_EmpiricalAccumulating, EmpiricalSpectrumDis
         :return: The configuration as a tuple of integers.
         :raises ValueError: If ``config`` is not the descendant configuration of a polymorphic joint SFS bin.
         """
-        return _descendant_config(config, tuple(s - 1 for s in self.shape))
+        return _descendant_config(config, tuple(s - 1 for s in self.shape), self._pop_names)
 
-    def get_cov(self, config_a: Tuple[int, ...], config_b: Tuple[int, ...]) -> float:
+    def get_cov(
+            self,
+            config_a: Tuple[int, ...] | Mapping[str, int],
+            config_b: Tuple[int, ...] | Mapping[str, int]
+    ) -> float:
         """
         The sample covariance between the branch lengths of two descendant configurations, the sampled counterpart of
         :meth:`JointSFSDistribution.get_cov() <phasegen.distributions.JointSFSDistribution.get_cov>`, an entry of
         :attr:`cov`.
 
-        :param config_a: The first descendant configuration.
+        :param config_a: The first descendant configuration, one count per population or a mapping from population
+            names to counts.
         :param config_b: The second descendant configuration.
         :return: The covariance.
         :raises ValueError: If a configuration is not the descendant configuration of a polymorphic joint SFS bin.
         """
         return float(np.asarray(self.cov)[self._bin_config(config_a) + self._bin_config(config_b)])
 
-    def bin(self, *config: int) -> EmpiricalDistribution:
+    def bin(self, *config: int | Mapping[str, int]) -> EmpiricalDistribution:
         """
         The empirical distribution of the branch length of the joint SFS bin with the given descendant counts per
         population, the sampled counterpart of :meth:`JointSFSDistribution.bin()
         <phasegen.distributions.JointSFSDistribution.bin>`, from the stored samples.
 
-        :param config: The descendant configuration, one count per population.
+        :param config: The descendant configuration, one count per population or a single mapping from population
+            names to counts, populations left out having a count of zero.
         :return: The empirical distribution of the bin's branch length.
         :raises ValueError: If ``config`` is not the descendant configuration of a polymorphic joint SFS bin, or the
             per-replicate samples have been dropped.
         """
-        config = self._bin_config(config)
+        config = self._bin_config(config[0] if len(config) == 1 and isinstance(config[0], Mapping) else config)
 
         if self.samples is None:
             raise ValueError("The per-replicate samples have been dropped, and the bins need them.")
@@ -1558,13 +1564,18 @@ class EmpiricalJointSFSDistribution(_EmpiricalAccumulating, EmpiricalSpectrumDis
             if name in self._standard_errors:
                 self._standard_errors[name] = self._standard_errors[name] * scale
 
-    def joint(self, config_a: Tuple[int, ...], config_b: Tuple[int, ...]) -> 'EmpiricalJointDistribution':
+    def joint(
+            self,
+            config_a: Tuple[int, ...] | Mapping[str, int],
+            config_b: Tuple[int, ...] | Mapping[str, int]
+    ) -> 'EmpiricalJointDistribution':
         """
         The empirical joint distribution of the branch lengths of the descendant vectors ``config_a`` and
         ``config_b``, the sampled counterpart of :meth:`JointSFSDistribution.joint()
         <phasegen.distributions.JointSFSDistribution.joint>`.
 
-        :param config_a: The first descendant vector.
+        :param config_a: The first descendant vector, one count per population or a mapping from population names to
+            counts.
         :param config_b: The second descendant vector.
         :return: The empirical joint distribution.
         :raises ValueError: If a configuration is not the descendant configuration of a polymorphic joint SFS bin, or
@@ -3595,7 +3606,7 @@ class _Trajectories:  # pragma: no cover
             return [('length', reward.locus, None, (reward.count,), None)]
 
         if isinstance(reward, JointSFSReward):
-            config = reward.config
+            config = JointSFSReward._positional(reward.config, self.pops)
 
             if len(config) != len(self.sizes) or not all(0 <= c <= s for c, s in zip(config, self.sizes)) \
                     or not any(config):

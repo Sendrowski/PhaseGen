@@ -5,7 +5,7 @@ import itertools
 import math
 from abc import ABC, abstractmethod
 from ..caching import cached_property, cache
-from typing import Dict, List, NoReturn, Tuple, Iterable, Optional, Sequence, Union, TYPE_CHECKING
+from typing import Dict, List, Mapping, NoReturn, Tuple, Iterable, Optional, Sequence, Union, TYPE_CHECKING
 import numpy as np
 from ..errors import ModelError
 from ..initial import InitialDistribution
@@ -1130,7 +1130,7 @@ class _JointSFSAggregateFunction:
             self,
             ax: 'plt.Axes' = None,
             t: np.ndarray = None,
-            configs: Sequence[Tuple[int, ...]] = None,
+            configs: Sequence[Tuple[int, ...] | Mapping[str, int]] = None,
             n_points: int = None,
             show: bool = True,
             file: str = None,
@@ -1222,7 +1222,7 @@ class JointSFSQuantileFunction(_JointSFSAggregateFunction, QuantileFunction):
             self,
             ax: 'plt.Axes' = None,
             q: np.ndarray = None,
-            configs: Sequence[Tuple[int, ...]] = None,
+            configs: Sequence[Tuple[int, ...] | Mapping[str, int]] = None,
             n_points: int = None,
             show: bool = True,
             file: str = None,
@@ -1489,7 +1489,7 @@ class JointSFSDistribution(SpectrumDistribution):
 
     def _config_items(
             self,
-            configs: Sequence[Tuple[int, ...]] | None
+            configs: Sequence[Tuple[int, ...] | Mapping[str, int]] | None
     ) -> List[Tuple[Tuple[int, ...], 'RewardDistribution']]:
         """
         The requested joint bins with their distributions, under this spectrum's reward.
@@ -1530,30 +1530,38 @@ class JointSFSDistribution(SpectrumDistribution):
         :return: The configuration as a tuple of integers.
         :raises ValueError: If ``config`` is not the descendant configuration of a polymorphic joint SFS bin.
         """
-        return _descendant_config(config, tuple(int(n_p) for n_p in self.lineage_config.lineages))
+        return _descendant_config(
+            config, tuple(int(n_p) for n_p in self.lineage_config.lineages), self.lineage_config.pop_names
+        )
 
-    def bin(self, *config: int) -> 'RewardDistribution':
+    def bin(self, *config: int | Mapping[str, int]) -> 'RewardDistribution':
         """The distribution of the branch length of the joint SFS bin with the given descendant counts per population,
         as a :class:`~phasegen.distributions.RewardDistribution`, for example ``jsfs.bin(1, 0).quantile(0.9)``. The
         bin reward is combined with the reward of this spectrum, as for :meth:`UnfoldedSFSDistribution.bin()
         <phasegen.distributions.UnfoldedSFSDistribution.bin>`, and the distribution is cached per bin.
 
-        :param config: The descendant configuration, one count per population.
+        :param config: The descendant configuration, one count per population or a single mapping from population
+            names to counts, populations left out having a count of zero.
         :return: The distribution of the bin's branch length.
         :raises ValueError: If ``config`` is not the descendant configuration of a polymorphic joint SFS bin.
         """
-        config = self._bin_config(config)
+        config = self._bin_config(config[0] if len(config) == 1 and isinstance(config[0], Mapping) else config)
         d = self._bin_distribution(config)
         d.label = f"jSFS bin {config}"
         return d
 
-    def joint(self, config_a: Tuple[int, ...], config_b: Tuple[int, ...]) -> 'JointRewardDistribution':
+    def joint(
+            self,
+            config_a: Tuple[int, ...] | Mapping[str, int],
+            config_b: Tuple[int, ...] | Mapping[str, int]
+    ) -> 'JointRewardDistribution':
         """
         Joint distribution of the branch lengths of two joint SFS bins within one genealogy, as a
         :class:`~phasegen.distributions.JointRewardDistribution`. Both bin rewards are combined with the reward of this
         spectrum, as for :meth:`JointSFSDistribution.bin() <phasegen.distributions.JointSFSDistribution.bin>`.
 
-        :param config_a: The first descendant configuration, one count per population.
+        :param config_a: The first descendant configuration, one count per population or a mapping from population
+            names to counts, populations left out having a count of zero.
         :param config_b: The second descendant configuration.
         :return: The joint distribution of the two branch lengths.
         :raises ValueError: If a configuration is not the descendant configuration of a polymorphic joint SFS bin.
@@ -1570,7 +1578,7 @@ class JointSFSDistribution(SpectrumDistribution):
     def _plot_data_cdf(
             self,
             t: np.ndarray = None,
-            configs: Sequence[Tuple[int, ...]] = None,
+            configs: Sequence[Tuple[int, ...] | Mapping[str, int]] = None,
             n_points: int = None
     ) -> '_CurveData':
         """
@@ -1587,7 +1595,7 @@ class JointSFSDistribution(SpectrumDistribution):
     def _plot_data_pdf(
             self,
             t: np.ndarray = None,
-            configs: Sequence[Tuple[int, ...]] = None,
+            configs: Sequence[Tuple[int, ...] | Mapping[str, int]] = None,
             n_points: int = None
     ) -> '_CurveData':
         """
@@ -1604,7 +1612,7 @@ class JointSFSDistribution(SpectrumDistribution):
     def _plot_data_quantile(
             self,
             q: np.ndarray = None,
-            configs: Sequence[Tuple[int, ...]] = None,
+            configs: Sequence[Tuple[int, ...] | Mapping[str, int]] = None,
             n_points: int = None
     ) -> '_CurveData':
         """
@@ -1742,11 +1750,16 @@ class JointSFSDistribution(SpectrumDistribution):
 
         return self.moment(k=2, center=True)
 
-    def get_cov(self, config_a: Tuple[int, ...], config_b: Tuple[int, ...]) -> float:
+    def get_cov(
+            self,
+            config_a: Tuple[int, ...] | Mapping[str, int],
+            config_b: Tuple[int, ...] | Mapping[str, int]
+    ) -> float:
         """
         Get the covariance between the branch lengths subtending two descendant configurations.
 
-        :param config_a: First descendant configuration.
+        :param config_a: First descendant configuration, one count per population or a mapping from population names
+            to counts, populations left out having a count of zero.
         :param config_b: Second descendant configuration.
         :return: The covariance.
         :raises ValueError: If a configuration is not the descendant configuration of a polymorphic joint SFS bin.
