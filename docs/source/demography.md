@@ -208,7 +208,7 @@ stopifnot(all(diff(sizes) < 0))
 
 +++
 ## Population splits
-Population splits (forwards in time) correspond to population mergers (backwards in time). Since ``phasegen`` does not support deterministic lineage movements due to its inherent structure, we can model a population split by specifying a large unidirectional migration rate from the derived to the ancestral population. Below, we model a population split where ``pop_0`` splits from ``pop_1`` at time 2. This corresponds to a population merger of the two populations at time 2 backwards in time, and we thus need to initialize both populations at time 0 in the present.
+Population splits (forwards in time) correspond to population mergers (backwards in time). Since ``phasegen`` does not support deterministic lineage movements due to its inherent structure, a population split is approximated by a short window of fast unidirectional migration from the derived to the ancestral population. Below, we model a population split where ``pop_0`` splits from ``pop_1`` at time 2. This corresponds to a population merger of the two populations at time 2 backwards in time, and we thus need to initialize both populations at time 0 in the present.
 
 ```{code-cell} python
 d = pg.Demography(

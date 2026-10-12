@@ -365,7 +365,7 @@ class DemographyTestCase(TestCase):
         self.assertEqual(coal.demography.get_epoch(1).migration_rates[('pop_0', 'pop_1')], 0)
 
         self.assertEqual(coal.demography.get_epoch(2).migration_rates[('pop_1', 'pop_0')], 0)
-        self.assertEqual(coal.demography.get_epoch(2).migration_rates[('pop_0', 'pop_1')], 100)
+        self.assertEqual(coal.demography.get_epoch(2)._base_rates[('pop_0', 'pop_1')], 100)
 
     def test_population_split_pools_into_ancestral(self):
         """
@@ -533,11 +533,11 @@ def test_chained_population_splits_at_same_time_independent_of_order(order):
     events = [pg.PopulationSplit(1, 'a', 'b'), pg.PopulationSplit(1, 'b', 'c')]
     d = pg.Demography(pop_sizes={'a': 1., 'b': 1., 'c': 1.}, events=events[::1 - 2 * order])
 
-    rates = list(islice(d.epochs, 2))[1].migration_rates
+    rates = list(islice(d.epochs, 2))[1]._base_rates
     assert {k: v for k, v in rates.items() if v} == {('a', 'b'): 100.0, ('b', 'c'): 100.0}
 
     th = pg.Coalescent(n={'a': 1, 'b': 0, 'c': 1}, demography=d).tree_height.mean
-    assert th == pytest.approx(2.02, abs=1e-6)
+    assert th == pytest.approx(2, abs=1e-4)
 
 
 @pytest.mark.parametrize("order", [0, 1])
@@ -550,7 +550,7 @@ def test_population_split_uses_same_time_pop_size_change(order):
     events = [pg.PopulationSplit(1, 'b', 'c'), pg.PopSizeChange('b', time=1, size=10)]
     d = pg.Demography(pop_sizes={'b': 1., 'c': 100.}, events=events[::1 - 2 * order])
 
-    assert list(islice(d.epochs, 2))[1].migration_rates[('b', 'c')] == 10
+    assert list(islice(d.epochs, 2))[1]._base_rates[('b', 'c')] == 10
 
 
 @pytest.mark.parametrize("kwargs, reference", [
@@ -593,11 +593,11 @@ def test_population_split_drain_rate_dominates_coalescence_at_any_population_siz
             events=[pg.PopulationSplit(time=0.5 * N, derived='a', ancestral='b')]
         )
 
-        assert list(islice(d.epochs, 2))[1].migration_rates[('a', 'b')] == 100 / N
+        assert list(islice(d.epochs, 2))[1]._base_rates[('a', 'b')] == 100 / N
 
         scaled += [pg.Coalescent(n={'a': 2, 'b': 0}, demography=d).tree_height.mean / N]
 
-    assert scaled[0] == pytest.approx(1, rel=0.01)
+    assert scaled[0] == pytest.approx(1, rel=1e-4)
     assert scaled[1] == pytest.approx(scaled[0], rel=1e-8)
     assert scaled[2] == pytest.approx(scaled[0], rel=1e-8)
 
@@ -619,11 +619,11 @@ def test_population_split_drain_rate_dominates_the_fastest_coalescence_rate_of_t
             events=[pg.PopulationSplit(time=0, derived='a', ancestral='b')]
         )
 
-        assert next(d.epochs).migration_rates[('a', 'b')] == 100 / min(N_derived, N_ancestral)
+        assert next(d.epochs)._base_rates[('a', 'b')] == 100 / min(N_derived, N_ancestral)
 
         mean = pg.Coalescent(n={'a': 2, 'b': 0}, demography=d).tree_height.mean
 
-        assert mean == pytest.approx(N_ancestral, rel=0.02)
+        assert mean == pytest.approx(N_ancestral, rel=1e-4)
 
     chained = pg.Demography(
         pop_sizes={'a': 1.0, 'b': 1.0, 'c': 0.01},
@@ -631,12 +631,12 @@ def test_population_split_drain_rate_dominates_the_fastest_coalescence_rate_of_t
                 pg.PopulationSplit(time=0, derived='b', ancestral='c')]
     )
 
-    rates = next(chained.epochs).migration_rates
+    rates = next(chained.epochs)._base_rates
     assert {k: v for k, v in rates.items() if v} == {('a', 'b'): 10000.0, ('b', 'c'): 10000.0}
 
     mean = pg.Coalescent(n={'a': 2, 'b': 0, 'c': 0}, demography=chained).tree_height.mean
 
-    assert mean == pytest.approx(0.01, rel=0.05)
+    assert mean == pytest.approx(0.01, rel=1e-4)
 
 
 @pytest.mark.parametrize('model, N', [
@@ -645,16 +645,14 @@ def test_population_split_drain_rate_dominates_the_fastest_coalescence_rate_of_t
     (pg.DiracCoalescent(psi=0.5, c=1), 0.1),
     (pg.BetaCoalescent(alpha=1.5), 100.0),
 ])
-def test_population_split_drain_time_is_a_fixed_fraction_of_the_pairwise_coalescence_time(model, N):
+def test_population_split_follows_the_coalescent_clock_of_the_model(model, N):
     """
     The drain rate of a split was ``multiplier / min(N)`` under every coalescent model, ignoring the model's time
     scale and the Dirac point-mass rate, so the drain was only 7.4 times faster than pairwise coalescence under
     Dirac(psi=0.5, c=50) at N = 1 and inflated split-demography moments by 4 to 11% under the Beta and Dirac
-    coalescents. With one lineage in each of two demes of equal size and a split at time 0, the lineage in the
-    derived deme leaves after a mean time ``1 / m`` and the pair then coalesces after a mean time ``tau(N) / lambda``,
-    with ``lambda`` the pairwise merger rate and ``tau`` the model's time scale, so the tree height has the closed-form
-    mean ``tau(N) / lambda * (1 + 1 / multiplier)``. The tolerance only absorbs the precision of the phase-type
-    computation.
+    coalescents. With one lineage in each of two demes of equal size and a split at time 0, the pair coalesces after
+    a mean time ``tau(N) / lambda``, with ``lambda`` the pairwise merger rate and ``tau`` the model's time scale. The
+    tolerance covers the window of the split, a fraction 1e-5 of that time.
     """
     pair = model._get_timescale(N) / model._get_rate(b=2, k=2)
 
@@ -665,8 +663,8 @@ def test_population_split_drain_time_is_a_fixed_fraction_of_the_pairwise_coalesc
 
     coal = pg.Coalescent(n={'a': 1, 'b': 1}, model=model, demography=d)
 
-    assert coal.demography.get_epoch(0).migration_rates[('a', 'b')] == pytest.approx(100 / pair, rel=1e-12)
-    assert coal.tree_height.mean == pytest.approx(pair * (1 + 1 / 100), rel=1e-8)
+    assert coal.demography.get_epoch(0)._base_rates[('a', 'b')] == pytest.approx(100 / pair, rel=1e-12)
+    assert coal.tree_height.mean == pytest.approx(pair, rel=1e-4)
 
 
 def test_exponential_growth_survives_a_serialization_round_trip():
@@ -1120,19 +1118,19 @@ def test_pulse_of_proportion_zero_is_a_no_op():
 def test_pulse_window_rates():
     """The window adds -ln(1 - p) / delta on top of the rate in force, with delta = 1 / (c max_i 1 / N_i) taken from
     the sizes at the pulse, and spans a size change inside it. After the window the rates are those without the
-    pulse, also in the epoch of a split at the same time."""
+    pulse, also after a split at the same time, whose window comes first."""
     p, c, t = 0.3, 1e3, 0.5
     events = [pg.PopSizeChange(pop='pop_1', time=t, size=0.5), pg.PopSizeChange(pop='pop_0', time=t + 1e-4, size=2)]
     split = pg.PopulationSplit(time=t, derived='pop_1', ancestral='pop_0')
     dem = _pulse_demography(*events, split, pg.Pulse(time=t, source='pop_0', dest='pop_1', proportion=p, multiplier=c))
     ref = _pulse_demography(*events, split)
-    delta, rate = 0.5 / c, -np.log(1 - p) * c / 0.5
+    start, delta, rate = t + 0.5 / 1e5, 0.5 / c, -np.log(1 - p) * c / 0.5
 
     epochs = list(dem.epochs)
-    np.testing.assert_allclose([e.start_time for e in epochs], [0, t, t + 1e-4, t + delta])
-    for e in epochs[1:3]:
+    np.testing.assert_allclose([e.start_time for e in epochs], [0, t, start, t + 1e-4, start + delta])
+    for e in epochs[2:4]:
         assert e.migration_rates[('pop_0', 'pop_1')] == pytest.approx(rate)
-    assert epochs[3] == ref.get_epoch(t + delta)
+    assert epochs[4] == ref.get_epoch(start + delta)
 
 
 def test_pulse_exports_its_window_to_msprime():
@@ -1342,6 +1340,47 @@ def test_demes_round_trip_recovers_the_demography():
     n = {'pop_0': 2, 'pop_1': 2}
     assert pg.Coalescent(n=n, demography=d2).tree_height.mean == pytest.approx(
         pg.Coalescent(n=n, demography=d).tree_height.mean, rel=1e-12)
+
+
+@pytest.mark.parametrize('delay', [0, 0.005])
+def test_pulse_out_of_the_ancestral_population_at_or_after_a_split(delay):
+    """
+    A split drained its derived populations at 100 times the pairwise coalescence rate, so a pulse out of the
+    ancestral population at the time of the split, or shortly after it, found the lineages still in the derived
+    population: the mean below came out as 2.51 for a pulse at the split and as 2.23 for one 0.005 later. With all
+    sizes 1, one lineage in ``a`` and one in ``c``, ``a`` merging into ``d`` at time 0.1, the pulse moving a lineage
+    from ``d`` to ``c`` with probability 0.5 and ``c`` merging into ``d`` at time 1.5, the pair coalesces after a
+    mean time of ``(0.1 + delay + 1) / 2 + (1.5 + 1) / 2``.
+    """
+    d = pg.Demography(pop_sizes={'a': 1, 'c': 1, 'd': 1}, events=[
+        pg.PopulationSplit(time=0.1, derived='a', ancestral='d'),
+        pg.Pulse(time=0.1 + delay, source='d', dest='c', proportion=0.5),
+        pg.PopulationSplit(time=1.5, derived='c', ancestral='d')
+    ])
+
+    mean = pg.Coalescent(n={'a': 1, 'c': 1, 'd': 0}, demography=d).tree_height.mean
+
+    assert mean == pytest.approx((0.1 + delay + 1) / 2 + (1.5 + 1) / 2, rel=1e-4)
+
+
+def test_from_msprime_applies_same_time_mass_migrations_in_order():
+    """
+    A mass migration of proportion 1 from ``pop_0`` to ``pop_1`` followed at the same time by one of proportion 0.5
+    from ``pop_1`` to ``pop_2`` moves half of the lineages of ``pop_0`` on to ``pop_2``, as in msprime, so that a
+    pair sampled in ``pop_0`` and ``pop_2`` coalesces after 3600 generations on average. The converted model gave
+    5019 generations.
+    """
+    import msprime as ms
+
+    md = ms.Demography.island_model([1000, 1000, 1000], migration_rate=0)
+    md.add_mass_migration(time=200, source='pop_0', dest='pop_1', proportion=1)
+    md.add_mass_migration(time=200, source='pop_1', dest='pop_2', proportion=0.5)
+    md.add_mass_migration(time=3000, source='pop_2', dest='pop_1', proportion=1)
+
+    d = pg.Demography.from_msprime(md, scale=2000)
+    mean = pg.Coalescent(n={'pop_0': 1, 'pop_1': 0, 'pop_2': 1}, demography=d).tree_height.mean * 2000
+
+    assert mean == pytest.approx((200 + 2000) / 2 + (3000 + 2000) / 2, rel=1e-4)
 
 
 @pytest.mark.parametrize('pair', [{'A': 2}, {'A': 1, 'B': 1}, {'A': 1, 'C': 1}, {'B': 1, 'C': 1}])

@@ -30,6 +30,9 @@ logger = logging.getLogger('phasegen')
 #: lineages again, the largest a pulse allows to within a negligible remainder.
 _FULL_PULSE_PROPORTION = 1 - 1e-9
 
+#: Multiplier of the fastest pairwise coalescence rate whose inverse is the window length of a population split.
+_SPLIT_WINDOW_MULTIPLIER = 1e5
+
 
 class Demography:
     r"""
@@ -582,22 +585,28 @@ class Demography:
         for e in splits:
             e._apply(epoch, model)
 
-        # pulses act one at a time in the order of the events, each opening its window once the previous one closes
-        window = prev._window if prev._window is not None and prev._window[1] > epoch.start_time else None
-        pending = prev._pending + tuple(e for e in self.events if isinstance(e, Pulse) and
+        # pulses and splits act one at a time in the order of the events, each opening its window once the previous
+        # one closes
+        window = prev._window if prev._window is not None and prev._window[0] > epoch.start_time else None
+        pending = prev._pending + tuple(e for e in self.events if isinstance(e, (Pulse, PopulationSplit)) and
                                         np.any((epoch.start_time <= e.times) & (e.times < epoch.end_time)))
 
         if window is None and pending:
-            window, pending = pending[0]._window(epoch, model), pending[1:]
+            window, head, pending = pending[0]._window(epoch, model, splits), pending[0], pending[1:]
+
+            # the window of a split serves the splits waiting right behind it
+            while isinstance(head, PopulationSplit) and pending and isinstance(pending[0], PopulationSplit):
+                pending = pending[1:]
 
         epoch._base_rates = epoch.migration_rates.copy()
         epoch._window = window
         epoch._pending = pending
 
         if window is not None:
-            pulse, end, rate = window
+            end, rates = window
             epoch.end_time = min(epoch.end_time, end)
-            epoch.migration_rates[(pulse.source, pulse.dest)] += rate
+            for key, rate in rates.items():
+                epoch.migration_rates[key] += rate
 
         epoch.index = i
 
@@ -968,14 +977,14 @@ class Epoch:
         #: Migration rates.
         self.migration_rates: Dict[Tuple[str, str], float] = migration_rates
 
-        #: Migration rates without the rates of the pulse windows, carried over to the next epoch.
+        #: Migration rates without the rates of the windows, carried over to the next epoch.
         self._base_rates: Dict[Tuple[str, str], float] = migration_rates
 
-        #: Pulse window open in the epoch, as the pulse, the end time of its window and its rate.
-        self._window: Tuple['Pulse', float, float] | None = None
+        #: Window of a pulse or split open in the epoch, as its end time and the migration rates it adds.
+        self._window: Tuple[float, Dict[Tuple[str, str], float]] | None = None
 
-        #: Pulses whose time has come, waiting in order for the open window to close.
-        self._pending: Tuple['Pulse', ...] = ()
+        #: Pulses and splits whose time has come, waiting in order for the open window to close.
+        self._pending: Tuple['Pulse | PopulationSplit', ...] = ()
 
     @cached_property
     def tau(self) -> float:
@@ -1373,9 +1382,10 @@ class SymmetricMigrationRateChanges(MigrationRateChanges):
 
 class PopulationSplit(DiscreteDemographicEvent):
     """
-    Demographic event for a population split forward in time, a merger of populations backward in time. The split
-    is modelled as a large unidirectional migration rate from each derived population to the ancestral one, set
-    by ``multiplier``.
+    Demographic event for a population split forward in time, a merger of populations backward in time. Backward in
+    time, all lineages in the derived populations move to the ancestral one at the time of the split. The jump is
+    approximated as for a :class:`~phasegen.demography.Pulse` of proportion :math:`1 - 10^{-9}`, and the derived
+    populations are cut off from migration from then on. A split and a pulse sharing a time act in the order given.
 
     The following example merges ``pop_1`` into ``pop_0`` at time 0.5 backward in time and computes the fixation index.
 
@@ -1401,16 +1411,9 @@ class PopulationSplit(DiscreteDemographicEvent):
         :param time: Time of the split.
         :param derived: Derived populations from which all lineages move to the ancestral population.
         :param ancestral: Ancestral population to which all lineages move.
-        :param multiplier: Migration rate multiplier. The migration rate from the derived to the ancestral population
-            is set to :math:`m = c \max_i \lambda_{2,2} / \tau(N_i)`, the multiplier :math:`c` times the fastest
-            pairwise coalescence rate of the epoch, where :math:`\lambda_{2,2}` is the rate at which two lineages
-            merge under the coalescent model (1 for the standard and the Beta coalescent, :math:`1 + c_D \psi^2` for
-            the Dirac coalescent with parameters :math:`\psi` and :math:`c_D`), and :math:`\tau(N_i)` is the
-            model's time scale for population size :math:`N_i` (:math:`N_i` for the standard coalescent). The rate is
-            set in the epoch of the split and again in every later epoch. A lineage thus leaves a derived population
-            after a mean time :math:`1 / m`, a fraction :math:`1 / c` of the mean time to coalescence of a pair in the
-            population that coalesces fastest. With more than two lineages in a population the first coalescence
-            comes sooner, so the fraction of coalescent time the drain displaces is larger than :math:`1 / c`.
+        :param multiplier: Multiplier :math:`c` of the migration rate :math:`c\, r` that moves a lineage entering a
+            derived population after the split, by a later pulse, on to the ancestral population. Here :math:`r` is
+            the fastest pairwise coalescence rate of the epoch.
         :raises ValueError: If the time is negative, the ancestral population is among the derived ones, or the
             multiplier is not positive and finite.
         """
@@ -1458,6 +1461,27 @@ class PopulationSplit(DiscreteDemographicEvent):
                         epoch.migration_rates[(p, q)] = 0
                         epoch.migration_rates[(q, p)] = 0
 
+    def _window(
+            self,
+            epoch: Epoch,
+            model: CoalescentModel,
+            splits: List['PopulationSplit']
+    ) -> Tuple[float, Dict[Tuple[str, str], float]]:
+        """
+        The window of the split, opening at the start of ``epoch`` and sized from its population sizes. It moves the
+        lineages of every split in force, so that splits chained at one time act in any order.
+
+        :param epoch: The epoch in which the window opens.
+        :param model: Coalescent model, whose pairwise coalescence rate and time scale set the window length.
+        :param splits: The splits of the demography.
+        :return: The end time of the window and the migration rates it adds.
+        """
+        delta = 1 / (_SPLIT_WINDOW_MULTIPLIER * self._max_coalescence_rate(epoch, model))
+        rate = -np.log1p(-_FULL_PULSE_PROPORTION) / delta
+
+        return epoch.start_time + delta, {(p, s.ancestral): rate for s in splits if s.start_time <= epoch.start_time
+                                          for p in s.derived}
+
     def _apply(self, epoch: Epoch, model: CoalescentModel) -> set:
         """
         Set the drain rate from each derived population to the ancestral population in every epoch from the split
@@ -1472,8 +1496,7 @@ class PopulationSplit(DiscreteDemographicEvent):
         if self.start_time >= epoch.end_time:
             return set()
 
-        # the drain rate is a multiple of the fastest pairwise coalescence rate of the epoch, so that the lineages
-        # leave the derived populations before any coalescence the split displaces
+        # the drain rate is a multiple of the fastest pairwise coalescence rate of the epoch
         rate = self.multiplier * self._max_coalescence_rate(epoch, model)
 
         for p in self.derived:
@@ -1571,17 +1594,23 @@ class Pulse(DiscreteDemographicEvent):
         """
         return set()
 
-    def _window(self, epoch: Epoch, model: CoalescentModel) -> Tuple['Pulse', float, float]:
+    def _window(
+            self,
+            epoch: Epoch,
+            model: CoalescentModel,
+            splits: List['PopulationSplit']
+    ) -> Tuple[float, Dict[Tuple[str, str], float]]:
         """
         The window of the pulse, opening at the start of ``epoch`` and sized from its population sizes.
 
         :param epoch: The epoch in which the window opens.
         :param model: Coalescent model, whose pairwise coalescence rate and time scale set the window length.
-        :return: The pulse, the end time of its window and its migration rate.
+        :param splits: The splits of the demography, which a pulse does not use.
+        :return: The end time of the window and the migration rate it adds.
         """
         delta = 1 / (self.multiplier * self._max_coalescence_rate(epoch, model))
 
-        return self, epoch.start_time + delta, -np.log1p(-self.proportion) / delta
+        return epoch.start_time + delta, {(self.source, self.dest): -np.log1p(-self.proportion) / delta}
 
 
 class DiscretizedDemographicEvent(DemographicEvent, ABC):
