@@ -3,17 +3,13 @@
 Changelog
 =========
 
-[Unreleased]
-^^^^^^^^^^^^
+[2.1.0] - 2026-10-12
+^^^^^^^^^^^^^^^^^^^^
 - Create demographies from :class:`msprime.Demography` and :class:`demes.Graph` objects with :meth:`Demography.from_msprime() <phasegen.demography.Demography.from_msprime>` and :meth:`Demography.from_demes() <phasegen.demography.Demography.from_demes>`, and convert to a :class:`demes.Graph` with :meth:`Demography.to_demes() <phasegen.demography.Demography.to_demes>`.
-- Add an :paramref:`~phasegen.demography.Demography.plot.alpha` argument to the demography plots.
-- Keep the population names of the joint SFS in its standard deviation and in all sampled spectra.
-- Estimate F\ :sub:`ST` and the f-statistics on :class:`~phasegen.distributions.SampledCoalescent`.
-- Add the third and fourth raw moments (:attr:`PhaseTypeDistribution.m3 <phasegen.distributions.PhaseTypeDistribution.m3>`, :attr:`PhaseTypeDistribution.m4 <phasegen.distributions.PhaseTypeDistribution.m4>`) to all exact distributions, the bin correlation :attr:`JointSFSDistribution.corr <phasegen.distributions.JointSFSDistribution.corr>` and the cross-locus covariance :attr:`TwoLocusSFSDistribution.cov <phasegen.distributions.TwoLocusSFSDistribution.cov>`, matching their sampled counterparts.
+- Move the lineages of a :class:`~phasegen.demography.PopulationSplit` within a short window in the order of the events, as for a :class:`~phasegen.demography.Pulse`. This removes a bias of about 1% from models with splits and corrects a pulse at or shortly after a split, at up to about twice the runtime.
+- Add the third and fourth raw moments (:attr:`PhaseTypeDistribution.m3 <phasegen.distributions.PhaseTypeDistribution.m3>`, :attr:`PhaseTypeDistribution.m4 <phasegen.distributions.PhaseTypeDistribution.m4>`), :attr:`JointSFSDistribution.corr <phasegen.distributions.JointSFSDistribution.corr>` and :attr:`TwoLocusSFSDistribution.cov <phasegen.distributions.TwoLocusSFSDistribution.cov>` to the exact distributions, and F\ :sub:`ST` and the f-statistics to :class:`~phasegen.distributions.SampledCoalescent`.
+- Accept descendant configurations of the joint SFS by population name in :class:`~phasegen.rewards.JointSFSReward` and the bins of the joint spectra, and keep the population names in all joint spectra.
 - Speed up joint densities on multi-epoch demographies by evaluating the transform grid in large batches.
-- Add a User Guide page of real-world examples, starting with the out-of-Africa model of Gutenkunst et al. (2009).
-- Convert the admixture events of an :class:`msprime.Demography` to pulses and a population split in :meth:`Demography.from_msprime() <phasegen.demography.Demography.from_msprime>`.
-- Report populations of the demography without sampled lineages at the info level rather than as a warning.
 
 [2.0.0] - 2026-10-06
 ^^^^^^^^^^^^^^^^^^^^
