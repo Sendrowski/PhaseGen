@@ -15,17 +15,47 @@ options(repr.plot.width = 4.4, repr.plot.height = 3.3)
 
 +++
 ## Out of Africa
-We consider the three-population out-of-Africa model of [Gutenkunst et al. (2009)](https://doi.org/10.1371/journal.pgen.1000695) for the Yoruba in Ibadan (YRI), Utah residents of northern and western European ancestry (CEU) and Han Chinese in Beijing (CHB). In this model, an ancestral African population expands and persists at constant size as YRI. A small group leaves Africa 5,600 generations ago and stays small, the out-of-Africa bottleneck, until it splits 848 generations ago into the still smaller founding populations of CEU and CHB, which have grown exponentially since. The populations exchange migrants throughout. We load the model from [``stdpopsim``](https://popsim-consortium.github.io/stdpopsim-docs/stable/catalog.html#sec_catalog_homsap_models_outofafrica_3g09) and convert it with {meth}`Demography.from_msprime() <phasegen.demography.Demography.from_msprime>`. Population sizes in the model are numbers of diploid individuals, and with a scale of 2N<sub>A</sub>, for the ancestral size N<sub>A</sub> = 7,300, the converted sizes are relative to N<sub>A</sub> and one unit of time is 14,600 generations. Exponential growth is discretized into piecewise constant sizes.
+We consider the three-population out-of-Africa model of [Gutenkunst et al. (2009)](https://doi.org/10.1371/journal.pgen.1000695) for the Yoruba in Ibadan (YRI), Utah residents of northern and western European ancestry (CEU) and Han Chinese in Beijing (CHB). In this model, an ancestral African population expands and persists at constant size as YRI. A small group leaves Africa 5,600 generations ago and stays small, the out-of-Africa bottleneck, until it splits 848 generations ago into the still smaller founding populations of CEU and CHB, which have grown exponentially since. The populations exchange migrants throughout. We load the model from [``stdpopsim``](https://popsim-consortium.github.io/stdpopsim-docs/stable/catalog.html#sec_catalog_homsap_models_outofafrica_3g09) and draw it with [``demesdraw``](https://grahamgower.github.io/demesdraw/), with time in generations on a logarithmic scale. The width of each population is proportional to its size, and the thin arrows show migration.
 
 ```{code-cell} python
-:tags: [full-width]
 import numpy as np
 import matplotlib.pyplot as plt
+import demesdraw
 import stdpopsim
 import phasegen as pg
 
 model = stdpopsim.get_species('HomSap').get_demographic_model('OutOfAfrica_3G09')
 
+_, ax = plt.subplots()
+demesdraw.tubes(model.model.to_demes(), ax=ax, log_time=True, seed=42);
+```
+
+```{code-cell} r
+library(phasegen)
+library(patchwork)
+pg <- load_phasegen()
+stdpopsim <- reticulate::import("stdpopsim")
+demesdraw <- reticulate::import("demesdraw")
+plt <- reticulate::import("matplotlib.pyplot")
+
+model <- stdpopsim$get_species("HomSap")$get_demographic_model("OutOfAfrica_3G09")
+
+ax <- plt$subplots(figsize = c(4.4, 3.3))[[2]]
+invisible(demesdraw$tubes(model$model$to_demes(), ax = ax, log_time = TRUE, seed = 42L))
+plt$savefig("out_of_africa.png", dpi = 300, bbox_inches = "tight")
+```
+
+```{code-cell} r
+:tags: [remove-input]
+IRdisplay::display_png(file = "out_of_africa.png")
+invisible(file.remove("out_of_africa.png"))
+```
+
++++
+We convert the model with {meth}`Demography.from_msprime() <phasegen.demography.Demography.from_msprime>`. Population sizes in the model are numbers of diploid individuals, and with a scale of 2N<sub>A</sub>, for the ancestral size N<sub>A</sub> = 7,300, the converted sizes are relative to N<sub>A</sub> and one unit of time is 14,600 generations. Exponential growth is discretized into piecewise constant sizes, as the trajectories below show.
+
+```{code-cell} python
+:tags: [full-width]
 N_A = 7300
 d = pg.Demography.from_msprime(model.model, scale=2 * N_A)
 
@@ -43,13 +73,6 @@ options(repr.plot.width = 7, repr.plot.height = 3)
 
 ```{code-cell} r
 :tags: [full-width]
-library(phasegen)
-library(patchwork)
-pg <- load_phasegen()
-stdpopsim <- reticulate::import("stdpopsim")
-
-model <- stdpopsim$get_species("HomSap")$get_demographic_model("OutOfAfrica_3G09")
-
 N_A <- 7300
 d <- pg$Demography$from_msprime(model$model, scale = 2 * N_A)
 
