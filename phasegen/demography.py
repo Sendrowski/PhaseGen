@@ -268,7 +268,7 @@ class Demography:
             demography: 'msprime.Demography',
             ploidy: int = 2,
             scale: float = 1,
-            growth_steps: int = 10
+            growth_steps: int = 40
     ) -> 'Demography':
         r"""
         Create a demography from an :class:`msprime.Demography`. A population of :math:`N` individuals of ploidy :math:`k` has
@@ -299,7 +299,8 @@ class Demography:
         :param demography: The :class:`msprime.Demography`.
         :param ploidy: The ploidy :math:`k` of the individuals.
         :param scale: The scale :math:`s` of time and population sizes.
-        :param growth_steps: Number of constant sizes per epoch of exponential growth.
+        :param growth_steps: Number of constant sizes per epoch of exponential growth. The error of the discretization falls with the
+            square of this number.
         :return: The demography.
         :raises ImportError: If msprime is not installed.
         """
@@ -408,10 +409,15 @@ class Demography:
                     migration_rates[(name[i], name[j])][t0] = m * scale
                     rate[(i, j)] = m
 
+        # the warning threshold clears the epochs of the conversion: the steps of each growing epoch, and a window
+        # per split or pulse
+        growing = len({(e.start_time, e.end_time) for e in events if isinstance(e, ExponentialPopSizeChanges)})
+
         return cls(
             pop_sizes=dict(pop_sizes),
             migration_rates={k: v for k, v in migration_rates.items() if any(v.values())},
-            events=events
+            events=events,
+            warn_n_epochs=max(20, growth_steps * growing + len(epochs) + 2 * len(events))
         )
 
     @classmethod
@@ -420,7 +426,7 @@ class Demography:
             graph: 'demes.Graph',
             ploidy: int = 2,
             scale: float = 1,
-            growth_steps: int = 10
+            growth_steps: int = 40
     ) -> 'Demography':
         """
         Create a demography from a :class:`demes.Graph`, by way of :meth:`msprime.Demography.from_demes` and

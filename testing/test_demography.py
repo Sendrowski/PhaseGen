@@ -1383,6 +1383,29 @@ def test_from_msprime_applies_same_time_mass_migrations_in_order():
     assert mean == pytest.approx((200 + 2000) / 2 + (3000 + 2000) / 2, rel=1e-4)
 
 
+def test_from_msprime_default_growth_steps_resolve_thousandfold_growth():
+    """
+    The mean pairwise coalescence time of a population that grew 1000-fold over half a unit of time lies within 0.1%
+    of :math:`\\int_0^T e^{-\\Lambda(t)} dt + e^{-\\Lambda(T)} N_A`, with :math:`\\Lambda(t) = (e^{g t} - 1) / g` the
+    integrated coalescence rate, :math:`g` the growth rate, :math:`T` the onset of growth and :math:`N_A` the size
+    before it. With 10 steps the mean was 1.2% too large.
+    """
+    import msprime as ms
+    from scipy.integrate import quad
+
+    md = ms.Demography()
+    md.add_population(name='A', initial_size=1e4, growth_rate=np.log(1e3) / 1e4)
+    md.add_population_parameters_change(time=1e4, population='A', growth_rate=0)
+
+    g, T = np.log(1e3) / 0.5, 0.5
+    integrated = lambda t: np.expm1(g * t) / g
+    reference = quad(lambda t: np.exp(-integrated(t)), 0, T, epsabs=1e-13)[0] + np.exp(-integrated(T)) * 1e-3
+
+    mean = pg.Coalescent(n={'A': 2}, demography=pg.Demography.from_msprime(md, scale=2e4)).tree_height.mean
+
+    assert mean == pytest.approx(reference, rel=1e-3)
+
+
 @pytest.mark.parametrize('pair', [{'A': 2}, {'A': 1, 'B': 1}, {'A': 1, 'C': 1}, {'B': 1, 'C': 1}])
 def test_from_msprime_admixture_matches_msprime_pairwise_coalescence_times(pair):
     """
