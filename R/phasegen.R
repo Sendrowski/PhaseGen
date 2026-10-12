@@ -522,6 +522,14 @@ print.phasegen_mutation_config <- function(x, ...) {
 # ---- univariate distribution functions ------------------------------------------------------------------------------
 
 
+# A descendant configuration for Python, one count per population or, for a named list or vector, a dict from
+# population names to counts
+descendant_config <- function(config) {
+  counts <- as.integer(unlist(config))
+  if (is.null(names(config))) counts else reticulate::py_dict(names(config), counts)
+}
+
+
 # Curves of a univariate distribution function over the grid `grid` (named `t`, or `q` for a quantile function), labelled
 # `label` and drawn into the plot `add` if given
 plot_function <- function(x, grid, n_points, bins, configs, title, label, add, linewidth, alpha) {
@@ -531,7 +539,7 @@ plot_function <- function(x, grid, n_points, bins, configs, title, label, add, l
     if (!is.null(grid)) reticulate::np_array(as.numeric(grid))
   args$n_points <- if (!is.null(n_points)) as.integer(n_points)
   args$bins <- if (!is.null(bins)) as.integer(bins)
-  args$configs <- if (!is.null(configs)) lapply(configs, as.integer)
+  args$configs <- if (!is.null(configs)) lapply(configs, descendant_config)
 
   curves <- do.call(x$`_plot_data`, args)
   data <- curve_frame(curves)
@@ -581,7 +589,8 @@ plot_function <- function(x, grid, n_points, bins, configs, title, label, add, l
 #' @param t Points to evaluate at, `NULL` for the default grid.
 #' @param n_points Number of grid points, `NULL` for the default.
 #' @param bins SFS bins to draw, `NULL` for all polymorphic bins.
-#' @param configs Joint SFS bins to draw, a list of integer vectors, `NULL` for all.
+#' @param configs Joint SFS bins to draw, a list of integer vectors or of named lists of counts per population,
+#'   `NULL` for all.
 #' @param title Plot title, `NULL` for the default.
 #' @param label Legend label of the curves, `NULL` for none.
 #' @param add A plot returned by a previous call to draw the curves into, `NULL` for a new plot.
@@ -615,7 +624,8 @@ plot.phasegen.distributions.base.DensityFunction <- function(x, t = NULL, n_poin
 #' @param t Points to evaluate at, `NULL` for the default grid.
 #' @param n_points Number of grid points, `NULL` for the default.
 #' @param bins SFS bins to draw, `NULL` for all polymorphic bins.
-#' @param configs Joint SFS bins to draw, a list of integer vectors, `NULL` for all.
+#' @param configs Joint SFS bins to draw, a list of integer vectors or of named lists of counts per population,
+#'   `NULL` for all.
 #' @param title Plot title, `NULL` for the default.
 #' @param label Legend label of the curves, `NULL` for none.
 #' @param add A plot returned by a previous call to draw the curves into, `NULL` for a new plot.
@@ -648,7 +658,8 @@ plot.phasegen.distributions.base.CumulativeDistributionFunction <- function(x, t
 #' @param q Probabilities to evaluate at, `NULL` for the default grid.
 #' @param n_points Number of grid points, `NULL` for the default.
 #' @param bins SFS bins to draw, `NULL` for all polymorphic bins.
-#' @param configs Joint SFS bins to draw, a list of integer vectors, `NULL` for all.
+#' @param configs Joint SFS bins to draw, a list of integer vectors or of named lists of counts per population,
+#'   `NULL` for all.
 #' @param title Plot title, `NULL` for the default.
 #' @param label Legend label of the curves, `NULL` for none.
 #' @param add A plot returned by a previous call to draw the curves into, `NULL` for a new plot.
@@ -997,6 +1008,14 @@ joint_sfs_data <- function(x, pops, mask_monomorphic) {
     stop("Exactly two populations must be specified.", call. = FALSE)
   }
 
+  if (is.character(pops)) {
+    names <- as.character(unlist(x$pop_names))
+    if (!all(pops %in% names)) {
+      stop("Population names must be among ", paste(names, collapse = ", "), ".", call. = FALSE)
+    }
+    pops <- match(pops, names) - 1
+  }
+
   marginal <- x$marginalize(do.call(reticulate::tuple, as.list(as.integer(pops))))
   data <- marginal$data
   names <- as.character(unlist(marginal$pop_names))
@@ -1015,7 +1034,7 @@ joint_sfs_data <- function(x, pops, mask_monomorphic) {
 #' Draws the joint SFS of two populations, marginalised over any further populations.
 #'
 #' @param x A `JointSFS` object, such as `coal$jsfs$mean`.
-#' @param pops Zero-based indices of the populations on the y-axis and the x-axis.
+#' @param pops The populations on the y-axis and the x-axis, as zero-based indices or population names.
 #' @param title Plot title, `NULL` for none.
 #' @param log_scale Logical, whether to use a logarithmic colour scale. Default is `TRUE`.
 #' @param mask_monomorphic Logical, whether to mask the monomorphic corners. Default is `TRUE`.
@@ -1058,7 +1077,7 @@ plot.sfsutils.spectrum.JointSFS <- function(x, pops = c(0, 1), title = NULL, log
 #' Draws the joint SFS of two populations, marginalised over any further populations.
 #'
 #' @param x A `JointSFS` object, such as `coal$jsfs$mean`.
-#' @param pops Zero-based indices of the populations on the y-axis and the x-axis.
+#' @param pops The populations on the y-axis and the x-axis, as zero-based indices or population names.
 #' @param title Plot title, `NULL` for none.
 #' @param mask_monomorphic Logical, whether to mask the monomorphic corners. Default is `TRUE`.
 #' @param theta,phi Viewing angles in degrees.
@@ -1104,6 +1123,7 @@ persp.sfsutils.spectrum.JointSFS <- function(x, pops = c(0, 1), title = NULL, ma
 #' @param t Times at which to evaluate the trajectories, `NULL` for the default.
 #' @param title Plot title, `NULL` for the default.
 #' @param ylab Label of the y-axis, `NULL` for the default.
+#' @param alpha Opacity of the lines.
 #' @param ... Unused.
 #'
 #' @return A ggplot object.
@@ -1122,13 +1142,15 @@ persp.sfsutils.spectrum.JointSFS <- function(x, pops = c(0, 1), title = NULL, ma
 #' @method plot phasegen.demography.Demography
 #' @export
 plot.phasegen.demography.Demography <- function(x, which = c("all", "pop_sizes", "migration"), t = NULL, title = NULL,
-                                                ylab = NULL, ...) {
+                                                ylab = NULL, alpha = 0.7, ...) {
 
   check_unused(...)
   curves <- x$`_plot_data`(np_or_null(t), match.arg(which))
+  data <- curve_frame(curves)
+  data$alpha <- rep(alpha, nrow(data))
 
   line_plot(
-    curve_frame(curves),
+    data,
     xlab = curves$xlabel,
     ylab = if (is.null(ylab)) curves$ylabel else ylab,
     title = if (is.null(title)) curves$title else title,

@@ -5,7 +5,7 @@ import itertools
 import math
 from abc import ABC, abstractmethod
 from ..caching import cached_property, cache
-from typing import List, NoReturn, Tuple, Iterable, Optional, Sequence, Union, TYPE_CHECKING
+from typing import Dict, List, Mapping, NoReturn, Tuple, Iterable, Optional, Sequence, Union, TYPE_CHECKING
 import numpy as np
 from ..errors import ModelError
 from ..initial import InitialDistribution
@@ -1130,7 +1130,7 @@ class _JointSFSAggregateFunction:
             self,
             ax: 'plt.Axes' = None,
             t: np.ndarray = None,
-            configs: Sequence[Tuple[int, ...]] = None,
+            configs: Sequence[Tuple[int, ...] | Mapping[str, int]] = None,
             n_points: int = None,
             show: bool = True,
             file: str = None,
@@ -1222,7 +1222,7 @@ class JointSFSQuantileFunction(_JointSFSAggregateFunction, QuantileFunction):
             self,
             ax: 'plt.Axes' = None,
             q: np.ndarray = None,
-            configs: Sequence[Tuple[int, ...]] = None,
+            configs: Sequence[Tuple[int, ...] | Mapping[str, int]] = None,
             n_points: int = None,
             show: bool = True,
             file: str = None,
@@ -1489,7 +1489,7 @@ class JointSFSDistribution(SpectrumDistribution):
 
     def _config_items(
             self,
-            configs: Sequence[Tuple[int, ...]] | None
+            configs: Sequence[Tuple[int, ...] | Mapping[str, int]] | None
     ) -> List[Tuple[Tuple[int, ...], 'RewardDistribution']]:
         """
         The requested joint bins with their distributions, under this spectrum's reward.
@@ -1530,30 +1530,38 @@ class JointSFSDistribution(SpectrumDistribution):
         :return: The configuration as a tuple of integers.
         :raises ValueError: If ``config`` is not the descendant configuration of a polymorphic joint SFS bin.
         """
-        return _descendant_config(config, tuple(int(n_p) for n_p in self.lineage_config.lineages))
+        return _descendant_config(
+            config, tuple(int(n_p) for n_p in self.lineage_config.lineages), self.lineage_config.pop_names
+        )
 
-    def bin(self, *config: int) -> 'RewardDistribution':
+    def bin(self, *config: int | Mapping[str, int]) -> 'RewardDistribution':
         """The distribution of the branch length of the joint SFS bin with the given descendant counts per population,
         as a :class:`~phasegen.distributions.RewardDistribution`, for example ``jsfs.bin(1, 0).quantile(0.9)``. The
         bin reward is combined with the reward of this spectrum, as for :meth:`UnfoldedSFSDistribution.bin()
         <phasegen.distributions.UnfoldedSFSDistribution.bin>`, and the distribution is cached per bin.
 
-        :param config: The descendant configuration, one count per population.
+        :param config: The descendant configuration, one count per population or a single mapping from population
+            names to counts, populations left out having a count of zero.
         :return: The distribution of the bin's branch length.
         :raises ValueError: If ``config`` is not the descendant configuration of a polymorphic joint SFS bin.
         """
-        config = self._bin_config(config)
+        config = self._bin_config(config[0] if len(config) == 1 and isinstance(config[0], Mapping) else config)
         d = self._bin_distribution(config)
         d.label = f"jSFS bin {config}"
         return d
 
-    def joint(self, config_a: Tuple[int, ...], config_b: Tuple[int, ...]) -> 'JointRewardDistribution':
+    def joint(
+            self,
+            config_a: Tuple[int, ...] | Mapping[str, int],
+            config_b: Tuple[int, ...] | Mapping[str, int]
+    ) -> 'JointRewardDistribution':
         """
         Joint distribution of the branch lengths of two joint SFS bins within one genealogy, as a
         :class:`~phasegen.distributions.JointRewardDistribution`. Both bin rewards are combined with the reward of this
         spectrum, as for :meth:`JointSFSDistribution.bin() <phasegen.distributions.JointSFSDistribution.bin>`.
 
-        :param config_a: The first descendant configuration, one count per population.
+        :param config_a: The first descendant configuration, one count per population or a mapping from population
+            names to counts, populations left out having a count of zero.
         :param config_b: The second descendant configuration.
         :return: The joint distribution of the two branch lengths.
         :raises ValueError: If a configuration is not the descendant configuration of a polymorphic joint SFS bin.
@@ -1570,7 +1578,7 @@ class JointSFSDistribution(SpectrumDistribution):
     def _plot_data_cdf(
             self,
             t: np.ndarray = None,
-            configs: Sequence[Tuple[int, ...]] = None,
+            configs: Sequence[Tuple[int, ...] | Mapping[str, int]] = None,
             n_points: int = None
     ) -> '_CurveData':
         """
@@ -1587,7 +1595,7 @@ class JointSFSDistribution(SpectrumDistribution):
     def _plot_data_pdf(
             self,
             t: np.ndarray = None,
-            configs: Sequence[Tuple[int, ...]] = None,
+            configs: Sequence[Tuple[int, ...] | Mapping[str, int]] = None,
             n_points: int = None
     ) -> '_CurveData':
         """
@@ -1604,7 +1612,7 @@ class JointSFSDistribution(SpectrumDistribution):
     def _plot_data_quantile(
             self,
             q: np.ndarray = None,
-            configs: Sequence[Tuple[int, ...]] = None,
+            configs: Sequence[Tuple[int, ...] | Mapping[str, int]] = None,
             n_points: int = None
     ) -> '_CurveData':
         """
@@ -1742,11 +1750,16 @@ class JointSFSDistribution(SpectrumDistribution):
 
         return self.moment(k=2, center=True)
 
-    def get_cov(self, config_a: Tuple[int, ...], config_b: Tuple[int, ...]) -> float:
+    def get_cov(
+            self,
+            config_a: Tuple[int, ...] | Mapping[str, int],
+            config_b: Tuple[int, ...] | Mapping[str, int]
+    ) -> float:
         """
         Get the covariance between the branch lengths subtending two descendant configurations.
 
-        :param config_a: First descendant configuration.
+        :param config_a: First descendant configuration, one count per population or a mapping from population names
+            to counts, populations left out having a count of zero.
         :param config_b: Second descendant configuration.
         :return: The covariance.
         :raises ValueError: If a configuration is not the descendant configuration of a polymorphic joint SFS bin.
@@ -1821,6 +1834,19 @@ class JointSFSDistribution(SpectrumDistribution):
             out[tuple(a) + tuple(b)] = result
 
         return out
+
+    @cached_property
+    def corr(self) -> np.ndarray:
+        """
+        Correlation between the branch lengths of all pairs of joint SFS bins, :attr:`cov` scaled by the standard
+        deviations of both bins, of shape :attr:`shape` ``+`` :attr:`shape`. Pairs without variance are set to zero.
+        """
+        cov = np.asarray(self.cov, dtype=float)
+        flat = cov.reshape(int(np.prod(self.shape)), -1)
+        std = np.sqrt(np.maximum(np.diag(flat), 0.0))
+        denom = np.outer(std, std)
+
+        return np.divide(flat, denom, out=np.zeros_like(flat), where=denom > 0).reshape(cov.shape)
 
 
 class TwoLocusSFSDistribution(SpectrumDistribution):
@@ -2256,41 +2282,57 @@ class TwoLocusSFSDistribution(SpectrumDistribution):
         Pearson correlation between the locus-0 and locus-1 branch lengths,
 
         .. math::
-            \operatorname{Corr}(L^0_i, L^1_j) = \frac{\mathbb{E}[L^0_i L^1_j] - \mathbb{E}[L^0_i]\, \mathbb{E}[L^1_j]}
+            \operatorname{Corr}(L^0_i, L^1_j) = \frac{\operatorname{Cov}(L^0_i, L^1_j)}
             {\operatorname{sd}(L^0_i)\, \operatorname{sd}(L^1_j)},
 
-        for all polymorphic bins :math:`(i, j)`, where :math:`\operatorname{sd}` is the standard deviation. This is the
-        centered, scale-free companion to the uncentered cross-moment :attr:`mean`. With recombination rate
-        :math:`\rho` it reduces to the single-locus SFS correlation as :math:`\rho \to 0`, and for the standard
-        coalescent it tends to 0 as :math:`\rho \to \infty`. The per-locus means and variances are the marginals of
-        the two-locus space and coincide for the two exchangeable loci.
+        for all polymorphic bins :math:`(i, j)`, with the covariance :attr:`cov` and :math:`\operatorname{sd}` the
+        standard deviation. With recombination rate :math:`\rho` it reduces to the single-locus SFS correlation as
+        :math:`\rho \to 0`, and for the standard coalescent it tends to 0 as :math:`\rho \to \infty`. The per-locus
+        variances are the marginals of the two-locus space and coincide for the two exchangeable loci.
         """
-        indices = self._get_indices()
-        n = self.lineage_config.n
-
-        # marginal locus-0 mean and variance per bin (identical for locus 1 by exchangeability, and independent of r)
-        mean = {
-            i: PhaseTypeDistribution.moment(
-                self, k=1, center=False,
-                rewards=(CombinedReward([self.reward, TwoLocusSFSReward(0, i)]),)
-            )
-            for i in indices
-        }
-        var = {
-            i: PhaseTypeDistribution.moment(
-                self, k=2, center=True,
-                rewards=(CombinedReward([self.reward, TwoLocusSFSReward(0, i)]),) * 2
-            )
-            for i in indices
-        }
-
-        cross = self.mean.data
-        out = np.zeros((n + 1, n + 1))
-        for i in indices:
-            for j in indices:
+        _, var = self._locus_marginals
+        cov = self.cov.data
+        out = np.zeros_like(cov)
+        for i in var:
+            for j in var:
                 denom = np.sqrt(var[i] * var[j])
                 if denom > 0:
-                    out[i, j] = (cross[i, j] - mean[i] * mean[j]) / denom
+                    out[i, j] = cov[i, j] / denom
 
         return TwoLocusSFS(out)
+
+    @cached_property
+    def cov(self) -> TwoLocusSFS:
+        r"""
+        Covariance between the locus-0 and locus-1 branch lengths,
+
+        .. math::
+            \operatorname{Cov}(L^0_i, L^1_j) = \mathbb{E}[L^0_i L^1_j] - \mathbb{E}[L^0_i]\, \mathbb{E}[L^1_j],
+
+        for all polymorphic bins :math:`(i, j)`, the centered companion to the uncentered cross-moment :attr:`mean`.
+        """
+        mean, _ = self._locus_marginals
+        cross = self.mean.data
+        out = np.zeros_like(cross, dtype=float)
+        for i in mean:
+            for j in mean:
+                out[i, j] = cross[i, j] - mean[i] * mean[j]
+
+        return TwoLocusSFS(out)
+
+    @cached_property
+    def _locus_marginals(self) -> Tuple[Dict[int, float], Dict[int, float]]:
+        """
+        The locus-0 mean and variance of every polymorphic bin, identical for locus 1 by exchangeability and
+        independent of the recombination rate.
+
+        :return: The means and variances, keyed by bin.
+        """
+        indices = self._get_indices()
+
+        def moment(i: int, k: int) -> float:
+            reward = CombinedReward([self.reward, TwoLocusSFSReward(0, i)])
+            return PhaseTypeDistribution.moment(self, k=k, center=k == 2, rewards=(reward,) * k)
+
+        return {i: moment(i, 1) for i in indices}, {i: moment(i, 2) for i in indices}
 

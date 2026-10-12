@@ -530,3 +530,99 @@ def test_joint_plot_accumulation_takes_a_label():
 
     ax = coal.jsfs.plot_accumulation(end_times=[0.5, 1.0], show=False, label='x')
     assert ax.get_lines()
+
+
+def test_joint_sfs_moments_keep_population_names_exact_sampled_and_msprime():
+    """
+    The mean, variance, standard deviation and second moment of the joint SFS carry the population names in the
+    exact, sampled and msprime coalescents alike, so their plots label the axes by population.
+    """
+    from phasegen.distributions import MsprimeCoalescent
+
+    demo = pg.Demography(pop_sizes={'CEU': 1, 'CHB': 1}, migration_rates={('CEU', 'CHB'): 1, ('CHB', 'CEU'): 1})
+    n = {'CEU': 2, 'CHB': 2}
+    exact = pg.Coalescent(n=n, demography=demo)
+
+    for coal in [exact, exact.to_empirical(200, seed=1),
+                 MsprimeCoalescent(n=n, demography=demo, num_replicates=200, seed=1, parallelize=False)]:
+        jsfs = coal.jsfs
+        for spectrum in (jsfs.mean, jsfs.var, jsfs.std, jsfs.moment(2)):
+            assert spectrum.pop_names == ['CEU', 'CHB'], type(coal).__name__
+
+
+def test_exact_and_sampled_spectra_share_raw_moments_and_correlations():
+    """
+    The exact spectra provide the third and fourth raw moments, the joint SFS bin correlation and the two-locus
+    cross-locus covariance that the sampled spectra provide, and the two agree within four standard errors.
+    """
+    demo = pg.Demography(pop_sizes={'a': 1, 'b': 1}, migration_rates={('a', 'b'): 1, ('b', 'a'): 1})
+    exact = pg.Coalescent(n={'a': 2, 'b': 2}, demography=demo)
+    n = 20000
+    sampled = exact.to_empirical(n, seed=1)
+
+    for k in (3, 4):
+        samples = sampled.tree_height.samples ** k
+        assert abs(getattr(exact.tree_height, f'm{k}') - samples.mean()) < 4 * samples.std() / np.sqrt(n)
+        assert type(getattr(exact.jsfs, f'm{k}')) is type(getattr(sampled.jsfs, f'm{k}'))
+
+    corr = exact.jsfs.corr
+    assert corr.shape == sampled.jsfs.corr.shape
+    assert np.all(np.abs(corr - sampled.jsfs.corr) < 4 * (1 - corr ** 2) / np.sqrt(n) + 1e-12)
+
+    exact2 = pg.Coalescent(n=4, loci=2, recombination_rate=1)
+    sampled2 = exact2.to_empirical(n, seed=1).sfs2
+    assert type(exact2.sfs2.cov) is type(sampled2.cov)
+
+    # the standard error of a sample covariance is at most sqrt(2) sd_i sd_j / sqrt(n)
+    bound = 4 * np.sqrt(2) * np.outer(sampled2._left.std(axis=0), sampled2._right.std(axis=0)) / np.sqrt(n)
+    assert np.all(np.abs(exact2.sfs2.cov.data - sampled2.cov.data) <= bound + 1e-12)
+
+
+def test_joint_sfs_standard_deviation_does_not_share_metadata_with_the_variance():
+    """Relabelling the standard deviation of the joint SFS leaves the cached variance unchanged. Regression: the two
+    shared one list of population names."""
+    demo = pg.Demography(pop_sizes={'a': 1, 'b': 1}, migration_rates={('a', 'b'): 1, ('b', 'a'): 1})
+    jsfs = pg.Coalescent(n={'a': 2, 'b': 2}, demography=demo).jsfs
+
+    jsfs.std.pop_names[0] = 'x'
+
+    assert jsfs.var.pop_names == ['a', 'b']
+
+
+def test_descendant_configuration_by_name(two_pop_coalescent):
+    """
+    A descendant configuration given by population name selects the bin of its positional form, populations left out
+    having a count of zero, and an unknown population name raises.
+    """
+    coal, jsfs = two_pop_coalescent, two_pop_coalescent.jsfs
+    named, positional = {'pop_1': 1}, (0, 1)
+    both, both_positional = {'pop_0': 1, 'pop_1': 1}, (1, 1)
+
+    assert pg.JointSFSReward({'pop_1': 1, 'pop_0': 0}) == pg.JointSFSReward(named)
+    assert coal.moment(k=1, rewards=[pg.JointSFSReward(named)]) == coal.moment(
+        k=1, rewards=[pg.JointSFSReward(positional)]
+    )
+
+    assert jsfs.get_cov(named, both) == jsfs.get_cov(positional, both_positional)
+    assert jsfs.bin(named).mean == jsfs.bin(*positional).mean
+    assert jsfs.joint(named, both).corr == jsfs.joint(positional, both_positional).corr
+
+    t = np.array([0.5, 1.0])
+    np.testing.assert_array_equal(
+        jsfs.pdf._plot_data(t=t, configs=[named]).y, jsfs.pdf._plot_data(t=t, configs=[positional]).y
+    )
+
+    sampled = coal.to_empirical(200, seed=1)
+    assert sampled.jsfs.get_cov(named, both) == sampled.jsfs.get_cov(positional, both_positional)
+    assert sampled.jsfs.bin(named).mean == sampled.jsfs.bin(*positional).mean
+    assert sampled.jsfs.joint(named, both).corr == sampled.jsfs.joint(positional, both_positional).corr
+    assert sampled.moment(k=1, rewards=[pg.JointSFSReward(named)]) == sampled.moment(
+        k=1, rewards=[pg.JointSFSReward(positional)]
+    )
+
+    with pytest.raises(ValueError, match="given by name"):
+        coal.moment(k=1, rewards=[pg.JointSFSReward({'pop_2': 1})])
+
+    for spectrum in (jsfs, sampled.jsfs):
+        with pytest.raises(ValueError, match="given by name"):
+            spectrum.get_cov({'pop_2': 1}, positional)

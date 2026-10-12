@@ -252,3 +252,56 @@ def test_simulated_f_statistics_hold_for_single_lineages_and_repeated_population
     assert ms.f2('a', 'c') == pytest.approx(coal.f2('a', 'c'), abs=0.3)
     assert ms.f3('c', 'a', 'b') == pytest.approx(coal.f3('c', 'a', 'b'), abs=0.3)
     assert ms.f4('a', 'b', 'c', 'a') == pytest.approx(coal.f4('a', 'b', 'c', 'a'), abs=0.3)
+
+
+def test_sampled_coalescent_mirrors_fst_and_f_statistics():
+    """
+    ``SampledCoalescent`` estimates each pairwise coalescence time within four standard errors of the exact one, and
+    builds F_ST and the f-statistics from those times as ``Coalescent`` does, reproducibly for a given seed.
+    """
+    from phasegen.distributions import SampledCoalescent
+
+    exact = pg.Coalescent(n={'pop_0': 2, 'pop_1': 2, 'pop_2': 2, 'pop_3': 2}, demography=_tree4())
+    sampled = SampledCoalescent(exact, n_samples=2000, seed=3)
+    pops = exact.demography.pop_names
+
+    for i, a in enumerate(pops):
+        for b in pops[i:]:
+            n = {p: 0 for p in pops} | ({a: 2} if a == b else {a: 1, b: 1})
+            height = pg.Coalescent(n=n, demography=exact.demography).tree_height
+            se = height.std / np.sqrt(2000 * 10)
+            assert abs(sampled._pairwise_coalescence_time(a, b) - height.mean) < 4 * se
+
+    t = sampled._pairwise_coalescence_time
+    assert all(type(v) is float for v in (sampled.fst, sampled.f2('pop_0', 'pop_1'),
+                                         sampled.f3('pop_0', 'pop_1', 'pop_2'), sampled.f4('pop_0', 'pop_1', 'pop_2', 'pop_3')))
+    assert sampled.f2('pop_0', 'pop_1') == 2 * t('pop_0', 'pop_1') - t('pop_0', 'pop_0') - t('pop_1', 'pop_1')
+    assert sampled.f4('pop_0', 'pop_1', 'pop_2', 'pop_3') == pytest.approx(
+        exact.f4('pop_0', 'pop_1', 'pop_2', 'pop_3'), abs=0.1)
+    assert sampled.fst == pytest.approx(exact.fst, abs=0.02)
+    assert SampledCoalescent(exact, n_samples=2000, seed=3).f3('pop_0', 'pop_1', 'pop_2') == sampled.f3(
+        'pop_0', 'pop_1', 'pop_2')
+
+
+def test_dropped_sampled_coalescent_serves_its_memoized_f_statistics():
+    """
+    After the wrapped coalescent is dropped, as for serialization, F_ST and the f-statistics whose pairwise times are
+    memoized are still served, and one needing a new pairwise time raises NotImplementedError. Regression: F_ST read
+    the dropped demography and raised AttributeError, and the memoized times were unreachable.
+    """
+    from phasegen.distributions import SampledCoalescent
+
+    demo = _island(0.5)
+    sampled = SampledCoalescent(pg.Coalescent(n={'pop_0': 2, 'pop_1': 2}, demography=demo), n_samples=500, seed=1)
+    fst, f2 = sampled.fst, sampled.f2('pop_0', 'pop_1')
+
+    sampled._drop()
+
+    assert sampled.fst == fst
+    assert sampled.f2('pop_0', 'pop_1') == f2
+
+    fresh = SampledCoalescent(pg.Coalescent(n={'pop_0': 2, 'pop_1': 2}, demography=demo), n_samples=500, seed=1)
+    fresh._drop()
+
+    with pytest.raises(NotImplementedError):
+        fresh.f2('pop_0', 'pop_1')

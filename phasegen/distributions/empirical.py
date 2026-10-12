@@ -8,7 +8,7 @@ import itertools
 import logging
 import math
 from ..caching import cached_property, cache
-from typing import List, Callable, Tuple, Dict, Iterable, Iterator, NoReturn, Optional, Sequence, Type, \
+from typing import List, Callable, Tuple, Dict, Iterable, Iterator, Mapping, NoReturn, Optional, Sequence, Type, \
     TYPE_CHECKING, Union
 import numpy as np
 from ..coalescent_models import StandardCoalescent, CoalescentModel, BetaCoalescent, DiracCoalescent
@@ -28,8 +28,8 @@ from .spectra import FoldedSFSDistribution, SFSDistribution, _TajimaSFSMixin, Un
     JointSFSDistribution, TwoLocusSFSDistribution
 from .mutation_configs import MutationConfig, MutationLayout, _DefaultLayoutMixin
 from ._common import (
-    _descendant_config, _frequency_class, _make_hashable, _polymorphic_class, _validate_order, _validate_reward,
-    _validate_reward_count, _validate_rewards, _validate_start_time
+    _descendant_config, _frequency_class, _make_hashable, _polymorphic_class, _sqrt_spectrum, _validate_order,
+    _validate_reward, _validate_reward_count, _validate_rewards, _validate_start_time
 )
 from .coalescent import AbstractCoalescent, Coalescent
 from .phase_type import PhaseTypeDistribution
@@ -51,6 +51,9 @@ _JOINT_CDF_DIRECT_MAX = 16
 
 #: Multiple of the replicate count with which a pairwise coalescence time is simulated, for the f-statistics.
 _PAIRWISE_REPLICATE_FACTOR = 10
+
+#: First entry of the spawn keys of the msprime seeds of the pairwise coalescence times, one key per pair.
+_PAIRWISE_SPAWN_KEY = 2 ** 16
 
 #: Message of the error raised where the simulated genealogies or sampled trajectories are not held.
 _NO_GENEALOGIES = (
@@ -318,7 +321,7 @@ class _EmpiricalJointSFSFunction:  # pragma: no cover
 
     _bin_legend = 'config'
 
-    def _configs(self, configs: Sequence[Tuple[int, ...]] | None) -> List[Tuple[int, ...]] | None:
+    def _configs(self, configs: Sequence[Tuple[int, ...] | Mapping[str, int]] | None) -> List[Tuple[int, ...]] | None:
         """
         Validate the descendant configurations of the joint bins.
 
@@ -328,7 +331,7 @@ class _EmpiricalJointSFSFunction:  # pragma: no cover
         """
         return None if configs is None else [self._distribution._bin_config(c) for c in configs]
 
-    def _plot_data(self, t: np.ndarray = None, configs: Sequence[Tuple[int, ...]] = None,
+    def _plot_data(self, t: np.ndarray = None, configs: Sequence[Tuple[int, ...] | Mapping[str, int]] = None,
                    n_points: int = None) -> '_CurveData':
         """
         The curves :meth:`plot` draws, one per joint bin.
@@ -345,7 +348,7 @@ class _EmpiricalJointSFSFunction:  # pragma: no cover
             self,
             ax: 'plt.Axes' = None,
             t: np.ndarray = None,
-            configs: Sequence[Tuple[int, ...]] = None,
+            configs: Sequence[Tuple[int, ...] | Mapping[str, int]] = None,
             n_points: int = None,
             show: bool = True,
             file: str = None,
@@ -388,7 +391,7 @@ class _EmpiricalJointSFSDensity(_EmpiricalJointSFSFunction, _EmpiricalDensityFun
 class _EmpiricalJointSFSQuantileFunction(_EmpiricalJointSFSFunction, _EmpiricalQuantileFunction):  # pragma: no cover
     """The sample quantile of every bin of an empirical joint spectrum, with the bins selected by configuration."""
 
-    def _plot_data(self, q: np.ndarray = None, configs: Sequence[Tuple[int, ...]] = None,
+    def _plot_data(self, q: np.ndarray = None, configs: Sequence[Tuple[int, ...] | Mapping[str, int]] = None,
                    n_points: int = None) -> '_CurveData':
         """
         The empirical quantile curves :meth:`plot` draws, one per joint bin.
@@ -405,7 +408,7 @@ class _EmpiricalJointSFSQuantileFunction(_EmpiricalJointSFSFunction, _EmpiricalQ
             self,
             ax: 'plt.Axes' = None,
             q: np.ndarray = None,
-            configs: Sequence[Tuple[int, ...]] = None,
+            configs: Sequence[Tuple[int, ...] | Mapping[str, int]] = None,
             n_points: int = None,
             show: bool = True,
             file: str = None,
@@ -620,7 +623,7 @@ class EmpiricalDistribution(DensityAwareDistribution):  # pragma: no cover
         var = self.var
 
         if isinstance(var, AbstractSpectrum):
-            return type(var)(np.maximum(np.asarray(var.data, dtype=float), 0.0) ** 0.5)
+            return _sqrt_spectrum(var)
 
         if np.ndim(var) == 0:
             return max(float(var), 0.0) ** 0.5
@@ -1299,6 +1302,26 @@ class EmpiricalJointSFSDistribution(_EmpiricalAccumulating, EmpiricalSpectrumDis
         #: The loci the replicates start from.
         self._layout_loci = locus_config
 
+    def _spectrum(self, data: np.ndarray) -> JointSFS:
+        """
+        A joint SFS of the given data, with the population names of the axes.
+
+        :param data: The data.
+        :return: The joint SFS.
+        """
+        return JointSFS(data, pop_names=self._pop_names)
+
+    @property
+    def _pop_names(self) -> Optional[List[str]]:
+        """
+        The population names of the axes, those of the lineages the replicates start from, ``None`` if unknown.
+        """
+        config = self._layout_lineages
+        if isinstance(config, InitialDistribution):
+            config = config.configs[0]
+
+        return None if config is None else config.pop_names
+
     def _mutation_entries(self) -> List[Tuple[int, ...]]:
         """
         The polymorphic descendant vectors.
@@ -1340,33 +1363,39 @@ class EmpiricalJointSFSDistribution(_EmpiricalAccumulating, EmpiricalSpectrumDis
         :return: The configuration as a tuple of integers.
         :raises ValueError: If ``config`` is not the descendant configuration of a polymorphic joint SFS bin.
         """
-        return _descendant_config(config, tuple(s - 1 for s in self.shape))
+        return _descendant_config(config, tuple(s - 1 for s in self.shape), self._pop_names)
 
-    def get_cov(self, config_a: Tuple[int, ...], config_b: Tuple[int, ...]) -> float:
+    def get_cov(
+            self,
+            config_a: Tuple[int, ...] | Mapping[str, int],
+            config_b: Tuple[int, ...] | Mapping[str, int]
+    ) -> float:
         """
         The sample covariance between the branch lengths of two descendant configurations, the sampled counterpart of
         :meth:`JointSFSDistribution.get_cov() <phasegen.distributions.JointSFSDistribution.get_cov>`, an entry of
         :attr:`cov`.
 
-        :param config_a: The first descendant configuration.
+        :param config_a: The first descendant configuration, one count per population or a mapping from population
+            names to counts.
         :param config_b: The second descendant configuration.
         :return: The covariance.
         :raises ValueError: If a configuration is not the descendant configuration of a polymorphic joint SFS bin.
         """
         return float(np.asarray(self.cov)[self._bin_config(config_a) + self._bin_config(config_b)])
 
-    def bin(self, *config: int) -> EmpiricalDistribution:
+    def bin(self, *config: int | Mapping[str, int]) -> EmpiricalDistribution:
         """
         The empirical distribution of the branch length of the joint SFS bin with the given descendant counts per
         population, the sampled counterpart of :meth:`JointSFSDistribution.bin()
         <phasegen.distributions.JointSFSDistribution.bin>`, from the stored samples.
 
-        :param config: The descendant configuration, one count per population.
+        :param config: The descendant configuration, one count per population or a single mapping from population
+            names to counts, populations left out having a count of zero.
         :return: The empirical distribution of the bin's branch length.
         :raises ValueError: If ``config`` is not the descendant configuration of a polymorphic joint SFS bin, or the
             per-replicate samples have been dropped.
         """
-        config = self._bin_config(config)
+        config = self._bin_config(config[0] if len(config) == 1 and isinstance(config[0], Mapping) else config)
 
         if self.samples is None:
             raise ValueError("The per-replicate samples have been dropped, and the bins need them.")
@@ -1418,28 +1447,28 @@ class EmpiricalJointSFSDistribution(_EmpiricalAccumulating, EmpiricalSpectrumDis
         r"""
         Sample mean over all replicates, :math:`\hat M_1`.
         """
-        return JointSFS(self._moments[0])
+        return self._spectrum(self._moments[0])
 
     @cached_property
     def var(self) -> JointSFS:
         r"""
         Sample variance over all replicates, :math:`\hat M_2 - \hat M_1^2`.
         """
-        return JointSFS(self._moments[1] - self._moments[0] ** 2)
+        return self._spectrum(self._moments[1] - self._moments[0] ** 2)
 
     @cached_property
     def m2(self) -> JointSFS:
         r"""
         Second raw sample moment over all replicates, :math:`\hat M_2`.
         """
-        return JointSFS(self._moments[1])
+        return self._spectrum(self._moments[1])
 
     @cached_property
     def m3(self) -> JointSFS:
         r"""
         Third raw sample moment over all replicates, :math:`\hat M_3`.
         """
-        return JointSFS(self._moments[2])
+        return self._spectrum(self._moments[2])
 
     @cached_property
     def m4(self) -> JointSFS:
@@ -1447,7 +1476,7 @@ class EmpiricalJointSFSDistribution(_EmpiricalAccumulating, EmpiricalSpectrumDis
         Fourth raw sample moment of the stored samples, see
         :meth:`EmpiricalDistribution.moment() <phasegen.distributions.EmpiricalDistribution.moment>`.
         """
-        return JointSFS(super().m4)
+        return self._spectrum(super().m4)
 
     def moment(
             self,
@@ -1488,20 +1517,20 @@ class EmpiricalJointSFSDistribution(_EmpiricalAccumulating, EmpiricalSpectrumDis
         k = _validate_order(k)
 
         if rewards is not None or start_time is not None or end_time is not None:
-            return JointSFS(self._require_accumulator().moment(k, rewards, start_time, end_time, center, permute))
+            return self._spectrum(self._require_accumulator().moment(k, rewards, start_time, end_time, center, permute))
 
         if k > 3:
             if self.samples is None:
                 raise ValueError("Moments above order three need the per-replicate samples, which have been dropped.")
 
-            return JointSFS(super().moment(k, center=center))
+            return self._spectrum(super().moment(k, center=center))
 
         raw = [np.ones(self._moments.shape[1:])] + list(self._moments)
 
         if not center or k < 2:
-            return JointSFS(raw[k])
+            return self._spectrum(raw[k])
 
-        return JointSFS(sum(math.comb(k, o) * raw[o] * (-raw[1]) ** (k - o) for o in range(k + 1)))
+        return self._spectrum(sum(math.comb(k, o) * raw[o] * (-raw[1]) ** (k - o) for o in range(k + 1)))
 
     @property
     def data(self) -> np.ndarray:
@@ -1535,13 +1564,18 @@ class EmpiricalJointSFSDistribution(_EmpiricalAccumulating, EmpiricalSpectrumDis
             if name in self._standard_errors:
                 self._standard_errors[name] = self._standard_errors[name] * scale
 
-    def joint(self, config_a: Tuple[int, ...], config_b: Tuple[int, ...]) -> 'EmpiricalJointDistribution':
+    def joint(
+            self,
+            config_a: Tuple[int, ...] | Mapping[str, int],
+            config_b: Tuple[int, ...] | Mapping[str, int]
+    ) -> 'EmpiricalJointDistribution':
         """
         The empirical joint distribution of the branch lengths of the descendant vectors ``config_a`` and
         ``config_b``, the sampled counterpart of :meth:`JointSFSDistribution.joint()
         <phasegen.distributions.JointSFSDistribution.joint>`.
 
-        :param config_a: The first descendant vector.
+        :param config_a: The first descendant vector, one count per population or a mapping from population names to
+            counts.
         :param config_b: The second descendant vector.
         :return: The empirical joint distribution.
         :raises ValueError: If a configuration is not the descendant configuration of a polymorphic joint SFS bin, or
@@ -1814,18 +1848,26 @@ class EmpiricalTwoLocusSFSDistribution(_EmpiricalAccumulating, EmpiricalSpectrum
         return TwoLocusSFS(super().moment(k, center=center))
 
     @cached_property
+    def cov(self) -> TwoLocusSFS:
+        r"""
+        Sample covariance between :math:`L^0_i` and :math:`L^1_j` for every pair of classes, the sampled counterpart
+        of :attr:`TwoLocusSFSDistribution.cov <phasegen.distributions.TwoLocusSFSDistribution.cov>`.
+        """
+        a = self._left - self._left.mean(axis=0)
+        b = self._right - self._right.mean(axis=0)
+
+        return TwoLocusSFS(a.T @ b / a.shape[0])
+
+    @cached_property
     def corr(self) -> TwoLocusSFS:
         r"""
         Sample Pearson correlation between :math:`L^0_i` and :math:`L^1_j` for every pair of classes, the sampled
         counterpart of :attr:`TwoLocusSFSDistribution.corr <phasegen.distributions.TwoLocusSFSDistribution.corr>`.
         Pairs without variance are set to zero.
         """
-        a = self._left - self._left.mean(axis=0)
-        b = self._right - self._right.mean(axis=0)
-        cov = a.T @ b / a.shape[0]
-
         with np.errstate(divide='ignore', invalid='ignore'):
-            return TwoLocusSFS(np.nan_to_num(cov / np.outer(a.std(axis=0), b.std(axis=0))))
+            return TwoLocusSFS(np.nan_to_num(
+                self.cov.data / np.outer(self._left.std(axis=0), self._right.std(axis=0))))
 
     def joint(self, i: int, j: int) -> 'EmpiricalJointDistribution':
         """
@@ -3564,7 +3606,7 @@ class _Trajectories:  # pragma: no cover
             return [('length', reward.locus, None, (reward.count,), None)]
 
         if isinstance(reward, JointSFSReward):
-            config = reward.config
+            config = JointSFSReward._positional(reward.config, self.pops)
 
             if len(config) != len(self.sizes) or not all(0 <= c <= s for c, s in zip(config, self.sizes)) \
                     or not any(config):
@@ -5025,31 +5067,26 @@ class MsprimeCoalescent(AbstractCoalescent):
 
         return float(1 - within.mean() / between.mean())
 
-    def _pairwise_coalescence_time(self, pop_i: str, pop_j: str) -> float:
+    def _pair_time(self, pair: Tuple[str, str]) -> float:
         """
-        msprime estimate of the expected coalescence time of one lineage sampled in ``pop_i`` and one in ``pop_j``,
-        two in ``pop_i`` when they coincide, simulated for that pair alone as :class:`Coalescent` computes it. It does
-        not depend on the sample configuration of this coalescent, and uses ten times its replicates. Memoized per pair.
+        msprime estimate of the mean tree height of two lineages, one in each population of ``pair``, two when they
+        coincide, from ten times the replicates of this coalescent, seeded per pair. Memoized per pair, and kept when
+        the demography is dropped.
 
-        :param pop_i: Name of the first population.
-        :param pop_j: Name of the second population.
-        :return: The mean coalescence time.
-        :raises ValueError: If a population is unknown.
-        :raises NotImplementedError: If the demography has been dropped, as for serialization.
+        :param pair: The two populations, sorted.
+        :return: The mean tree height.
+        :raises NotImplementedError: If the demography has been dropped and the pair is not memoized.
         """
         import msprime as ms
 
-        names = self._require_demography().pop_names
-        for pop in (pop_i, pop_j):
-            if pop not in names:
-                raise ValueError(f"Unknown population '{pop}'. Available populations: {names}.")
-
-        key = tuple(sorted((pop_i, pop_j)))
         cache = self.__dict__.setdefault('_pairwise_times', {})
 
-        if key not in cache:
-            names = self.demography._msprime_names
-            samples = {names[pop_i]: 2} if pop_i == pop_j else {names[pop_i]: 1, names[pop_j]: 1}
+        if pair not in cache:
+            demography = self._require_demography()
+            names = demography._msprime_names
+            samples = {names[p]: k for p, k in self._pair_lineages(pair).items() if k}
+            seed = np.random.SeedSequence(self.seed, spawn_key=(_PAIRWISE_SPAWN_KEY,
+                                                                *(demography.pop_names.index(p) for p in pair)))
 
             times = np.array([ts.first().time(ts.first().root) for ts in ms.sim_ancestry(
                 samples=samples,
@@ -5058,37 +5095,13 @@ class MsprimeCoalescent(AbstractCoalescent):
                 model=self.get_coalescent_model(),
                 ploidy=1,
                 num_replicates=self.num_replicates * _PAIRWISE_REPLICATE_FACTOR,
-                random_seed=self._msprime_seed(),
+                random_seed=self._msprime_seeds(seed, 1)[0],
             )])
 
             # an end time bounds the accumulation of the tree height, as in the exact computation
-            cache[key] = float(np.mean(times if self.end_time is None else np.minimum(times, self.end_time)))
+            cache[pair] = float(np.mean(times if self.end_time is None else np.minimum(times, self.end_time)))
 
-        return cache[key]
-
-    def f2(self, pop_0: str, pop_1: str) -> float:
-        """
-        msprime ``f2`` ground truth from simulated pairwise coalescence times. Matches
-        :meth:`Coalescent.f2() <phasegen.distributions.Coalescent.f2>`.
-        """
-        t = self._pairwise_coalescence_time
-        return 2 * t(pop_0, pop_1) - t(pop_0, pop_0) - t(pop_1, pop_1)
-
-    def f3(self, pop_target: str, pop_0: str, pop_1: str) -> float:
-        """
-        msprime ``f3`` ground truth from simulated pairwise coalescence times. Matches
-        :meth:`Coalescent.f3() <phasegen.distributions.Coalescent.f3>`.
-        """
-        t = self._pairwise_coalescence_time
-        return t(pop_target, pop_0) + t(pop_target, pop_1) - t(pop_0, pop_1) - t(pop_target, pop_target)
-
-    def f4(self, pop_0: str, pop_1: str, pop_2: str, pop_3: str) -> float:
-        """
-        msprime ``f4`` ground truth from simulated pairwise coalescence times. Matches
-        :meth:`Coalescent.f4() <phasegen.distributions.Coalescent.f4>`.
-        """
-        t = self._pairwise_coalescence_time
-        return t(pop_0, pop_3) + t(pop_1, pop_2) - t(pop_0, pop_2) - t(pop_1, pop_3)
+        return cache[pair]
 
     def _trajectory_records(self) -> _Trajectories:
         """
@@ -5324,7 +5337,8 @@ class SampledCoalescent(AbstractCoalescent):  # pragma: no cover
     """
 
     #: Per-statistic spawn keys so each distribution is sampled reproducibly and independently of access order.
-    _spawn_keys = dict(tree_height=0, total_branch_length=1, sfs=2, fsfs=3, jsfs=4, sfs2=5, joint=6, moment=7)
+    _spawn_keys = dict(tree_height=0, total_branch_length=1, sfs=2, fsfs=3, jsfs=4, sfs2=5, joint=6, moment=7,
+                       pairwise=8)
 
     def __init__(
             self,
@@ -5443,6 +5457,30 @@ class SampledCoalescent(AbstractCoalescent):  # pragma: no cover
             raise NotImplementedError(_NO_GENEALOGIES.format(statistic="statistic", holder="coalescent"))
 
         return self._coalescent
+
+    def _pair_time(self, pair: Tuple[str, str]) -> float:
+        """
+        Sampled estimate of the mean tree height of two lineages, one in each population of ``pair``, two when they
+        coincide, from ten times the samples of a statistic, seeded per pair. Memoized per pair, and kept when the
+        wrapped coalescent is dropped.
+
+        :param pair: The two populations, sorted.
+        :return: The mean tree height.
+        :raises NotImplementedError: If the wrapped coalescent has been dropped and the pair is not memoized.
+        """
+        cache = self.__dict__.setdefault('_pairwise_times', {})
+
+        if pair not in cache:
+            coal = self._require_coalescent()
+            names = coal.demography.pop_names
+            exact = Coalescent(n=self._pair_lineages(pair), demography=coal.demography, model=coal.model,
+                               start_time=coal.start_time, end_time=coal.end_time)
+            seed = np.random.SeedSequence(self.seed, spawn_key=(self._spawn_keys['pairwise'],
+                                                                names.index(pair[0]), names.index(pair[1])))
+            cache[pair] = SampledCoalescent(exact, self.n_samples * _PAIRWISE_REPLICATE_FACTOR,
+                                            seed=np.random.default_rng(seed)).tree_height.mean
+
+        return cache[pair]
 
     def accumulate(
             self,

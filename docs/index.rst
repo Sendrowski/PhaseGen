@@ -23,6 +23,7 @@ Coalescent simulators such as `msprime <https://tskit.dev/msprime/docs/stable/in
    reference/mutation_configs
    reference/empirical_distributions
    reference/inference
+   reference/examples
    reference/performance
    reference/miscellaneous
 

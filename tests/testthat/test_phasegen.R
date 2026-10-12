@@ -40,6 +40,9 @@ test_that("distribution-function plots pass the evaluation grid and the joint SF
   expect_equal(sort(unique(p$data$x)), c(0.5, 1, 2))
   expect_equal(length(unique(p$data$series)), 2)
 
+  named <- plot(coal$jsfs$pdf, t = c(0.5, 1, 2), configs = list(list(pop_0 = 1L), list(pop_1 = 1L)))
+  expect_equal(named$data$y, p$data$y)
+
   q <- plot(pg$Coalescent(n = 3L)$tree_height$quantile, q = c(0.25, 0.5, 0.75))
   expect_equal(sort(unique(q$data$x)), c(0.25, 0.5, 0.75))
 })
@@ -108,6 +111,10 @@ test_that("persp() draws a joint SFS whose facet heights agree to round-off", {
   for (pops in list(c(0L, 1L), c(0L, 2L), c(1L, 2L))) {
     expect_no_error(persp(coal$jsfs$mean, pops = pops))
   }
+
+  by_name <- plot(coal$jsfs$mean, pops = c("pop_2", "pop_0"))
+  expect_equal(by_name$data, plot(coal$jsfs$mean, pops = c(2L, 0L))$data)
+  expect_error(plot(coal$jsfs$mean, pops = c("pop_0", "pop_3")), "Population names")
 })
 
 test_that("the declared Python version constraints admit Python 3.10 to 3.13", {

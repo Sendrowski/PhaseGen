@@ -9,7 +9,7 @@ complex statistics and their distributions.
 
 import numbers
 from abc import abstractmethod, ABC
-from typing import List, Callable, Tuple, Iterable, Type
+from typing import List, Callable, Mapping, Sequence, Tuple, Iterable, Type
 
 import numpy as np
 
@@ -232,8 +232,9 @@ class JointSFSReward(JointBlockCountingReward):
     of lineages (across all demes of residence and loci) whose descendant vector equals :math:`\mathbf{c}`,
     :math:`r(i) = \#\{\text{lineages in } i \text{ with descendant vector } \mathbf{c}\}`.
 
-    The following example computes the mean length of the branches subtending one lineage of ``pop_0`` and none of
-    ``pop_1``.
+    The descendant vector holds one count per population, in the order of the sample configuration, or maps population
+    names to counts, zero counts being left out. The example computes the mean length of the branches subtending one
+    lineage of ``pop_0`` and none of ``pop_1``.
 
     ::
 
@@ -241,20 +242,50 @@ class JointSFSReward(JointBlockCountingReward):
             pop_sizes={'pop_0': 1, 'pop_1': 1}, migration_rates={('pop_0', 'pop_1'): 0.5, ('pop_1', 'pop_0'): 0.5}
         ))
 
+        mean = coal.moment(1, (pg.JointSFSReward({'pop_0': 1}),))
+
+        # the same bin given positionally
         mean = coal.moment(1, (pg.JointSFSReward((1, 0)),))
     """
 
     _resolves_residence = True
 
-    def __init__(self, config: Tuple[int, ...]) -> None:
+    def __init__(self, config: Tuple[int, ...] | Mapping[str, int]) -> None:
         """
         Initialize the reward.
 
         :param config: The descendant vector identifying the joint SFS bin, i.e. the number of descendants subtended
-            from each population.
+            from each population, as one count per population or as a mapping from population names to counts.
         :raises ValueError: If an entry is not an integer.
         """
-        self.config: Tuple[int, ...] = tuple(self._integer(c, "descendant count") for c in config)
+        if isinstance(config, Mapping):
+            counts = {str(pop): self._integer(c, "descendant count") for pop, c in config.items()}
+            config = {pop: counts[pop] for pop in sorted(counts) if counts[pop]}
+        else:
+            config = tuple(self._integer(c, "descendant count") for c in config)
+
+        self.config: Tuple[int, ...] | Mapping[str, int] = config
+
+    @staticmethod
+    def _positional(config: Sequence[int] | Mapping[str, int], pop_names: Sequence[str] | None) -> Tuple[int, ...]:
+        """
+        The descendant vector with one count per population.
+
+        :param config: The descendant vector, as one count per population or as a mapping from population names to
+            counts.
+        :param pop_names: The population names in the order of the counts, ``None`` if unknown.
+        :return: One count per population.
+        :raises ValueError: If a named population does not exist or the population names are unknown.
+        """
+        if not isinstance(config, Mapping):
+            return tuple(config)
+
+        if pop_names is None or any(pop not in pop_names for pop in config):
+            raise ValueError(
+                f"The populations of a descendant vector given by name must be among {pop_names}, got {dict(config)}."
+            )
+
+        return tuple(config.get(pop, 0) for pop in pop_names)
 
     def _block(self, state_space: JointBlockCountingStateSpace) -> int:
         """
@@ -264,14 +295,16 @@ class JointSFSReward(JointBlockCountingReward):
         :return: block index
         :raises ValueError: If the descendant vector is not one of the state space.
         """
-        if self.config not in state_space.block_index:
+        config = self._positional(self.config, state_space.lineage_config.pop_names)
+
+        if config not in state_space.block_index:
             sizes = tuple(int(n_p) for n_p in state_space.lineage_config.lineages)
             raise ValueError(
                 f"The descendant vector must have one entry per population, the entry of population p lying in "
                 f"0, ..., n_p for the sample sizes {sizes}, and at least one non-zero entry, got {self.config}."
             )
 
-        return state_space.block_index[self.config]
+        return state_space.block_index[config]
 
     def _get(self, state_space: JointBlockCountingStateSpace) -> np.ndarray:
         """

@@ -19,11 +19,19 @@ from .errors import ModelError
 from .settings import Settings
 
 if TYPE_CHECKING:
+    import demes
     import msprime
     from matplotlib import pyplot as plt
     from .visualization import _CurveData
 
 logger = logging.getLogger('phasegen')
+
+#: Proportion of the pulse that stands for a mass migration of all lineages out of a population that later receives
+#: lineages again, the largest a pulse allows to within a negligible remainder.
+_FULL_PULSE_PROPORTION = 1 - 1e-9
+
+#: Multiplier of the fastest pairwise coalescence rate whose inverse is the window length of a population split.
+_SPLIT_WINDOW_MULTIPLIER = 1e5
 
 
 class Demography:
@@ -195,7 +203,7 @@ class Demography:
         :param max_epochs: Maximum number of epoch changes to use, a warning being logged if the demography has more. Note
             that the number of epochs may be infinite.
         :return: msprime demography object.
-        :raise ImportError: If Msprime is not installed.
+        :raises ImportError: If Msprime is not installed.
         """
         try:
             import msprime as ms
@@ -253,6 +261,205 @@ class Demography:
         d.sort_events()
 
         return d
+
+    @classmethod
+    def from_msprime(
+            cls,
+            demography: 'msprime.Demography',
+            ploidy: int = 2,
+            scale: float = 1,
+            growth_steps: int = 40
+    ) -> 'Demography':
+        r"""
+        Create a demography from an :class:`msprime.Demography`. A population of :math:`N` individuals of ploidy :math:`k` has
+        size :math:`k N / s` and a time of :math:`t` generations becomes :math:`t / s`, where :math:`s` is ``scale``,
+        so that migration and growth rates per generation are multiplied by :math:`s`. With :math:`s = k N_A` the
+        unit of time is :math:`k N_A` generations and population sizes are relative to :math:`N_A`.
+
+        Exponential growth is discretized into ``growth_steps`` constant sizes per epoch (see
+        :class:`~phasegen.demography.ExponentialPopSizeChanges`). Population splits become
+        :class:`~phasegen.demography.PopulationSplit` events and mass migrations :class:`~phasegen.demography.Pulse`
+        events. A mass migration of proportion 1 becomes a population split if no lineage enters the source
+        afterwards, and a pulse of proportion :math:`1 - 10^{-9}` otherwise. An admixture from sources with
+        proportions :math:`p_1, \dots, p_K` becomes a pulse to each source :math:`i < K` with proportion
+        :math:`p_i / (1 - \sum_{j < i} p_j)` and a split into source :math:`K`. Bottlenecks are not supported and left
+        out with a warning, and a population growing in the last epoch is held at its size at the start of that epoch,
+        also with a warning.
+
+        The following example loads the out-of-Africa model of Gutenkunst et al. (2009) as a
+        :class:`stdpopsim.DemographicModel`, in units of :math:`2 N_A` generations with :math:`N_A = 7300`.
+
+        ::
+
+            import stdpopsim
+
+            model = stdpopsim.get_species('HomSap').get_demographic_model('OutOfAfrica_3G09')
+            demography = pg.Demography.from_msprime(model.model, scale=2 * 7300)
+
+        :param demography: The :class:`msprime.Demography`.
+        :param ploidy: The ploidy :math:`k` of the individuals.
+        :param scale: The scale :math:`s` of time and population sizes.
+        :param growth_steps: Number of constant sizes per epoch of exponential growth. The error of the discretization falls with the
+            square of this number.
+        :return: The demography.
+        :raises ImportError: If msprime is not installed.
+        """
+        try:
+            import msprime as ms
+        except ImportError:
+            raise ImportError('Msprime must be installed to use this method.')
+
+        log = logger.getChild(cls.__name__)
+        demography = demography.copy()
+        demography.sort_events()
+        epochs = demography.debug().epochs
+        name = {p.id: p.name for p in demography.populations}
+
+        def resolve(pop) -> str:
+            return demography[pop].name
+
+        def immigration_after(pop, index: int) -> bool:
+            """Whether lineages can enter ``pop`` after the event at ``index``, by migration or a later event."""
+            target = demography[pop].id
+            time = demography.events[index].time
+            if any(e.migration_matrix[:, target].any() for e in epochs if e.start_time >= time):
+                return True
+            for e in demography.events[index + 1:]:
+                if isinstance(e, ms.demography.MassMigration) and demography[e.dest].id == target:
+                    return True
+                if isinstance(e, (ms.demography.PopulationSplit, ms.demography.Admixture)) and any(
+                        demography[a].id == target for a in np.atleast_1d(e.ancestral)):
+                    return True
+            return False
+
+        # lineage-moving events, and the time from which each population is empty
+        events: List[DemographicEvent] = []
+        emptied: Dict[str, float] = {}
+        for index, event in enumerate(demography.events):
+            time = event.time / scale
+
+            if isinstance(event, ms.demography.PopulationSplit):
+                derived = [resolve(p) for p in event.derived]
+                events.append(PopulationSplit(time=time, derived=derived, ancestral=resolve(event.ancestral)))
+                emptied.update({p: event.time for p in derived if p not in emptied})
+
+            elif isinstance(event, ms.demography.MassMigration) and event.proportion < 1:
+                events.append(Pulse(time=time, source=resolve(event.source), dest=resolve(event.dest),
+                                    proportion=event.proportion))
+
+            elif isinstance(event, ms.demography.MassMigration) and not immigration_after(event.source, index):
+                events.append(PopulationSplit(time=time, derived=resolve(event.source), ancestral=resolve(event.dest)))
+                emptied.setdefault(resolve(event.source), event.time)
+
+            elif isinstance(event, ms.demography.MassMigration):
+                events.append(Pulse(time=time, source=resolve(event.source), dest=resolve(event.dest),
+                                    proportion=_FULL_PULSE_PROPORTION))
+
+            elif isinstance(event, ms.demography.Admixture):
+                derived = resolve(event.derived)
+                sources = [(resolve(a), p) for a, p in zip(event.ancestral, event.proportions) if p > 0]
+
+                # each source but the last takes its share of the lineages still in the derived population
+                remaining = 1.0
+                for source, p in sources[:-1]:
+                    events.append(Pulse(time=time, source=derived, dest=source, proportion=p / remaining))
+                    remaining -= p
+
+                events.append(PopulationSplit(time=time, derived=derived, ancestral=sources[-1][0]))
+                emptied.setdefault(derived, event.time)
+
+            elif not isinstance(event, (ms.demography.PopulationParametersChange, ms.demography.MigrationRateChange,
+                                        ms.demography.SymmetricMigrationRateChange,
+                                        ms.demography.ActivatePopulationEvent, ms.demography.CensusEvent)):
+                log.warning('The msprime event %s is not supported and is left out.', event)
+
+        # the sizes of an emptied population stay at their value when it was emptied
+        pop_sizes: Dict[str, Dict[float, float]] = defaultdict(dict)
+        migration_rates: Dict[Tuple[str, str], Dict[float, float]] = defaultdict(dict)
+        size, rate = {}, {}
+
+        for epoch in epochs:
+            t0, t1 = epoch.start_time / scale, epoch.end_time / scale
+
+            for p in epoch.populations:
+                if p.start_size <= 0 or epoch.start_time >= emptied.get(p.name, np.inf):
+                    continue
+
+                if p.growth_rate != 0 and np.isfinite(t1):
+                    events.append(ExponentialPopSizeChanges(
+                        initial_size={p.name: ploidy * p.start_size / scale},
+                        growth_rate=p.growth_rate * scale,
+                        start_time=t0,
+                        end_time=t1,
+                        step_size=(t1 - t0) / growth_steps
+                    ))
+                    size[p.name] = None
+                    continue
+
+                if p.growth_rate != 0:
+                    log.warning('Population %s grows in the last epoch, which is not supported. Its size is kept at '
+                                '%g from time %g on.', p.name, p.start_size, epoch.start_time)
+
+                if size.get(p.name) != p.start_size:
+                    pop_sizes[p.name][t0] = ploidy * p.start_size / scale
+                    size[p.name] = p.start_size
+
+            for (i, j), m in np.ndenumerate(epoch.migration_matrix):
+                if i != j and rate.get((i, j), 0) != m:
+                    migration_rates[(name[i], name[j])][t0] = m * scale
+                    rate[(i, j)] = m
+
+        # the warning threshold clears the epochs of the conversion: the steps of each growing epoch, and a window
+        # per split or pulse
+        growing = len({(e.start_time, e.end_time) for e in events if isinstance(e, ExponentialPopSizeChanges)})
+
+        return cls(
+            pop_sizes=dict(pop_sizes),
+            migration_rates={k: v for k, v in migration_rates.items() if any(v.values())},
+            events=events,
+            warn_n_epochs=max(20, growth_steps * growing + len(epochs) + 2 * len(events))
+        )
+
+    @classmethod
+    def from_demes(
+            cls,
+            graph: 'demes.Graph',
+            ploidy: int = 2,
+            scale: float = 1,
+            growth_steps: int = 40
+    ) -> 'Demography':
+        """
+        Create a demography from a :class:`demes.Graph`, by way of :meth:`msprime.Demography.from_demes` and
+        :meth:`Demography.from_msprime() <phasegen.demography.Demography.from_msprime>`, whose parameters it shares.
+
+        :param graph: The :class:`demes.Graph`.
+        :param ploidy: The ploidy of the individuals.
+        :param scale: The scale of time and population sizes.
+        :param growth_steps: Number of constant sizes per epoch of exponential growth.
+        :return: The demography.
+        :raises ImportError: If msprime is not installed.
+        """
+        try:
+            import msprime as ms
+        except ImportError:
+            raise ImportError('Msprime must be installed to use this method.')
+
+        return cls.from_msprime(ms.Demography.from_demes(graph), ploidy=ploidy, scale=scale,
+                                growth_steps=growth_steps)
+
+    def to_demes(self, max_epochs: int = 1000) -> 'demes.Graph':
+        """
+        Convert to a :class:`demes.Graph`, by way of :meth:`Demography.to_msprime()
+        <phasegen.demography.Demography.to_msprime>`. Sizes and times are taken over unchanged, so
+        :meth:`Demography.from_demes() <phasegen.demography.Demography.from_demes>` with ``ploidy=1`` recovers the
+        demography.
+
+        :param max_epochs: Maximum number of epoch changes to use, as for :meth:`Demography.to_msprime()
+            <phasegen.demography.Demography.to_msprime>`.
+        :return: The :class:`demes.Graph`.
+        :raises ImportError: If msprime is not installed.
+        """
+        return self.to_msprime(max_epochs=max_epochs).to_demes()
 
     @property
     def _msprime_names(self) -> Dict[str, str]:
@@ -384,22 +591,28 @@ class Demography:
         for e in splits:
             e._apply(epoch, model)
 
-        # pulses act one at a time in the order of the events, each opening its window once the previous one closes
-        window = prev._window if prev._window is not None and prev._window[1] > epoch.start_time else None
-        pending = prev._pending + tuple(e for e in self.events if isinstance(e, Pulse) and
+        # pulses and splits act one at a time in the order of the events, each opening its window once the previous
+        # one closes
+        window = prev._window if prev._window is not None and prev._window[0] > epoch.start_time else None
+        pending = prev._pending + tuple(e for e in self.events if isinstance(e, (Pulse, PopulationSplit)) and
                                         np.any((epoch.start_time <= e.times) & (e.times < epoch.end_time)))
 
         if window is None and pending:
-            window, pending = pending[0]._window(epoch, model), pending[1:]
+            window, head, pending = pending[0]._window(epoch, model, splits), pending[0], pending[1:]
+
+            # the window of a split serves the splits waiting right behind it
+            while isinstance(head, PopulationSplit) and pending and isinstance(pending[0], PopulationSplit):
+                pending = pending[1:]
 
         epoch._base_rates = epoch.migration_rates.copy()
         epoch._window = window
         epoch._pending = pending
 
         if window is not None:
-            pulse, end, rate = window
+            end, rates = window
             epoch.end_time = min(epoch.end_time, end)
-            epoch.migration_rates[(pulse.source, pulse.dest)] += rate
+            for key, rate in rates.items():
+                epoch.migration_rates[key] += rate
 
         epoch.index = i
 
@@ -586,7 +799,7 @@ class Demography:
         )
 
     def _plot(self, kind: str, t: np.ndarray, show: bool, file: str, title: str, ylabel: str, ax: 'plt.Axes',
-              kwargs: dict) -> 'plt.Axes':
+              kwargs: dict, alpha: float) -> 'plt.Axes':
         """
         Plot the trajectories of :meth:`_plot_data`.
 
@@ -598,12 +811,13 @@ class Demography:
         :param ylabel: Label of the y-axis, ``None`` for the default label.
         :param ax: Axes object to plot to.
         :param kwargs: Keyword arguments to pass to the plotting function.
+        :param alpha: Opacity of the lines.
         :return: Axes object.
         """
         from .visualization import Visualization
 
         return Visualization.plot_rates(ax=ax, data=self._plot_data(t, kind), file=file, show=show, title=title,
-                                        ylabel=ylabel, kwargs=kwargs)
+                                        ylabel=ylabel, kwargs={'alpha': alpha} | (kwargs or {}))
 
     def plot_pop_sizes(
             self,
@@ -613,7 +827,8 @@ class Demography:
             title: str = None,
             ylabel: str = None,
             ax: 'plt.Axes' = None,
-            kwargs: dict = None
+            kwargs: dict = None,
+            alpha: float = 0.7
     ) -> 'plt.Axes':
         """
         Plot the population size over time.
@@ -627,9 +842,10 @@ class Demography:
         :param ylabel: Label of the y-axis, ``None`` for the default label.
         :param ax: Axes object to plot to.
         :param kwargs: Keyword arguments to pass to the plotting function.
+        :param alpha: Opacity of the lines.
         :return: Axes object.
         """
-        return self._plot('pop_sizes', t, show, file, title, ylabel, ax, kwargs)
+        return self._plot('pop_sizes', t, show, file, title, ylabel, ax, kwargs, alpha)
 
     def plot_migration(
             self,
@@ -639,7 +855,8 @@ class Demography:
             title: str = None,
             ylabel: str = None,
             ax: 'plt.Axes' = None,
-            kwargs: dict = None
+            kwargs: dict = None,
+            alpha: float = 0.7
     ) -> 'plt.Axes':
         """
         Plot the migration rates over time.
@@ -653,9 +870,10 @@ class Demography:
         :param ylabel: Label of the y-axis, ``None`` for the default label.
         :param ax: Axes object to plot to.
         :param kwargs: Keyword arguments to pass to the plotting function.
+        :param alpha: Opacity of the lines.
         :return: Axes object.
         """
-        return self._plot('migration', t, show, file, title, ylabel, ax, kwargs)
+        return self._plot('migration', t, show, file, title, ylabel, ax, kwargs, alpha)
 
     def plot(
             self,
@@ -665,7 +883,8 @@ class Demography:
             ylabel: str = None,
             ax: 'plt.Axes' = None,
             title: str = None,
-            kwargs: dict = None
+            kwargs: dict = None,
+            alpha: float = 0.7
     ) -> 'plt.Axes':
         """
         Plot the population sizes and migration rates over time.
@@ -679,9 +898,10 @@ class Demography:
         :param ax: Axes object to plot to.
         :param title: Title of the plot, ``None`` for the default title.
         :param kwargs: Keyword arguments to pass to the plotting function.
+        :param alpha: Opacity of the lines.
         :return: Axes object.
         """
-        return self._plot('all', t, show, file, title, ylabel, ax, kwargs)
+        return self._plot('all', t, show, file, title, ylabel, ax, kwargs, alpha)
 
 class Epoch:
     r"""
@@ -763,14 +983,14 @@ class Epoch:
         #: Migration rates.
         self.migration_rates: Dict[Tuple[str, str], float] = migration_rates
 
-        #: Migration rates without the rates of the pulse windows, carried over to the next epoch.
+        #: Migration rates without the rates of the windows, carried over to the next epoch.
         self._base_rates: Dict[Tuple[str, str], float] = migration_rates
 
-        #: Pulse window open in the epoch, as the pulse, the end time of its window and its rate.
-        self._window: Tuple['Pulse', float, float] | None = None
+        #: Window of a pulse or split open in the epoch, as its end time and the migration rates it adds.
+        self._window: Tuple[float, Dict[Tuple[str, str], float]] | None = None
 
-        #: Pulses whose time has come, waiting in order for the open window to close.
-        self._pending: Tuple['Pulse', ...] = ()
+        #: Pulses and splits whose time has come, waiting in order for the open window to close.
+        self._pending: Tuple['Pulse | PopulationSplit', ...] = ()
 
     @cached_property
     def tau(self) -> float:
@@ -1168,9 +1388,10 @@ class SymmetricMigrationRateChanges(MigrationRateChanges):
 
 class PopulationSplit(DiscreteDemographicEvent):
     """
-    Demographic event for a population split forward in time, a merger of populations backward in time. The split
-    is modelled as a large unidirectional migration rate from each derived population to the ancestral one, set
-    by ``multiplier``.
+    Demographic event for a population split forward in time, a merger of populations backward in time. Backward in
+    time, all lineages in the derived populations move to the ancestral one at the time of the split. The jump is
+    approximated as for a :class:`~phasegen.demography.Pulse` of proportion :math:`1 - 10^{-9}`, and the derived
+    populations are cut off from migration from then on. A split and a pulse sharing a time act in the order given.
 
     The following example merges ``pop_1`` into ``pop_0`` at time 0.5 backward in time and computes the fixation index.
 
@@ -1196,16 +1417,9 @@ class PopulationSplit(DiscreteDemographicEvent):
         :param time: Time of the split.
         :param derived: Derived populations from which all lineages move to the ancestral population.
         :param ancestral: Ancestral population to which all lineages move.
-        :param multiplier: Migration rate multiplier. The migration rate from the derived to the ancestral population
-            is set to :math:`m = c \max_i \lambda_{2,2} / \tau(N_i)`, the multiplier :math:`c` times the fastest
-            pairwise coalescence rate of the epoch, where :math:`\lambda_{2,2}` is the rate at which two lineages
-            merge under the coalescent model (1 for the standard and the Beta coalescent, :math:`1 + c_D \psi^2` for
-            the Dirac coalescent with parameters :math:`\psi` and :math:`c_D`), and :math:`\tau(N_i)` is the
-            model's time scale for population size :math:`N_i` (:math:`N_i` for the standard coalescent). The rate is
-            set in the epoch of the split and again in every later epoch. A lineage thus leaves a derived population
-            after a mean time :math:`1 / m`, a fraction :math:`1 / c` of the mean time to coalescence of a pair in the
-            population that coalesces fastest. With more than two lineages in a population the first coalescence
-            comes sooner, so the fraction of coalescent time the drain displaces is larger than :math:`1 / c`.
+        :param multiplier: Multiplier :math:`c` of the migration rate :math:`c\, r` that moves a lineage entering a
+            derived population after the split, by a later pulse, on to the ancestral population. Here :math:`r` is
+            the fastest pairwise coalescence rate of the epoch.
         :raises ValueError: If the time is negative, the ancestral population is among the derived ones, or the
             multiplier is not positive and finite.
         """
@@ -1253,6 +1467,27 @@ class PopulationSplit(DiscreteDemographicEvent):
                         epoch.migration_rates[(p, q)] = 0
                         epoch.migration_rates[(q, p)] = 0
 
+    def _window(
+            self,
+            epoch: Epoch,
+            model: CoalescentModel,
+            splits: List['PopulationSplit']
+    ) -> Tuple[float, Dict[Tuple[str, str], float]]:
+        """
+        The window of the split, opening at the start of ``epoch`` and sized from its population sizes. It moves the
+        lineages of every split in force, so that splits chained at one time act in any order.
+
+        :param epoch: The epoch in which the window opens.
+        :param model: Coalescent model, whose pairwise coalescence rate and time scale set the window length.
+        :param splits: The splits of the demography.
+        :return: The end time of the window and the migration rates it adds.
+        """
+        delta = 1 / (_SPLIT_WINDOW_MULTIPLIER * self._max_coalescence_rate(epoch, model))
+        rate = -np.log1p(-_FULL_PULSE_PROPORTION) / delta
+
+        return epoch.start_time + delta, {(p, s.ancestral): rate for s in splits if s.start_time <= epoch.start_time
+                                          for p in s.derived}
+
     def _apply(self, epoch: Epoch, model: CoalescentModel) -> set:
         """
         Set the drain rate from each derived population to the ancestral population in every epoch from the split
@@ -1267,8 +1502,7 @@ class PopulationSplit(DiscreteDemographicEvent):
         if self.start_time >= epoch.end_time:
             return set()
 
-        # the drain rate is a multiple of the fastest pairwise coalescence rate of the epoch, so that the lineages
-        # leave the derived populations before any coalescence the split displaces
+        # the drain rate is a multiple of the fastest pairwise coalescence rate of the epoch
         rate = self.multiplier * self._max_coalescence_rate(epoch, model)
 
         for p in self.derived:
@@ -1366,17 +1600,23 @@ class Pulse(DiscreteDemographicEvent):
         """
         return set()
 
-    def _window(self, epoch: Epoch, model: CoalescentModel) -> Tuple['Pulse', float, float]:
+    def _window(
+            self,
+            epoch: Epoch,
+            model: CoalescentModel,
+            splits: List['PopulationSplit']
+    ) -> Tuple[float, Dict[Tuple[str, str], float]]:
         """
         The window of the pulse, opening at the start of ``epoch`` and sized from its population sizes.
 
         :param epoch: The epoch in which the window opens.
         :param model: Coalescent model, whose pairwise coalescence rate and time scale set the window length.
-        :return: The pulse, the end time of its window and its migration rate.
+        :param splits: The splits of the demography, which a pulse does not use.
+        :return: The end time of the window and the migration rate it adds.
         """
         delta = 1 / (self.multiplier * self._max_coalescence_rate(epoch, model))
 
-        return self, epoch.start_time + delta, -np.log1p(-self.proportion) / delta
+        return epoch.start_time + delta, {(self.source, self.dest): -np.log1p(-self.proportion) / delta}
 
 
 class DiscretizedDemographicEvent(DemographicEvent, ABC):

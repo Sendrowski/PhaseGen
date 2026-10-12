@@ -61,8 +61,11 @@ _MOMENT_N0_MAX = 1920
 #: ``ConditionalRewardDistribution._raw_moments`` above which ``ConditionalRewardDistribution.var`` warns.
 _VAR_TOL = 1e-2
 
-#: Largest number of matrix entries ``_lst_from_shift_batch`` exponentiates in one stack, which bounds its memory.
-_LST_BATCH_ENTRIES = 2 ** 17
+#: Largest number of matrix entries the transform exponentiates densely in one stack, which bounds its memory.
+_LST_MATRIX_ENTRIES = 2 ** 19
+
+#: Largest number of shift-vector entries the transform propagates or holds in one batch, which bounds its memory.
+_LST_VECTOR_ENTRIES = 2 ** 20
 
 #: Aliasing level :math:`\varepsilon` of the de Hoog contour of ``_dehoog_invert``, the double-precision machine
 #: epsilon to the power 2/3.
@@ -72,6 +75,12 @@ _DEHOOG_EPS = np.finfo(float).eps ** (2 / 3)
 _PADE13 = np.array([64764752532480000., 32382376266240000., 7771770303897600., 1187353796428800.,
                     129060195264000., 10559470521600., 670442572800., 33522128640.,
                     1323241920., 40840800., 960960., 16380., 182., 1.])
+
+#: Bounds :math:`\theta_m` on the 1-norm of a scaled matrix up to which the Taylor polynomial of degree :math:`m`
+#: approximates its exponential to double precision, for the action of ``_TaylorAction`` (Al-Mohy and Higham, 2011,
+#: Table 3.1, and Higham, 2008, Table A.3).
+_TAYLOR_THETA = {5: 2.40e-3, 10: 1.44e-1, 15: 6.41e-1, 20: 1.44, 25: 2.43, 30: 3.54, 35: 4.7, 40: 6.0, 45: 7.2,
+                 50: 8.5, 55: 9.9}
 
 
 class RewardDistribution(CallableDistributionFunctions):
@@ -517,17 +526,24 @@ def _lst_taylor_from_shift(shifts: np.ndarray, deriv: np.ndarray, alpha: np.ndar
                            perm=_AUTO_PERM, order: int = 2) -> np.ndarray:
     """The Taylor coefficients ``[Phi_0, ..., Phi_order]`` of ``_lst_from_shift_batch`` at the shift
     ``shift + eps * deriv`` for each row ``shift`` of ``shifts``, described at ``JointRewardDistribution.lst_taylor``:
-    bounded epochs exponentiate the block-bidiagonal matrix over the truncated polynomial ring with ``_expm_batch``, in
-    chunks of at most ``_LST_BATCH_ENTRIES`` matrix entries, and the last epoch back-substitutes with one LU per row.
-    Returns an array of shape ``(len(shifts), order + 1)``."""
+    bounded epochs propagate the block-bidiagonal matrix over the truncated polynomial ring by
+    ``_ShiftedGenerator.propagate``, decided and chunked as in ``_lst_from_shift_batch``, and the last epoch
+    back-substitutes with one LU per row. Returns an array of shape ``(len(shifts), order + 1)``."""
     nt, k = len(alpha), order + 1
     n_aug = nt + 1
     K = len(shifts)
 
-    chunk = max(1, _LST_BATCH_ENTRIES // (k * n_aug) ** 2)
+    action = k * n_aug >= Settings.expm_action_min_dim
+    chunk = max(1, (_LST_VECTOR_ENTRIES // (k * n_aug)) if action else (_LST_MATRIX_ENTRIES // (k * n_aug) ** 2))
     if K > chunk:
-        return np.concatenate([_lst_taylor_from_shift(shifts[i:i + chunk], deriv, alpha, T_epochs, sparse, perm, order)
-                               for i in range(0, K, chunk)])
+        # the Taylor action of a chunk costs as many products as its largest shift needs, so chunk similar shifts
+        by_size = np.argsort(np.abs(shifts).max(axis=1), kind='stable') if action else np.arange(K)
+        out = np.empty((K, k), dtype=complex)
+        out[by_size] = np.concatenate([
+            _lst_taylor_from_shift(shifts[by_size[i:i + chunk]], deriv, alpha, T_epochs, sparse, perm, order)
+            for i in range(0, K, chunk)
+        ])
+        return out
 
     diag = np.arange(nt)
 
@@ -536,16 +552,7 @@ def _lst_taylor_from_shift(shifts: np.ndarray, deriv: np.ndarray, alpha: np.ndar
     vec[:, :nt] = alpha
 
     for T, t0, t1 in T_epochs[:-1]:
-        Td = T.toarray() if sp.issparse(T) else np.asarray(T)
-        M = np.zeros((K, k * n_aug, k * n_aug), dtype=complex)
-        for i in range(k):
-            o = i * n_aug
-            M[:, o:o + nt, o:o + nt] = Td
-            M[:, o + diag, o + diag] -= shifts
-            M[:, o:o + nt, o + nt] = _exit_rates(T)
-            if i + 1 < k:
-                M[:, o + diag, o + n_aug + diag] = -deriv  # d/deps of the generator: the shift enters as -diag(.)
-        vec = np.einsum('ki,kij->kj', vec, _expm_batch(M * (t1 - t0)))
+        vec = _ShiftedGenerator(T, _exit_rates(T), t1 - t0, shifts, deriv, order).propagate(vec, action)
     vec = vec.reshape(K, k, n_aug)
 
     Tm = T_epochs[-1][0]
@@ -797,9 +804,9 @@ class JointRewardDistribution(CallableDistributionFunctions):
     def _lst_grid(self, s_a_vals: np.ndarray, s_b_vals: np.ndarray) -> np.ndarray:
         """``Phi`` on the outer grid ``s_a_vals x s_b_vals``. For one dense epoch, one QZ decomposition of the pencil
         ``(diag(s r_outer) - T, diag(r_inner))`` per node of the shorter axis solves every node of the other axis by
-        triangular back-substitution. The pencil may be singular. Several epochs or a sparse space evaluate
-        ``lst_batch`` along the longer axis at each node of the shorter one. The rows and columns of an infinite
-        argument are evaluated by ``lst_batch``."""
+        triangular back-substitution. The pencil may be singular. Several epochs or a sparse space evaluate the grid
+        by ``lst_batch`` in blocks of rows holding at most ``_LST_VECTOR_ENTRIES`` shift entries. The rows and columns
+        of an infinite argument are evaluated by ``lst_batch``."""
         st = self._setup
         s_a_vals, s_b_vals = np.asarray(s_a_vals, dtype=complex), np.asarray(s_b_vals, dtype=complex)
 
@@ -814,11 +821,14 @@ class JointRewardDistribution(CallableDistributionFunctions):
             return out
 
         if st['sparse'] or len(st['T_epochs']) != 1:
-            if len(s_a_vals) >= len(s_b_vals):
-                cols = [self.lst_batch(s_a_vals, sb) for sb in s_b_vals]
-                return np.array(cols, dtype=complex).reshape(len(s_b_vals), len(s_a_vals)).T
-            rows = [self.lst_batch(sa, s_b_vals) for sa in s_a_vals]
-            return np.array(rows, dtype=complex).reshape(len(s_a_vals), len(s_b_vals))
+            nb = len(s_b_vals)
+            rows = max(1, _LST_VECTOR_ENTRIES // max(1, nb * (st['nt'] + 1)))
+            out = np.empty((len(s_a_vals), nb), dtype=complex)
+            for i in range(0, len(s_a_vals), rows):
+                block = s_a_vals[i:i + rows]
+                phi = self.lst_batch(np.repeat(block, nb), np.tile(s_b_vals, len(block)))
+                out[i:i + rows] = phi.reshape(len(block), nb)
+            return out
 
         tau = st['tau']
         Tm = np.asarray(st['T_epochs'][-1][0], dtype=float)
@@ -1079,8 +1089,9 @@ class JointRewardDistribution(CallableDistributionFunctions):
             p = np.zeros(k * nC, dtype=complex)
             p[:nC] = cls['alpha']
             p_at = [p]
-            for step in _expm_batch(M * cls['dtC']):
-                p = p @ step
+            steps = _EpochSteps(M * cls['dtC'])
+            for e in range(len(M)):
+                p = steps.row(e, p)
                 p_at.append(p)
 
             # k_s over the ring at the start of each epoch from the first jump on, from the last epoch backwards
@@ -1098,12 +1109,12 @@ class JointRewardDistribution(CallableDistributionFunctions):
                 M1 = np.zeros((nZ + 1, nZ + 1), dtype=complex)
                 M1[:-1, :-1] = -DZ
                 M = M0 if order == 0 else np.array([_ring_matrix(m, M1, order, lower=True) for m in M0])
-                steps = _expm_batch(M * cls['dtZ'])
-                for i in reversed(range(len(steps))):
+                steps = _EpochSteps(M * cls['dtZ'])
+                for i in reversed(range(len(M))):
                     aug = np.zeros((k, nZ + 1), dtype=complex)
                     aug[:, :-1] = y.reshape(k, nZ)
                     aug[0, -1] = 1.0
-                    y = (steps[i] @ aug.ravel()).reshape(k, nZ + 1)[:, :-1].ravel()
+                    y = steps.column(i, aug.ravel()).reshape(k, nZ + 1)[:, :-1].ravel()
                     k_at[first + i] = y
 
             for e, dCZ, daC in zip(cls['epochs'], cls['dCZ'], cls['daC']):
@@ -2302,6 +2313,216 @@ class _AtomConditional(ConditionalRewardDistribution):
         return sub / self._atom
 
 
+class _ShiftedGenerator:
+    r"""
+    The stack of matrices :math:`\mathbf{A}_k = \Delta t \, \mathbf{M}_k` of one bounded epoch of the transform, one
+    per shift vector :math:`\mathbf{s}_k`, with
+
+    .. math::
+
+        \mathbf{M}_k = \begin{pmatrix} \mathbf{T} - \operatorname{diag}(\mathbf{s}_k) & \mathbf{q} \\
+        \mathbf{0} & 0 \end{pmatrix},
+
+    where :math:`\mathbf{T}` is the transient sub-generator, :math:`\mathbf{q} = -\mathbf{T}\mathbf{e}` and
+    :math:`\Delta t` the epoch length. A positive order takes the form over the truncated polynomial ring of
+    ``_ring_matrix``, with derivative direction :math:`\mathbf{d}`.
+    """
+
+    def __init__(self, T, q: np.ndarray, dt: float, shifts: np.ndarray, deriv: np.ndarray = None, order: int = 0):
+        """
+        :param T: The transient sub-generator, dense or sparse.
+        :param q: The exit vector.
+        :param dt: The length of the epoch.
+        :param shifts: The shift vectors, one row per matrix.
+        :param deriv: The derivative direction, required for a positive order.
+        :param order: The highest power of the ring.
+        """
+        self.T, self.q, self.dt, self.shifts, self.deriv = T, q, dt, shifts, deriv
+        self.nt, self.k = T.shape[0], order + 1
+
+        #: Dimension of each matrix.
+        self.dim: int = self.k * (self.nt + 1)
+
+    @cached_property
+    def _diag_T(self) -> np.ndarray:
+        """The diagonal of :math:`\\mathbf{T}`."""
+        return np.asarray(self.T.diagonal()).ravel()
+
+    @cached_property
+    def diag(self) -> np.ndarray:
+        """The diagonals of the matrices, of shape ``(K, dim)``."""
+        block = np.zeros((len(self.shifts), self.nt + 1), dtype=complex)
+        block[:, :self.nt] = self._diag_T - self.shifts
+        return np.tile(block, self.k) * self.dt
+
+    @cached_property
+    def off_norm(self) -> np.ndarray:
+        """The column 1-norms of the off-diagonal parts of the matrices, the same for all of them."""
+        col = np.asarray(abs(self.T).sum(axis=0)).ravel() - np.abs(self._diag_T)
+        block = np.append(col, np.abs(self.q).sum())
+        out = np.tile(block, self.k)
+        for i in range(1, self.k):
+            out[i * (self.nt + 1):i * (self.nt + 1) + self.nt] += np.abs(self.deriv)
+        return out * self.dt
+
+    def _times_T(self, B: np.ndarray) -> np.ndarray:
+        """The products of the complex rows ``B`` with the real :math:`\\mathbf{T}`, real and imaginary parts in one
+        real product."""
+        stacked = np.concatenate([B.real, B.imag])
+        prod = (self.T.T @ stacked.T).T if sp.issparse(self.T) else stacked @ self.T
+        return prod[:len(B)] + 1j * prod[len(B):]
+
+    def product(self, W: np.ndarray) -> np.ndarray:
+        """
+        The products :math:`\\mathbf{w}_k \\mathbf{A}_k` of the rows of ``W`` with their matrices.
+
+        :param W: The row vectors, of shape ``(K, dim)``.
+        :return: The products, of the same shape.
+        """
+        nt, n_aug = self.nt, self.nt + 1
+        B = W.reshape(len(W), self.k, n_aug)
+        out = np.empty_like(B)
+        for i in range(self.k):
+            Bt = B[:, i, :nt]
+            out[:, i, :nt] = self._times_T(Bt) - Bt * self.shifts
+            out[:, i, nt] = Bt @ self.q
+            if i:
+                out[:, i, :nt] -= B[:, i - 1, :nt] * self.deriv
+        return out.reshape(W.shape) * self.dt
+
+    def dense(self) -> np.ndarray:
+        """The matrices, of shape ``(K, dim, dim)``."""
+        Td = self.T.toarray() if sp.issparse(self.T) else np.asarray(self.T)
+        nt, diag = self.nt, np.arange(self.nt)
+
+        M = np.zeros((len(self.shifts), nt + 1, nt + 1), dtype=complex)
+        M[:, :nt, :nt] = Td
+        M[:, diag, diag] -= self.shifts
+        M[:, :nt, nt] = self.q
+
+        if self.k > 1:
+            M1 = np.zeros((nt + 1, nt + 1), dtype=complex)
+            M1[diag, diag] = -self.deriv
+            M = np.array([_ring_matrix(m, M1, self.k - 1) for m in M])
+
+        return M * self.dt
+
+    def propagate(self, W: np.ndarray, action: bool) -> np.ndarray:
+        """
+        The rows :math:`\\mathbf{w}_k e^{\\mathbf{A}_k}`, by the Taylor action or the dense Pade exponentials.
+
+        :param W: The row vectors, of shape ``(K, dim)``.
+        :param action: Whether to use the Taylor action.
+        :return: The propagated rows.
+        """
+        if action:
+            return _TaylorAction(self.diag, self.off_norm).apply(W, self.product)
+        return np.einsum('ki,kij->kj', W, _expm_batch(self.dense()))
+
+
+class _TaylorAction:
+    r"""
+    The rows :math:`\mathbf{w}_k e^{\mathbf{A}_k}` of a stack of row vectors under a stack of matrices, by the
+    truncated Taylor series of Al-Mohy and Higham (2011, Algorithm 3.2) with the mean-diagonal shift :math:`\mu_k`
+    and no balancing. Degree :math:`m` and steps :math:`s` minimise :math:`m s` subject to
+    :math:`\lVert \mathbf{A}_k - \mu_k \mathbf{I} \rVert_1 / s \le \theta_m` over the stack.
+    """
+
+    def __init__(self, diag: np.ndarray, off_norm: np.ndarray):
+        """
+        :param diag: The diagonals of the matrices, of shape ``(K, dim)``.
+        :param off_norm: The column 1-norms of their off-diagonal parts, shared by all of them.
+        """
+        mu = diag.mean(axis=1)
+        plain = float((off_norm + np.abs(diag)).max(initial=0.0))
+        shifted = float((off_norm + np.abs(diag - mu[:, None])).max(initial=0.0))
+
+        if not np.isfinite(plain):
+            raise ValueError(f'The matrices of the Taylor action must be finite, got a 1-norm bound of {plain}.')
+
+        #: The shifts of the diagonals.
+        self.mu: np.ndarray = mu if shifted < plain else np.zeros_like(mu)
+
+        #: The bound on the 1-norm of the shifted matrices.
+        self.norm: float = min(plain, shifted)
+
+        #: Degree of the Taylor polynomial and number of steps, the pair of fewest products whose scaled norm is
+        #: within the bound of the degree.
+        self.m, self.s = 0, 1
+        if self.norm > 0:
+            cost = np.inf
+            for m, theta in _TAYLOR_THETA.items():
+                steps = max(1, int(np.ceil(self.norm / theta)))
+                if m * steps < cost:
+                    cost, self.m, self.s = m * steps, m, steps
+
+    def apply(self, W: np.ndarray, product) -> np.ndarray:
+        """
+        The rows :math:`\\mathbf{w}_k e^{\\mathbf{A}_k}`.
+
+        :param W: The row vectors, of shape ``(K, dim)``.
+        :param product: The products :math:`(\\mathbf{w}_k \\mathbf{A}_k)_k` of a stack of row vectors.
+        :return: The propagated rows.
+        """
+        tol = np.finfo(float).eps / 2
+        mu = self.mu[:, None]
+        eta = np.exp(mu / self.s)
+        F = np.array(W, dtype=complex)
+        for _ in range(self.s):
+            B = F
+            c1 = np.abs(B).max(axis=1)
+            for j in range(1, self.m + 1):
+                B = (product(B) - mu * B) / (self.s * j)
+                c2 = np.abs(B).max(axis=1)
+                F = F + B
+                if np.all(c1 + c2 <= tol * np.abs(F).max(axis=1)):
+                    break
+                c1 = c2
+            F = eta * F
+        return F
+
+
+class _EpochSteps:
+    r"""
+    The exponentials :math:`e^{\mathbf{M}_e}` of a stack of epoch matrices applied to single vectors, formed densely
+    by ``_expm_batch`` below :attr:`Settings.expm_action_min_dim
+    <phasegen.settings.Settings.expm_action_min_dim>` and applied by ``_TaylorAction`` at or above it.
+    """
+
+    def __init__(self, M: np.ndarray):
+        """
+        :param M: The matrices, of shape ``(E, n, n)``.
+        """
+        self.M = M
+        self._dense = _expm_batch(M) if M.shape[-1] < Settings.expm_action_min_dim else None
+
+    def _action(self, w: np.ndarray, M: np.ndarray) -> np.ndarray:
+        r"""The row :math:`\mathbf{w} e^{\mathbf{M}}` by ``_TaylorAction``."""
+        diag = np.diagonal(M)[None]
+        off_norm = np.abs(M).sum(axis=0) - np.abs(diag[0])
+        return _TaylorAction(diag, off_norm).apply(w[None], lambda B: B @ M)[0]
+
+    def row(self, e: int, w: np.ndarray) -> np.ndarray:
+        r"""
+        The row :math:`\mathbf{w} e^{\mathbf{M}_e}`.
+
+        :param e: The index of the matrix.
+        :param w: The row vector.
+        :return: The propagated row.
+        """
+        return w @ self._dense[e] if self._dense is not None else self._action(w, self.M[e])
+
+    def column(self, e: int, w: np.ndarray) -> np.ndarray:
+        r"""
+        The column :math:`e^{\mathbf{M}_e} \mathbf{w}`.
+
+        :param e: The index of the matrix.
+        :param w: The column vector.
+        :return: The propagated column.
+        """
+        return self._dense[e] @ w if self._dense is not None else self._action(w, self.M[e].T)
+
+
 def _expm_batch(A: np.ndarray) -> np.ndarray:
     """
     Matrix exponential of a stack ``(k, n, n)`` by Pade-13 with scaling and squaring, vectorised over the leading
@@ -2338,12 +2559,12 @@ def _expm_batch(A: np.ndarray) -> np.ndarray:
 def _lst_from_shift_batch(shifts: np.ndarray, alpha, T_epochs, exits: list, sparse: bool,
                           perm=_AUTO_PERM) -> np.ndarray:
     r"""
-    The transform of ``RewardDistribution.lst`` with the diagonal shift :math:`s \mathbf{r}_T` replaced by an
-    arbitrary vector, which is :math:`s_a \mathbf{r}_a + s_b \mathbf{r}_b` for the joint transform, at each row of
-    a stack of shift vectors ``(k, nt)``. The per-epoch assembly is shared and the batch exponentiated with
-    ``_expm_batch``, in chunks of at most ``_LST_BATCH_ENTRIES`` matrix entries. A dense last epoch is solved as one
-    stacked ``np.linalg.solve``, a sparse one by the block-triangular sparse LU of ``MomentEvaluator._lu_solver`` per
-    shift, with ``perm`` the ordering of the last-epoch sub-intensity matrix, which depends only on its sparsity
+    The transform of ``RewardDistribution.lst`` with the diagonal shift :math:`s \mathbf{r}_T` replaced by an arbitrary
+    vector, which is :math:`s_a \mathbf{r}_a + s_b \mathbf{r}_b` for the joint transform, at each row of a stack of
+    shift vectors ``(k, nt)``. The bounded epochs propagate the batch by ``_ShiftedGenerator.propagate``, in chunks of
+    at most ``_LST_VECTOR_ENTRIES`` vector or ``_LST_MATRIX_ENTRIES`` matrix entries. A dense last epoch is solved as
+    one stacked ``np.linalg.solve``, a sparse one by the block-triangular sparse LU of ``MomentEvaluator._lu_solver``
+    per shift, with ``perm`` the ordering of the last-epoch sub-intensity matrix, which depends only on its sparsity
     pattern. An infinite shift removes its state, which gives the limit of the shift growing without bound: the rows
     sharing the same removed states are evaluated on the remaining ones, with the exit vectors of the full process.
 
@@ -2373,22 +2594,22 @@ def _lst_from_shift_batch(shifts: np.ndarray, alpha, T_epochs, exits: list, spar
                                                   sparse, sub_perm)
         return out
 
-    chunk = max(1, _LST_BATCH_ENTRIES // (nt + 1) ** 2)
+    action = nt + 1 >= Settings.expm_action_min_dim
+    chunk = max(1, (_LST_VECTOR_ENTRIES // (nt + 1)) if action else (_LST_MATRIX_ENTRIES // (nt + 1) ** 2))
     if k > chunk:
-        return np.concatenate([_lst_from_shift_batch(shifts[i:i + chunk], alpha, T_epochs, exits, sparse, perm)
-                               for i in range(0, k, chunk)])
+        # the Taylor action of a chunk costs as many products as its largest shift needs, so chunk similar shifts
+        by_size = np.argsort(np.abs(shifts).max(axis=1), kind='stable') if action else np.arange(k)
+        out = np.empty(k, dtype=complex)
+        out[by_size] = np.concatenate([_lst_from_shift_batch(shifts[by_size[i:i + chunk]], alpha, T_epochs, exits,
+                                                             sparse, perm) for i in range(0, k, chunk)])
+        return out
 
     diag = np.arange(nt)
     vec = np.zeros((k, nt + 1), dtype=complex)
     vec[:, :nt] = alpha
 
     for (T, t0, t1), q in zip(T_epochs[:-1], exits):
-        Td = T.toarray() if sp.issparse(T) else np.asarray(T)
-        Q = np.zeros((k, nt + 1, nt + 1), dtype=complex)
-        Q[:, :nt, :nt] = Td
-        Q[:, diag, diag] -= shifts  # only the diagonal varies across the batch
-        Q[:, :nt, nt] = q
-        vec = np.einsum('ki,kij->kj', vec, _expm_batch(Q * (t1 - t0)))
+        vec = _ShiftedGenerator(T, q, t1 - t0, shifts).propagate(vec, action)
 
     a, c = vec[:, :nt], vec[:, nt]
     Tm = T_epochs[-1][0]
@@ -2731,7 +2952,7 @@ class _NestedConditional(ConditionalRewardDistribution):
         element of ``s``, at each truncation from the nodes of the largest (``_euler_series``), with the jumps along
         that axis subtracted (``JointRewardDistribution._jump_correction``). ``Phi`` is evaluated on the outer product
         of ``s`` and the nodes by ``JointRewardDistribution.lst_batch``, in blocks of ``s`` whose shift vectors hold at
-        most ``_LST_BATCH_ENTRIES`` entries.
+        most ``_LST_VECTOR_ENTRIES`` entries.
 
         :param s: The arguments of the other reward, a 1D array.
         :param truncations: The truncations ``N0``.
@@ -2739,7 +2960,7 @@ class _NestedConditional(ConditionalRewardDistribution):
         """
         u, weights = _euler_series(self._value, truncations)
         vals = np.empty((len(s), len(u)), dtype=complex)
-        block = max(1, _LST_BATCH_ENTRIES // (len(u) * len(self._joint._setup['alpha'])))
+        block = max(1, _LST_VECTOR_ENTRIES // (len(u) * len(self._joint._setup['alpha'])))
         for i in range(0, len(s), block):
             other = np.repeat(s[i:i + block], len(u))
             cond = np.tile(u, len(other) // len(u))

@@ -2624,7 +2624,7 @@ def test_batched_conditional_transform_matches_the_transform_per_argument(label,
     s = np.array([0.3, -0.7j, 1.5 - 2j, 0.0, np.inf], dtype=complex)
     single = np.array([cond.lst(x) for x in s])
 
-    monkeypatch.setattr(reward, '_LST_BATCH_ENTRIES', 1)
+    monkeypatch.setattr(reward, '_LST_VECTOR_ENTRIES', 1)
     batched = cond._lst_nodes(s)
 
     np.testing.assert_allclose(batched, single, rtol=1e-12, atol=0)
@@ -3183,3 +3183,18 @@ def test_to_empirical_samples_the_reward_and_the_joint():
 
     with pytest.raises(NotImplementedError):
         joint.conditional(value=1.0).to_empirical(10)
+
+
+def test_multi_epoch_transform_grid_in_row_blocks_matches_one_block(monkeypatch):
+    """The joint transform on a grid of a multi-epoch demography, evaluated in blocks of one row each, equals the
+    grid evaluated in one block, so bounding the shift vectors held at once leaves the values unchanged."""
+    from phasegen.distributions import reward
+
+    joint = pg.Coalescent(n=4, demography=pg.Demography(
+        pop_sizes={'pop_0': {0: 1, 0.5: 0.2, 1.5: 2}})).sfs.joint(1, 2)
+    s_a, s_b = np.array([0.3, -0.7j, 1.5 - 2j]), np.array([0.2j, 1.0, -0.4j, 2.0])
+
+    whole = joint._lst_grid(s_a, s_b)
+    monkeypatch.setattr(reward, '_LST_VECTOR_ENTRIES', 1)
+
+    np.testing.assert_allclose(joint._lst_grid(s_a, s_b), whole, rtol=1e-13, atol=0)
