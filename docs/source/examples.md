@@ -207,7 +207,7 @@ stopifnot(joint$corr > 0, joint$corr < 1)
 ```
 
 +++
-We can also access the full joint distribution of the two quantities. Its density, shown below with the two marginal densities beside it, is estimated here from genealogies sampled with {meth}`Coalescent.to_empirical() <phasegen.distributions.Coalescent.to_empirical>`, which is faster than exact inversion for a model with this many epochs. The bright band at short singleton branches comes from genealogies in which the two CEU lineages coalesce in the out-of-Africa bottleneck, so that their private branches stay short however deep the genealogy is. The rays above it come from genealogies in which a CEU lineage remains on its own until close to the root, and the breaks at the out-of-Africa split and the ancestral expansion mark abrupt changes in the rate of coalescence.
+We can also access the full joint distribution of the two quantities. Its density, shown below with the two marginal densities beside it, is estimated here from genealogies sampled with {meth}`Coalescent.to_empirical() <phasegen.distributions.Coalescent.to_empirical>`, which is faster than exact inversion for a model with this many epochs. The bright band at short singleton lengths comes from genealogies in which the two CEU lineages coalesce early, in the small founding population of CEU or soon after in the out-of-Africa bottleneck, so that their private branches stay short however deep the genealogy is. The rays above it come from genealogies in which a CEU lineage remains on its own until close to the root, and the breaks at the out-of-Africa split and the ancestral expansion mark abrupt changes in the rate of coalescence.
 
 ```{code-cell} python
 :tags: [full-width]
@@ -228,7 +228,8 @@ sampled_joint.marginal('b').pdf.plot(
 
 ```{code-cell} python
 :tags: [remove-cell]
-assert abs(sampled_joint.corr - joint.corr) < 4 * (1 - joint.corr ** 2) / np.sqrt(1000000)
+# four standard errors of the sampled correlation, 0.0014 by batch means over 100 blocks of 10,000 genealogies
+assert abs(sampled_joint.corr - joint.corr) < 0.0056
 ```
 
 ```{code-cell} r
@@ -258,5 +259,6 @@ options(repr.plot.width = 4.4, repr.plot.height = 3.3)
 
 ```{code-cell} r
 :tags: [remove-cell]
-stopifnot(abs(sampled_joint$corr - joint$corr) < 4 * (1 - joint$corr^2) / sqrt(1000000))
+# four standard errors of the sampled correlation, 0.0014 by batch means over 100 blocks of 10,000 genealogies
+stopifnot(abs(sampled_joint$corr - joint$corr) < 0.0056)
 ```
