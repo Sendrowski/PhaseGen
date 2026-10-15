@@ -804,7 +804,7 @@ class _LSTCumulativeDistributionFunction(_LSTFunction, CumulativeDistributionFun
         :param n_points: Number of points of the default grid.
         :return: The curve.
         """
-        return self._curve(t, n_points, 'x', self._distribution._titled('CDF'))
+        return self._curve(t, n_points, self._distribution._variable, self._distribution._titled('CDF'))
 
 
 class _LSTDensityFunction(_LSTFunction, DensityFunction):
@@ -832,7 +832,7 @@ class _LSTDensityFunction(_LSTFunction, DensityFunction):
         :param n_points: Number of points of the default grid.
         :return: The curve.
         """
-        return self._curve(t, n_points, 'x', self._distribution._titled('PDF'))
+        return self._curve(t, n_points, self._distribution._variable, self._distribution._titled('PDF'))
 
 
 class _LSTQuantileFunction(_LSTFunction, QuantileFunction):
@@ -877,7 +877,7 @@ class _LSTQuantileFunction(_LSTFunction, QuantileFunction):
         :param n_points: Number of points of the default grid.
         :return: The curve.
         """
-        return self._curve(q, n_points, 'x', self._distribution._titled('quantile function'))
+        return self._curve(q, n_points, self._distribution._variable, self._distribution._titled('quantile function'))
 
 
 # --- direct grid evaluation (matrix-exponential tree height) ---------------------------------------------------------

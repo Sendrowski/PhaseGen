@@ -2070,7 +2070,7 @@ class _LocusContainer(DictContainer):  # pragma: no cover
             raise NotImplementedError("The joint distribution across loci is defined for a scalar total. For a "
                                       "spectrum, use the joint distribution of a pair of frequency classes.")
 
-        return EmpiricalJointDistribution(a, b)
+        return EmpiricalJointDistribution(a, b, (self[locus1]._variable, self[locus2]._variable))
 
 
 class EmpiricalPhaseTypeDistribution(_EmpiricalAccumulating, EmpiricalDistribution):  # pragma: no cover
@@ -2433,7 +2433,8 @@ class EmpiricalPhaseTypeDistribution(_EmpiricalAccumulating, EmpiricalDistributi
 
         accumulator = self._require_accumulator()
 
-        return EmpiricalJointDistribution(accumulator.samples(reward_a), accumulator.samples(reward_b))
+        return EmpiricalJointDistribution(accumulator.samples(reward_a), accumulator.samples(reward_b),
+                                          (reward_a._variable, reward_b._variable))
 
 
 class _WindowedConditional(EmpiricalDistribution):  # pragma: no cover
@@ -2674,14 +2675,19 @@ class EmpiricalJointDistribution(CallableDistributionFunctions):  # pragma: no c
     #: Static for backward compatibility.
     label: Optional[str] = None
 
-    def __init__(self, samples_a: np.ndarray, samples_b: np.ndarray) -> None:
+    #: Variables of the curve plots of :math:`R_a` and :math:`R_b`, ``t`` for a time and ``x`` otherwise.
+    _variables: Tuple[str, str] = ('x', 'x')
+
+    def __init__(self, samples_a: np.ndarray, samples_b: np.ndarray, variables: Tuple[str, str] = ('x', 'x')) -> None:
         """
         :param samples_a: Per-replicate realisations of the first reward.
         :param samples_b: Per-replicate realisations of the second reward.
+        :param variables: Variables of the curve plots of the two rewards, ``t`` for a time and ``x`` otherwise.
         """
         #: Per-replicate realisations of the two rewards.
         self._a = np.asarray(samples_a, dtype=float)
         self._b = np.asarray(samples_b, dtype=float)
+        self._variables = variables
 
         #: Optional human-readable label used in plot titles, such as ``"SFS bins (1, 2)"``.
         self.label: Optional[str] = None
@@ -2713,7 +2719,11 @@ class EmpiricalJointDistribution(CallableDistributionFunctions):  # pragma: no c
         """
         if which not in ('a', 'b'):
             raise ValueError("`which` must be 'a' or 'b'.")
-        return EmpiricalDistribution(self._a if which == 'a' else self._b)
+
+        dist = EmpiricalDistribution(self._a if which == 'a' else self._b)
+        dist._variable = self._variables[which == 'b']
+
+        return dist
 
     def conditional(self, on: str = 'a', value: float = 0.0, window: float = None) -> EmpiricalDistribution:
         r"""
@@ -2763,6 +2773,7 @@ class EmpiricalJointDistribution(CallableDistributionFunctions):  # pragma: no c
 
         dist = _WindowedConditional(other[mask], cond[mask] - value, float(window))
         dist.label = f"R_{'b' if on == 'a' else 'a'} | R_{on} = {value:g}"
+        dist._variable = self._variables[on == 'a']
 
         return dist
 
@@ -2791,6 +2802,7 @@ class EmpiricalJointDistribution(CallableDistributionFunctions):  # pragma: no c
 
         dist = EmpiricalDistribution(other[empty])
         dist.label = f"R_{'b' if on == 'a' else 'a'} | R_{on} = 0"
+        dist._variable = self._variables[on == 'a']
 
         return float(empty.mean()), dist
 
@@ -5153,7 +5165,8 @@ class MsprimeCoalescent(AbstractCoalescent):
 
         accumulator = self._accumulator()
 
-        return EmpiricalJointDistribution(accumulator.samples(reward_a), accumulator.samples(reward_b))
+        return EmpiricalJointDistribution(accumulator.samples(reward_a), accumulator.samples(reward_b),
+                                          (reward_a._variable, reward_b._variable))
 
     @_make_hashable
     @cache
@@ -5587,7 +5600,7 @@ class SampledCoalescent(AbstractCoalescent):  # pragma: no cover
 
         samples = self._sample_rewards((reward_a, reward_b), 'joint')
 
-        return EmpiricalJointDistribution(samples[:, 0], samples[:, 1])
+        return EmpiricalJointDistribution(samples[:, 0], samples[:, 1], (reward_a._variable, reward_b._variable))
 
     @_make_hashable
     @cache

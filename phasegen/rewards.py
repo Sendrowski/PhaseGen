@@ -26,6 +26,9 @@ class Reward(ABC):
     #: the reward in proportion to the lineage counts.
     _resolves_residence: bool = False
 
+    #: Variable on the x-axis of the curve plots of the accumulated reward, ``t`` for a time and ``x`` otherwise.
+    _variable: str = 'x'
+
     @abstractmethod
     def _get(self, state_space: StateSpace) -> np.ndarray:
         """
@@ -484,6 +487,7 @@ class TreeHeightReward(_LocusHeightReward, LineageCountingReward, BlockCountingR
 
         mean = pg.Coalescent(n=5).moment(1, (pg.TreeHeightReward(),))
     """
+    _variable = 't'
 
     def _get(self, state_space: StateSpace) -> np.ndarray:
         """
@@ -1168,6 +1172,11 @@ class RestrictedReward(CompositeReward):
         """Whether :meth:`_get_parts` resolves the residence, which it does, its parts vanishing outside the
         restricted locus and deme."""
         return True
+
+    @property
+    def _variable(self) -> str:
+        """The variable of the wrapped reward."""
+        return self.rewards[0]._variable
 
     def _get_parts(self, state_space: StateSpace) -> np.ndarray:
         """

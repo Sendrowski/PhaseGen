@@ -14,7 +14,7 @@ from ..expm import Backend
 from ..errors import ModelError
 from ..lineage import LineageConfig
 from ..locus import LocusConfig
-from ..rewards import Reward, RestrictedReward, TreeHeightReward, TotalBranchLengthReward
+from ..rewards import Reward, TreeHeightReward, TotalBranchLengthReward
 from ..settings import Settings
 from ..spectrum import SFS, AbstractSpectrum
 from ..state_space import LineageCountingStateSpace, StateSpace
@@ -300,13 +300,8 @@ class PhaseTypeDistribution(CallableDistributionFunctions, MomentEvaluator, Mome
 
     @property
     def _variable(self) -> str:
-        """
-        The variable on the x-axis of the curve plots: ``t`` for a time, the tree height and its restrictions to a deme
-        or a locus, and ``x`` for any other reward.
-        """
-        rewards = self.reward.rewards if isinstance(self.reward, RestrictedReward) else [self.reward]
-
-        return 't' if all(isinstance(r, TreeHeightReward) for r in rewards) else 'x'
+        """The variable on the x-axis of the curve plots, ``t`` for a time and ``x`` for any other reward."""
+        return self.reward._variable
 
     def _plot_data_cdf(self, t: np.ndarray = None, n_points: int = None) -> '_CurveData':
         """

@@ -528,3 +528,27 @@ def test_exact_and_empirical_curves_share_titles_and_axes(kind):
     cond = getattr(coal.joint(pg.TreeHeightReward(), pg.TotalBranchLengthReward()).conditional(value=1.0), kind)
     assert cond._plot_data().title.startswith('R_b | R_a = 1')
     assert getattr(coal.tree_height.demes['pop_0'], kind)._plot_data().xlabel == ('q' if kind == 'quantile' else 't')
+
+
+def test_tree_height_curves_use_t_through_joints_and_sampling():
+    """
+    A tree-height reward puts ``t`` on the x-axis however its distribution is reached: as a marginal or a conditional
+    of a joint distribution, exact or sampled, and when a restricted tree height is sampled. The other reward of the
+    joint keeps ``x``. Regression: the joint marginals and conditionals and the sampled reward distributions always
+    put ``x`` on the axis.
+    """
+    coal = pg.Coalescent(n={'pop_0': 2, 'pop_1': 2}, demography=pg.Demography(
+        pop_sizes={'pop_0': 1, 'pop_1': 1}, migration_rates={('pop_0', 'pop_1'): 1, ('pop_1', 'pop_0'): 1}))
+    joint = coal.joint(pg.TotalBranchLengthReward(), pg.TreeHeightReward())
+    sampled = joint.to_empirical(2000, seed=0)
+    restricted = coal.distribution(pg.RestrictedReward(pg.TreeHeightReward(), pop='pop_0'))
+
+    for dist, variable in [
+        (joint.marginal('b'), 't'), (sampled.marginal('b'), 't'),
+        (joint.marginal('a'), 'x'), (sampled.marginal('a'), 'x'),
+        (joint.conditional(on='a', value=2.0), 't'), (sampled.conditional(on='a', value=2.0), 't'),
+        (joint.conditional(on='b', value=1.0), 'x'), (sampled.conditional(on='b', value=1.0), 'x'),
+        (restricted, 't'), (restricted.to_empirical(2000, seed=0), 't')
+    ]:
+        data = dist.pdf._plot_data()
+        assert (data.xlabel, data.ylabel) == (variable, f'f({variable})')

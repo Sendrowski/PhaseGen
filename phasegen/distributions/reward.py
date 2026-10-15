@@ -271,6 +271,7 @@ class RewardDistribution(CallableDistributionFunctions):
         samples = self._host._sample(n_samples, rewards=[self.reward], rng=np.random.default_rng(seed))
         dist = EmpiricalDistribution(samples[:, 0])
         dist.label = self.label
+        dist._variable = self._variable
 
         return dist
 
@@ -390,6 +391,11 @@ class RewardDistribution(CallableDistributionFunctions):
         """A plot title incorporating :attr:`label` (e.g. ``"SFS bin 3 CDF"``) when one has been set. Used by the
         function objects (the :class:`~phasegen.distributions.base._LSTFunction` family) for their plot titles."""
         return f"{self.label} {base}" if self.label else base[0].upper() + base[1:]
+
+    @property
+    def _variable(self) -> str:
+        """The variable on the x-axis of the curve plots, ``t`` for a time and ``x`` for any other reward."""
+        return self.reward._variable
 
     @property
     def _rms(self) -> float:
@@ -874,7 +880,8 @@ class JointRewardDistribution(CallableDistributionFunctions):
 
         samples = self._host._sample(n_samples, rewards=[self.reward_a, self.reward_b],
                                      rng=np.random.default_rng(seed))
-        dist = EmpiricalJointDistribution(samples[:, 0], samples[:, 1])
+        dist = EmpiricalJointDistribution(samples[:, 0], samples[:, 1],
+                                          (self.reward_a._variable, self.reward_b._variable))
         dist.label = self.label
 
         return dist
@@ -2019,6 +2026,11 @@ class ConditionalRewardDistribution(RewardDistribution):
         """
         raise NotImplementedError("A conditional distribution cannot be sampled directly. Sample the joint "
                                   "distribution with JointRewardDistribution.to_empirical() and condition the sample.")
+
+    @property
+    def _variable(self) -> str:
+        """The variable of the other reward :math:`R_o`, ``t`` for a time and ``x`` otherwise."""
+        return (self._joint.reward_b if self._on == 'a' else self._joint.reward_a)._variable
 
     @property
     def _rms(self) -> float:
