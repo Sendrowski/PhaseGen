@@ -1,5 +1,5 @@
 # Real-world examples
-The following examples apply ``phasegen`` to demographic models inferred from human data.
+The following examples apply ``phasegen`` to demographic models inferred from great ape and human data.
 
 ```{code-cell} python
 :tags: [remove-cell]
@@ -14,15 +14,196 @@ options(repr.plot.width = 4.4, repr.plot.height = 3.3)
 ```
 
 +++
-## Out of Africa
-We consider the three-population out-of-Africa model of [Gutenkunst et al. (2009)](https://doi.org/10.1371/journal.pgen.1000695) for the Yoruba in Ibadan (YRI), Utah residents of northern and western European ancestry (CEU) and Han Chinese in Beijing (CHB). In this model, an ancestral African population expands and persists at constant size as YRI. A small group leaves Africa 5,600 generations ago and stays small, the out-of-Africa bottleneck, until it splits 848 generations ago into the still smaller founding populations of CEU and CHB, which have grown exponentially since. The populations exchange migrants throughout. We load the model from [``stdpopsim``](https://popsim-consortium.github.io/stdpopsim-docs/stable/catalog.html#sec_catalog_homsap_models_outofafrica_3g09) and draw it with [``demesdraw``](https://grahamgower.github.io/demesdraw/), with time in generations on a logarithmic scale. The width of each population is proportional to its size, and the thin arrows show migration.
+## Human, chimp and gorilla
+We take one lineage each from human (H), chimpanzee (C) and gorilla (G) under the speciation history estimated by [Hobolth et al. (2007)](https://doi.org/10.1371/journal.pgen.0030007). Human and chimpanzee split 4.1 million years ago, and their ancestor split from gorilla about 2 million years earlier. The two ancestral populations have effective sizes of 65,000 and 45,000, and the generation time is 25 years. Time is in generations and each population size is given as 2N, twice the number of diploid individuals, so that a pair of lineages coalesces at rate one over the size. With a single lineage per population, the present-day sizes do not matter and are set to that of the human-chimpanzee ancestor.
 
 ```{code-cell} python
 import numpy as np
 import matplotlib.pyplot as plt
+import phasegen as pg
+
+N_HC, N_HCG, generation_time = 65000, 45000, 25
+t_HC, t_HCG = 4.1e6 / generation_time, 6.1e6 / generation_time
+print(f"t_HC = {t_HC:,.0f}, t_HCG = {t_HCG:,.0f} generations")
+
+coal = pg.Coalescent(
+    n={'C': 1, 'G': 1, 'H': 1},
+    demography=pg.Demography(pop_sizes={'C': 2 * N_HC, 'G': 2 * N_HC, 'H': 2 * N_HC}, events=[
+        pg.PopulationSplit(time=t_HC, derived='C', ancestral='H'),
+        pg.PopSizeChange(pop='H', time=t_HC, size=2 * N_HC),
+        pg.PopSizeChange(pop='H', time=t_HCG, size=2 * N_HCG),
+        pg.PopulationSplit(time=t_HCG, derived='G', ancestral='H')
+    ])
+)
+```
+
+```{code-cell} r
+library(phasegen)
+library(patchwork)
+pg <- load_phasegen()
+
+N_HC <- 65000
+N_HCG <- 45000
+generation_time <- 25
+t_HC <- 4.1e6 / generation_time
+t_HCG <- 6.1e6 / generation_time
+cat(sprintf("t_HC = %s, t_HCG = %s generations\n", format(t_HC, big.mark = ","), format(t_HCG, big.mark = ",")))
+
+coal <- pg$Coalescent(
+    n = list(C = 1, G = 1, H = 1),
+    demography = pg$Demography(pop_sizes = list(C = 2 * N_HC, G = 2 * N_HC, H = 2 * N_HC), events = c(
+        pg$PopulationSplit(time = t_HC, derived = "C", ancestral = "H"),
+        pg$PopSizeChange(pop = "H", time = t_HC, size = 2 * N_HC),
+        pg$PopSizeChange(pop = "H", time = t_HCG, size = 2 * N_HCG),
+        pg$PopulationSplit(time = t_HCG, derived = "G", ancestral = "H")
+    ))
+)
+```
+
++++
+Below is the joint density of the tree height and the length of the internal branch ancestral to the human and chimpanzee lineages, both in generations. The branch length is a {class}`~phasegen.rewards.JointSFSReward` with one descendant in each. We invert it with more cosine terms than the default, which resolves its sharp edges. Its shape is set by the two speciation times. No genealogy is shallower than t<sub>HCG</sub>, which gives the vertical edge. The human and chimpanzee lineages coalesce no earlier than t<sub>HC</sub>, so their branch is at most the tree height minus t<sub>HC</sub>, which gives the upper diagonal edge. Above the diagonal ridge at the tree height minus t<sub>HCG</sub>, the two lineages coalesced in their own ancestor, and below it in the ancestor shared with gorilla.
+
+```{code-cell} python
+:tags: [remove-cell]
+cos_terms = pg.Settings.cos_terms, pg.Settings.cos_terms_2d
+```
+
+```{code-cell} python
+pg.Settings.cos_terms, pg.Settings.cos_terms_2d = 3072, 1024
+
+HC = pg.JointSFSReward({'H': 1, 'C': 1})
+joint = coal.joint(pg.TreeHeightReward(), HC)
+
+_, ax = plt.subplots()
+joint.pdf.plot(ax=ax, n_points=225, show=False, title='Joint density')
+ax.ticklabel_format(style='sci', scilimits=(0, 0))
+ax.set_xlabel('tree height')
+ax.set_ylabel('human-chimpanzee branch length');
+```
+
+```{code-cell} r
+:tags: [remove-cell]
+cos_terms <- list(pg$Settings$cos_terms, pg$Settings$cos_terms_2d)
+```
+
+```{code-cell} r
+pg$Settings$cos_terms <- 3072L
+pg$Settings$cos_terms_2d <- 1024L
+
+HC <- pg$JointSFSReward(list(H = 1L, C = 1L))
+joint <- coal$joint(pg$TreeHeightReward(), HC)
+
+plot(joint$pdf, n_points = 225L, title = "Joint density") +
+    ggplot2::labs(x = "tree height", y = "human-chimpanzee branch length")
+```
+
++++
+When the gorilla lineage coalesces first with the human or the chimpanzee lineage, the genealogy disagrees with the species tree and the human-chimpanzee branch has length zero. This incomplete lineage sorting (ILS) is the atom of the branch length at zero. It is not visible in the density above and is given exactly by the CDF at zero.
+
+```{code-cell} python
+p_ils = coal.distribution(HC).cdf(0)
+print(f"P(ILS) = {p_ils:.4f}")
+```
+
+```{code-cell} python
+:tags: [remove-cell]
+assert np.isclose(p_ils, 2 / 3 * np.exp(-(t_HCG - t_HC) / (2 * N_HC)), rtol=1e-6)
+```
+
+```{code-cell} r
+p_ils <- coal$distribution(HC)$cdf(0)
+cat(sprintf("P(ILS) = %.4f\n", p_ils))
+```
+
+```{code-cell} r
+:tags: [remove-cell]
+stopifnot(abs(p_ils / (2 / 3 * exp(-(t_HCG - t_HC) / (2 * N_HC))) - 1) < 1e-6)
+```
+
++++
+Conditioning on the human-chimpanzee branch length with {meth}`JointRewardDistribution.conditional() <phasegen.distributions.JointRewardDistribution.conditional>` gives the distribution of the tree height for a given length of this branch. At length zero, this is the tree height under ILS, which rises from zero at t<sub>HCG</sub>. A positive length gives a normalised vertical slice through the joint density above. The tree height is the age of the human-chimpanzee coalescence plus the length of the human-chimpanzee branch, which spans from that coalescence to the root. As this coalescence is older than t<sub>HC</sub>, a longer branch shifts the curve to older tree heights. The density jumps up where the human-chimpanzee coalescence becomes older than t<sub>HCG</sub>, as the ancestor shared with gorilla is smaller and coalescence there is faster.
+
+```{code-cell} python
+_, ax = plt.subplots()
+t = np.linspace(2e5, 6e5, 600)
+for length in (0, 25000, 100000):
+    joint.conditional(on='b', value=length).pdf.plot(ax=ax, t=t, show=False, label=f'HC branch length {length:,}')
+ax.ticklabel_format(style='sci', scilimits=(0, 0))
+ax.set_xlabel('tree height')
+ax.set_title('Conditional tree height');
+```
+
+```{code-cell} python
+:tags: [remove-cell]
+assert np.isclose(joint.conditional(on='b', value=0).mean, t_HCG + 4 / 3 * 2 * N_HCG, rtol=1e-5)
+pg.Settings.cos_terms, pg.Settings.cos_terms_2d = cos_terms
+```
+
+```{code-cell} r
+t <- seq(2e5, 6e5, length.out = 600)
+p <- NULL
+for (length in c(0, 25000, 100000)) {
+    p <- plot(joint$conditional(on = "b", value = length)$pdf, t = t, add = p,
+              label = paste("HC branch length", format(length, big.mark = ",", scientific = FALSE)),
+              title = "Conditional tree height")
+}
+p + ggplot2::labs(x = "tree height")
+```
+
+```{code-cell} r
+:tags: [remove-cell]
+stopifnot(abs(joint$conditional(on = "b", value = 0)$mean / (t_HCG + 4 / 3 * 2 * N_HCG) - 1) < 1e-5)
+pg$Settings$cos_terms <- cos_terms[[1]]
+pg$Settings$cos_terms_2d <- cos_terms[[2]]
+```
+
++++
+A genealogy of three lineages has a single internal branch, so the human-chimpanzee and human-gorilla branches are never both present and their product has mean zero.
+
+```{code-cell} python
+HG = pg.JointSFSReward({'H': 1, 'G': 1})
+product = coal.moment(2, (HC, HG), center=False)
+print(f"E[L_HC L_HG] = {product:.4g}")
+```
+
+```{code-cell} r
+HG <- pg$JointSFSReward(list(H = 1L, G = 1L))
+product <- coal$moment(2L, list(HC, HG), center = FALSE)
+cat(sprintf("E[L_HC L_HG] = %.4g\n", product))
+```
+
++++
+Their covariance, given by {meth}`Coalescent.moment() <phasegen.distributions.Coalescent.moment>`, therefore equals minus the product of their means.
+
+```{code-cell} python
+cov = coal.moment(2, (HC, HG))
+means = coal.moment(1, (HC,)) * coal.moment(1, (HG,))
+print(f"Cov(L_HC, L_HG) = {cov:.4g}, -E[L_HC] E[L_HG] = {-means:.4g}")
+```
+
+```{code-cell} python
+:tags: [remove-cell]
+assert abs(product) < 1e-10 * means and np.isclose(cov, -means, rtol=1e-8)
+```
+
+```{code-cell} r
+cov <- coal$moment(2L, list(HC, HG))
+means <- coal$moment(1L, list(HC)) * coal$moment(1L, list(HG))
+cat(sprintf("Cov(L_HC, L_HG) = %.4g, -E[L_HC] E[L_HG] = %.4g\n", cov, -means))
+```
+
+```{code-cell} r
+:tags: [remove-cell]
+stopifnot(abs(product) < 1e-10 * means, abs(cov / -means - 1) < 1e-8)
+```
+
++++
+## Out of Africa
+We consider the three-population out-of-Africa model of [Gutenkunst et al. (2009)](https://doi.org/10.1371/journal.pgen.1000695) for the Yoruba in Ibadan (YRI), Utah residents of northern and western European ancestry (CEU) and Han Chinese in Beijing (CHB). In this model, an ancestral African population expands and persists at constant size as YRI. A small group leaves Africa 5,600 generations ago and stays small, the out-of-Africa bottleneck, until it splits 848 generations ago into the still smaller founding populations of CEU and CHB, which have grown exponentially since. The populations exchange migrants throughout. We load the model from [``stdpopsim``](https://popsim-consortium.github.io/stdpopsim-docs/stable/catalog.html#sec_catalog_homsap_models_outofafrica_3g09) and draw it with [``demesdraw``](https://grahamgower.github.io/demesdraw/), with time in generations on a logarithmic scale. The width of each population is proportional to its size, and the thin arrows show migration.
+
+```{code-cell} python
 import demesdraw
 import stdpopsim
-import phasegen as pg
 
 model = stdpopsim.get_species('HomSap').get_demographic_model('OutOfAfrica_3G09')
 
@@ -31,9 +212,6 @@ demesdraw.tubes(model.model.to_demes(), ax=ax, log_time=True, seed=42);
 ```
 
 ```{code-cell} r
-library(phasegen)
-library(patchwork)
-pg <- load_phasegen()
 stdpopsim <- reticulate::import("stdpopsim")
 demesdraw <- reticulate::import("demesdraw")
 plt <- reticulate::import("matplotlib.pyplot")

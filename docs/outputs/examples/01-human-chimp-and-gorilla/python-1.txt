@@ -1,0 +1,1 @@
+t_HC = 164,000, t_HCG = 244,000 generations
