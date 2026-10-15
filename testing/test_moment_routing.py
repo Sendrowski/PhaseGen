@@ -243,6 +243,34 @@ def test_closed_form_finite_epochs_dense_on_stiff_rates():
                               rel=1e-10)
 
 
+def test_closed_form_finite_epochs_take_action_below_sparse_lu_threshold():
+    """The finite epochs of the closed form take the sparse action on non-stiff rates where the last-epoch LU is
+    dense. Regression: the dense LU forced the dense Van Loan exponential, 4 to 13 times slower on a 10-epoch
+    two-deme SFS mean at 110 to 185 transient states."""
+    pairs = [('pop_0', 'pop_1'), ('pop_1', 'pop_0')]
+    times = np.linspace(0, 2, 10)
+    coal = pg.Coalescent(n={'pop_0': 4, 'pop_1': 3}, demography=pg.Demography(
+        pop_sizes={'pop_0': {t: 1 + 0.5 * np.sin(t) for t in times}, 'pop_1': {t: 1.5 for t in times}},
+        migration_rates={pr: 0.5 for pr in pairs}))
+    assert coal.block_counting_state_space.k < Settings.closed_form_sparse_min_states
+
+    with patch('phasegen.distributions._moments.spla.expm_multiply', side_effect=sp.linalg.expm_multiply) as action:
+        mean = coal.sfs.mean.data
+    assert action.call_count > 0
+
+    sfs = coal.sfs
+    reward = pg.rewards.CombinedReward([sfs.reward, sfs._get_sfs_reward(2)])
+    with patch.object(Backend, 'expm_multiply', side_effect=Backend.expm_multiply) as action:
+        var = PhaseTypeDistribution.moment(sfs, k=2, rewards=(reward, reward))
+    assert action.call_count > 0
+
+    Settings.expm_action_min_dim = 10 ** 9
+    with patch('phasegen.distributions._moments._DENSE_EXPM_STEP_NORM', 0.0):
+        dense = pg.Coalescent(n=coal._lineages.lineage_dict, demography=coal.demography)
+        np.testing.assert_allclose(mean, dense.sfs.mean.data, rtol=1e-12)
+        assert var == pytest.approx(PhaseTypeDistribution.moment(dense.sfs, k=2, rewards=(reward, reward)), rel=1e-12)
+
+
 @pytest.mark.parametrize('force_sparse', [False, True])
 @pytest.mark.parametrize('folded', [False, True])
 def test_multi_epoch_sfs_cov_stacks_bins(force_sparse, folded):

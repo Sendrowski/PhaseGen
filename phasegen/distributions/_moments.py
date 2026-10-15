@@ -56,6 +56,12 @@ _MIN_BALANCE = np.finfo(float).eps
 #: ``_occupation_times`` applies it to each epoch on its own, with the dimension of its augmented generator.
 _DENSE_EXPM_STEP_NORM = 5e-5
 
+#: Fixed cost of one sparse action in units of the step norm, added per exponential to the summed step norm compared
+#: against ``_DENSE_EXPM_STEP_NORM``. Fitted on 924 finite-epoch generators of one- and two-deme spaces of 1 to 10
+#: epochs and Van Loan dimensions 35 to 1216, where it brings the total time within 0.1% of always taking the faster
+#: of the two exponentials. It sends dimensions below about 74 to the dense exponential.
+_ACTION_STEP_NORM_OFFSET = 20
+
 #: Largest ratio of the pairwise coalescence and migration rates of an epoch that double precision resolves, see
 #: ``MomentEvaluator._rate_spread``.
 _MAX_RATE_SPREAD = 1e16
@@ -291,10 +297,9 @@ class MomentEvaluator:
 
         - Matrix exponentials are formed densely while :math:`(k + 1)|E|` is below
           :attr:`Settings.expm_action_min_dim <phasegen.settings.Settings.expm_action_min_dim>`, and are otherwise
-          applied to vectors as sparse actions (Al-Mohy and Higham, 2011). In the closed form below, the sparse action
-          is taken from :attr:`Settings.closed_form_sparse_min_states
-          <phasegen.settings.Settings.closed_form_sparse_min_states>` transient states on, except where the rates are
-          stiff enough for the dense exponential to be faster.
+          applied to vectors as sparse actions (Al-Mohy and Higham, 2011). In the closed form below, the finite epochs
+          take the sparse action at any dimension, except where the rates are stiff enough for the dense exponential
+          to be faster.
         - :math:`\mathbf{U}` is never formed. A single LU factorization of :math:`-\mathbf{T}` serves all solves. It is
           sparse from :attr:`Settings.closed_form_sparse_min_states
           <phasegen.settings.Settings.closed_form_sparse_min_states>` transient states on, with the states ordered by
@@ -1475,10 +1480,10 @@ class MomentEvaluator:
 
         # The closed form factors the transient sub-generator ``T`` (size = number of transient states), whose
         # dense-LU vs sparse-LU crossover sits at :attr:`closed_form_sparse_min_states` transient states. The
-        # finite-epoch Van Loan exponentials take the sparse action with the sparse LU, except on the stiff generators
-        # of ``_dense_expm_is_faster``.
+        # finite-epoch Van Loan exponentials take the sparse action except on the stiff generators of
+        # ``_dense_expm_is_faster``, whatever the factorization.
         sparse = self._solve_sparse(len(idx_t))
-        use_action = sparse and not self._dense_expm_is_faster(k, epochs, start_time)
+        use_action = not self._dense_expm_is_faster(k, epochs, start_time)
 
         # the dense exponential of the stacked Van Loan matrix grows with the cube of the number of heads, so there each
         # head is evaluated on its own
@@ -1572,8 +1577,8 @@ class MomentEvaluator:
         Whether the dense exponentials of ``_accumulate_closed_form``, those of the finite epochs and of the propagation
         to ``start_time``, are cheaper than the sparse action: below :attr:`Settings.expm_action_min_dim
         <phasegen.settings.Settings.expm_action_min_dim>` in the Van Loan dimension, where the summed 1-norm of the
-        steps ``S tau`` exceeds ``_DENSE_EXPM_STEP_NORM`` times the cube of the dimension. Leaves the state space in
-        the last epoch.
+        steps ``S tau``, each increased by ``_ACTION_STEP_NORM_OFFSET``, exceeds ``_DENSE_EXPM_STEP_NORM`` times the
+        cube of the dimension. Leaves the state space in the last epoch.
 
         :param k: The order of the moment.
         :param epochs: The epochs of ``_get_epochs_until_unbounded``.
@@ -1585,12 +1590,18 @@ class MomentEvaluator:
             return False
 
         # the exponentials span the time up to the later of the start time and the start of the last epoch
-        horizon, norm = max(start_time, epochs[-1].start_time), 0.0
-        for epoch in epochs:
-            tau = min(epoch.end_time, horizon) - epoch.start_time
-            if tau > 0:
-                self.state_space.update_epoch(epoch)
-                norm += float(abs(self.state_space.S).sum(axis=0).max()) * tau
+        horizon = max(start_time, epochs[-1].start_time)
+        steps = [(epoch, min(epoch.end_time, horizon) - epoch.start_time) for epoch in epochs]
+        steps = [(epoch, tau) for epoch, tau in steps if tau > 0]
+
+        # the fixed costs of the actions alone may exceed the dense exponentials, without reading a generator
+        norm = _ACTION_STEP_NORM_OFFSET * len(steps)
+        if norm > _DENSE_EXPM_STEP_NORM * dim ** 3:
+            return True
+
+        for epoch, tau in steps:
+            self.state_space.update_epoch(epoch)
+            norm += float(abs(self.state_space.S).sum(axis=0).max()) * tau
 
         self.state_space.update_epoch(epochs[-1])
 
@@ -1815,9 +1826,10 @@ class MomentEvaluator:
             tau = upper - epoch.start_time
 
             # the dense exponential where the step is stiff enough to be the cheaper one, see ``_DENSE_EXPM_STEP_NORM``
-            use_action = sparse and not (
+            use_action = not (
                     2 * nt < Settings.expm_action_min_dim and
-                    float(abs(S).sum(axis=0).max()) * tau > _DENSE_EXPM_STEP_NORM * (2 * nt) ** 3
+                    float(abs(S).sum(axis=0).max()) * tau + _ACTION_STEP_NORM_OFFSET >
+                    _DENSE_EXPM_STEP_NORM * (2 * nt) ** 3
             )
 
             if use_action:
