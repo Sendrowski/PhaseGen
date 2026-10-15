@@ -13,10 +13,12 @@ import dill
 import numpy as np
 import pandas as pd
 import scipy.optimize as opt
+from scipy.optimize._numdiff import approx_derivative
 from scipy.optimize import OptimizeResult
 from tqdm import tqdm
 
 from .demography import Demography
+from ._loss_gradient import LossGradient
 from .distributions import Coalescent
 from .errors import ModelError
 from .serialization import Serializable
@@ -35,6 +37,12 @@ _LOSS_PENALTY = 1e100
 
 #: The methods of `scipy.optimize.minimize` that honour bounds and need no analytic Jacobian.
 _BOUNDED_METHODS = ('nelder-mead', 'powell', 'l-bfgs-b', 'tnc', 'slsqp', 'cobyla', 'cobyqa', 'trust-constr')
+
+#: The methods of :data:`_BOUNDED_METHODS` that use a gradient.
+_GRADIENT_METHODS = ('l-bfgs-b', 'tnc', 'slsqp', 'trust-constr')
+
+#: Consecutive evaluations of an optimization without an exact gradient after which it takes finite differences only.
+_MAX_GRADIENT_FAILURES = 3
 
 
 class Inference(Serializable):
@@ -78,6 +86,10 @@ class Inference(Serializable):
     #: serialized objects that lack the attribute.
     _is_bootstrap: bool = False
 
+    #: How the gradient of the loss is obtained. Static for backward compatibility with serialized objects that lack the
+    #: attribute.
+    gradient: Literal['exact', 'finite_differences'] = 'exact'
+
     def __init__(
             self,
             bounds: Dict[str, Tuple[float, float]],
@@ -94,7 +106,8 @@ class Inference(Serializable):
             seed: int = None,
             cache: bool = True,
             opts: Dict = None,
-            method_mle: str = 'L-BFGS-B'
+            method_mle: str = 'L-BFGS-B',
+            gradient: Literal['exact', 'finite_differences'] = 'exact'
     ) -> None:
         """
         Configure the inference.
@@ -139,9 +152,17 @@ class Inference(Serializable):
             See https://docs.scipy.org/doc/scipy/reference/optimize.minimize-lbfgsb.html#optimize-minimize-lbfgsb
         :param method_mle: Method to use for optimization, a method of `scipy.optimize.minimize` that honours bounds
             without an analytic Jacobian: Nelder-Mead, Powell, L-BFGS-B, TNC, SLSQP, COBYLA, COBYQA or trust-constr.
+        :param gradient: How the gradient-based methods (L-BFGS-B, TNC, SLSQP, trust-constr) obtain the gradient of the
+            loss. With ``'exact'``, a loss that reads only the means of :attr:`Coalescent.sfs
+            <phasegen.distributions.Coalescent.sfs>`, :attr:`Coalescent.fsfs <phasegen.distributions.Coalescent.fsfs>`,
+            :attr:`Coalescent.jsfs <phasegen.distributions.Coalescent.jsfs>`, :attr:`Coalescent.tree_height
+            <phasegen.distributions.Coalescent.tree_height>` and :attr:`Coalescent.total_branch_length
+            <phasegen.distributions.Coalescent.total_branch_length>` is differentiated by the adjoint of the moment
+            recursion, at a cost of a few loss evaluations whatever the number of parameters, and any other loss by
+            finite differences. With ``'finite_differences'``, every gradient is a finite difference of the loss.
         :raises ValueError: If a lower bound exceeds its upper bound, ``x0`` lies outside the bounds or does not specify
-            exactly the parameters in ``bounds``, ``method_mle`` is not one of the supported methods, or ``n_runs`` or
-            ``n_bootstraps`` is less than 1.
+            exactly the parameters in ``bounds``, ``method_mle`` is not one of the supported methods, ``gradient`` is not
+            one of the supported values, or ``n_runs`` or ``n_bootstraps`` is less than 1.
         """
         if do_bootstrap and (observation is None or resample is None):
             raise ValueError('Observation and resample arguments must be provided for automatic bootstrapping.')
@@ -157,6 +178,9 @@ class Inference(Serializable):
             opt.show_options(solver='minimize', method=method_mle, disp=False)
         except ValueError:
             raise ValueError(f'Unknown optimization method {method_mle!r}, see scipy.optimize.minimize.') from None
+
+        if gradient not in ('exact', 'finite_differences'):
+            raise ValueError(f"gradient must be 'exact' or 'finite_differences', got {gradient!r}.")
 
         if method_mle.lower() not in _BOUNDED_METHODS:
             raise ValueError(
@@ -217,6 +241,9 @@ class Inference(Serializable):
 
         #: Optimization method
         self.method_mle: str = method_mle
+
+        #: How the gradient of the loss is obtained.
+        self.gradient: Literal['exact', 'finite_differences'] = gradient
 
         #: Optimization result
         self.result: OptimizeResult | None = None
@@ -409,17 +436,80 @@ class Inference(Serializable):
 
             loss = float(loss)
 
-            data = params_dict | {'loss': loss}
-
-            logger.debug(f"Current iteration: ({', '.join([f'{k}={v:.4f}' for k, v in data.items()])})")
-
-            if pbar is not None:
-                pbar.update()
-                pbar.set_postfix(data)
+            Inference._report(params_dict, loss, pbar, logger)
 
             return loss
 
         return loss
+
+    @staticmethod
+    def _report(params: Dict[str, float], loss: float, pbar: tqdm | None, logger: logging.Logger) -> None:
+        """
+        Log an evaluation of the loss and show it on the progress bar.
+
+        :param params: The parameters.
+        :param loss: The loss.
+        :param pbar: Progress bar.
+        :param logger: Logger.
+        """
+        data = params | {'loss': loss}
+
+        logger.debug(f"Current iteration: ({', '.join([f'{k}={v:.4f}' for k, v in data.items()])})")
+
+        if pbar is not None:
+            pbar.update()
+            pbar.set_postfix(data)
+
+    @staticmethod
+    def _get_loss_and_gradient(
+            loss: Callable[[list], float],
+            x0: Dict[str, float],
+            bounds: Dict[str, Tuple[float, float]],
+            pbar: tqdm | None,
+            get_dist: Callable[..., Coalescent],
+            get_loss: Callable[[Coalescent, Any], float],
+            observation: Any,
+            logger: logging.Logger = logger
+    ) -> Callable[[np.ndarray], Tuple[float, np.ndarray]]:
+        """
+        The loss with its gradient, exact where :class:`~phasegen._loss_gradient.LossGradient` supports the loss and
+        otherwise a forward difference of ``loss`` within the bounds, as the optimizers take by default.
+
+        :param loss: The loss function of :meth:`_get_loss_function`.
+        :param x0: Initial parameters, for their names.
+        :param bounds: The bounds of the parameters.
+        :param pbar: Progress bar.
+        :param get_dist: Callback returning the configured coalescent distribution.
+        :param get_loss: Loss function.
+        :param observation: Observation.
+        :param logger: Logger.
+        :return: Function returning the loss and its gradient.
+        """
+        gradient = LossGradient(get_dist, get_loss, observation)
+        lower, upper = np.array([bounds[k] for k in x0.keys()], dtype=float).T
+
+        # consecutive evaluations without an exact gradient, after which the remaining ones skip the attempt
+        failures = [0]
+
+        def loss_and_gradient(params: np.ndarray) -> Tuple[float, np.ndarray]:
+            params_dict = dict(zip(x0.keys(), params))
+            out = None
+            if failures[0] < _MAX_GRADIENT_FAILURES:
+                try:
+                    out = gradient.compute(params_dict, bounds)
+                except Exception as e:
+                    logger.debug('Exact gradient unavailable at %s (%s), using finite differences', params_dict, e)
+
+            if out is not None and np.isfinite(out[1]).all():
+                failures[0] = 0
+                Inference._report(params_dict, out[0], pbar, logger)
+                return out
+
+            failures[0] += 1
+            value = loss(params)
+            return value, approx_derivative(loss, params, method='2-point', f0=value, bounds=(lower, upper))
+
+        return loss_and_gradient
 
     @staticmethod
     def _optimize(
@@ -431,7 +521,8 @@ class Inference(Serializable):
             get_loss: Callable[[Coalescent, Any], float],
             opts: dict = None,
             method_mle: str = 'L-BFGS-B',
-            logger: logging.Logger = logger
+            logger: logging.Logger = logger,
+            gradient: Literal['exact', 'finite_differences'] = 'exact'
     ) -> OptimizeResult:
         """
         Perform the optimization.
@@ -445,8 +536,11 @@ class Inference(Serializable):
         :param opts: Additional options passed to the optimization algorithm.
         :param method_mle: Method of `scipy.optimize.minimize` used for the optimization.
         :param logger: Logger.
+        :param gradient: How the gradient of the loss is obtained, see :class:`Inference`.
         :return: Result of the optimization procedure.
         """
+        bounds_dict = {key: bounds[key] for key in x0.keys()}
+
         # convert dictionaries to lists
         bounds = [bounds[key] for key in x0.keys()]
 
@@ -462,12 +556,20 @@ class Inference(Serializable):
             logger=logger
         )
 
+        # a loss the exact gradient does not support is left to the finite differences of the optimizer
+        jac = None
+        if (gradient == 'exact' and method_mle.lower() in _GRADIENT_METHODS and
+                LossGradient(get_dist, get_loss, observation).supported(x0)):
+            loss = Inference._get_loss_and_gradient(loss, x0, bounds_dict, pbar, get_dist, get_loss, observation, logger)
+            jac = True
+
         # perform the optimization
         result: OptimizeResult = opt.minimize(
             fun=loss,
             x0=np.array(list(x0.values())),
             method=method_mle,
             bounds=bounds,
+            jac=jac,
             options=opts
         )
 
@@ -488,6 +590,7 @@ class Inference(Serializable):
         get_loss = self.loss
         opts = self.opts
         method_mle = self.method_mle
+        gradient = self.gradient
         logger = self._logger
 
         self._logger.debug(f"Using '{method_mle}' optimizer.")
@@ -512,7 +615,8 @@ class Inference(Serializable):
                     get_loss=get_loss,
                     opts=opts,
                     method_mle=method_mle,
-                    logger=logger
+                    logger=logger,
+                    gradient=gradient
                 )
             except Exception as e:
                 logger.warning(f'Optimization run from x0={x0} failed and was skipped: {e}')
@@ -640,6 +744,7 @@ class Inference(Serializable):
         get_loss = self.loss
         opts = self.opts
         method_mle = self.method_mle
+        gradient = self.gradient
         logger = self._logger
 
         def run_sample(observation: Any) -> OptimizeResult:
@@ -659,7 +764,8 @@ class Inference(Serializable):
                     get_loss=get_loss,
                     opts=opts,
                     method_mle=method_mle,
-                    logger=logger
+                    logger=logger,
+                    gradient=gradient
                 )
             except Exception as e:
                 logger.warning('Bootstrap replicate failed and its parameters are NaN: %s', e)

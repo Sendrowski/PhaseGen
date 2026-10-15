@@ -22,6 +22,7 @@ from ..rewards import Reward, CustomReward, UnfoldedSFSReward, FoldedSFSReward, 
 from ..settings import Settings
 from ..state_space import BlockCountingStateSpace
 
+from ._gradient import _OccupationStep, _TapedAction
 from ._common import _make_hashable, _validate_order, _validate_reward_count, _validate_rewards, \
     _validate_start_time
 
@@ -1764,7 +1765,11 @@ class MomentEvaluator:
 
         return out[np.argsort(order)]
 
-    def _occupation_times(self, cap: float = None) -> Optional[Tuple[np.ndarray, np.ndarray]]:
+    def _occupation_times(
+            self,
+            cap: float = None,
+            tape: List['_OccupationStep'] = None
+    ) -> Optional[Tuple[np.ndarray, np.ndarray]]:
         """
         Expected occupation times of the transient states until absorption (the vector ``m`` of
         ``PhaseTypeDistribution.moment``). Finite epochs use the augmented generator ``[[T_i, I], [0, 0]]`` on the
@@ -1772,6 +1777,9 @@ class MomentEvaluator:
         time, and the epoch containing it is treated as finite, so a windowed mean subtracts the capped occupation.
 
         :param cap: If given, accumulate occupation only up to this absolute time instead of to absorption.
+        :param tape: If given, receives one :class:`~phasegen.distributions._gradient._OccupationStep` per epoch, the
+            record :class:`~phasegen.distributions._gradient.MeanGradient` differentiates. The sparse actions are then
+            applied by :class:`~phasegen.distributions._gradient._TapedAction`.
         :return: ``(occupation, idx_t)`` with the occupation times over the transient states ``idx_t`` of the final
             epoch, or ``None`` if absorption is not almost sure (callers then fall back to per-bin evaluation).
         :raises ModelError: if the occupation times propagated to an epoch are not finite.
@@ -1819,6 +1827,8 @@ class MomentEvaluator:
             if np.isinf(upper):
                 # final unbounded epoch, no cap: occupation to absorption = p (-T)^{-1}, i.e. solve (-T)^T x = p
                 neg_t = -self._transient_block(idx_t, sparse=sparse)
+                if tape is not None:
+                    tape.append(_OccupationStep(epoch, idx_t, np.inf, -neg_t, np.concatenate([p, m]), sparse=sparse))
                 m += self._lu_solver(neg_t.T, sparse)(p)
                 break
 
@@ -1838,7 +1848,13 @@ class MomentEvaluator:
                     [None, sp.csc_matrix((nt, nt))]
                 ], format='csc')
                 # [p, 0] exp(aug tau) = (exp((aug tau)^T) [p; 0])^T, so apply the action to the transposed generator
-                w = spla.expm_multiply((aug * tau).T.tocsc(), np.concatenate([p, np.zeros(nt)]))
+                if tape is None:
+                    w = spla.expm_multiply((aug * tau).T.tocsc(), np.concatenate([p, np.zeros(nt)]))
+                else:
+                    action = _TapedAction((aug * tau).T.tocsr())
+                    step = _OccupationStep(epoch, idx_t, tau, S, np.concatenate([p, m]), action=action)
+                    w, step.checkpoints = action.apply(np.concatenate([p, np.zeros(nt)]))
+                    tape.append(step)
                 m += w[nt:]
                 p = w[:nt]
             else:
@@ -1846,6 +1862,8 @@ class MomentEvaluator:
                 aug[:nt, :nt] = S.toarray() if sp.issparse(S) else S
                 aug[:nt, nt:] = np.eye(nt)
                 exp_aug = expm(aug * tau)
+                if tape is not None:
+                    tape.append(_OccupationStep(epoch, idx_t, tau, S, np.concatenate([p, m]), exp_aug=exp_aug))
                 m += p @ exp_aug[:nt, nt:]
                 p = p @ exp_aug[:nt, :nt]
 

@@ -5,7 +5,7 @@ import logging
 import math
 import warnings
 from ..caching import cached_property
-from typing import Tuple, Iterable, Sequence, Union, TYPE_CHECKING
+from typing import List, Tuple, Iterable, Sequence, Union, TYPE_CHECKING
 import numpy as np
 import scipy.linalg as sla
 import scipy.sparse as sp
@@ -137,6 +137,16 @@ class PhaseTypeDistribution(CallableDistributionFunctions, MomentEvaluator, Mome
         First moment / mean.
         """
         return self.moment(k=1)
+
+    def _mean_rewards(self) -> Tuple['PhaseTypeDistribution', np.ndarray, List[Tuple[int, ...]]]:
+        """
+        The reward vectors whose accumulation until absorption gives the entries of :attr:`mean`, as the distribution
+        whose state space carries them, a matrix with one column per entry, and the positions of the entries in the
+        data of the mean, an empty tuple for a scalar.
+
+        :return: The distribution, the reward matrix and the positions.
+        """
+        return self, np.asarray(self.reward._get(self.state_space), dtype=float)[:, None], [()]
 
     @cached_property
     def var(self) -> float | SFS:

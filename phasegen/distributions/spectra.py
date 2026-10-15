@@ -394,12 +394,7 @@ class SFSDistribution(SpectrumDistribution, ABC):
                 m, idx_t = occupation
                 if effective_start > 0:
                     m = m - self._occupation_times(cap=effective_start)[0]
-                bin_rewards = [CombinedReward([self.reward, self._get_sfs_reward(i)]) for i in self._get_indices()]
-                R = np.column_stack([
-                    (self._flattened_weights(r) if flatten else np.asarray(r._get(self.state_space), dtype=float))
-                    for r in bin_rewards
-                ])[idx_t]
-                moments = m @ R
+                moments = m @ self._mean_rewards()[1][idx_t]
                 return SFS([0] + list(moments) + [0] * (self.lineage_config.n - len(moments)))
 
         # moment of each SFS bin (serial; performance-critical paths use the batched closed form above)
@@ -412,6 +407,22 @@ class SFSDistribution(SpectrumDistribution, ABC):
         pad = float(k == 0)
 
         return SFS([pad] + list(moments) + [pad] * (self.lineage_config.n - len(moments)))
+
+    def _mean_rewards(self) -> Tuple['PhaseTypeDistribution', np.ndarray, List[Tuple[int, ...]]]:
+        """
+        The bin rewards of :attr:`mean`, see :meth:`PhaseTypeDistribution._mean_rewards`. Where flattening applies, they
+        are the flattened weights on the lineage-counting state space of the tree height.
+
+        :return: The distribution, the reward matrix and the positions.
+        """
+        flatten = self._flattening_applies(1)
+        bin_rewards = [CombinedReward([self.reward, self._get_sfs_reward(i)]) for i in self._get_indices()]
+        R = np.column_stack([
+            (self._flattened_weights(r) if flatten else np.asarray(r._get(self.state_space), dtype=float))
+            for r in bin_rewards
+        ])
+
+        return (self._tree_height if flatten else self), R, [(j + 1,) for j in range(len(bin_rewards))]
 
     def _moment(
             self,
@@ -1655,11 +1666,7 @@ class JointSFSDistribution(SpectrumDistribution):
         # accumulation is one contraction m_grid @ R over the stacked config rewards
         if k == 1 and not self._flattening_applies(1):
             m_grid = self._mean_occupation_grid(end_times, start_time=start_time)
-            ss = self.state_space
-            R = np.column_stack([
-                np.asarray(CombinedReward([self.reward, JointSFSReward(config)])._get(ss), dtype=float)
-                for config in configs
-            ])
+            _, R, _ = self._mean_rewards()
             self._logger.debug("jsfs accumulate (k=1): batched (shared occupation grid over %d bins)", len(configs))
             accumulation = (m_grid @ R).T
         else:
@@ -1681,6 +1688,20 @@ class JointSFSDistribution(SpectrumDistribution):
             out[(slice(None),) + config] = acc
 
         return out
+
+    def _mean_rewards(self) -> Tuple['PhaseTypeDistribution', np.ndarray, List[Tuple[int, ...]]]:
+        """
+        The bin rewards of :attr:`mean`, see :meth:`PhaseTypeDistribution._mean_rewards`.
+
+        :return: The distribution, the reward matrix and the positions.
+        """
+        configs = self._get_configs()
+        R = np.column_stack([
+            np.asarray(CombinedReward([self.reward, JointSFSReward(config)])._get(self.state_space), dtype=float)
+            for config in configs
+        ])
+
+        return self, R, list(configs)
 
     def _plot_accumulation_data(
             self,
