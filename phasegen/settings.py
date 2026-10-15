@@ -83,9 +83,9 @@ class Settings(metaclass=_SettingsMeta):
     #: the sparse path, or very large to always use the dense path.
     closed_form_sparse_min_states: int = 256
 
-    #: State count at or above which the rate matrix is stored sparse. A dense matrix is faster but needs
-    #: ``n_states**2`` memory, about 0.5 GB at the default.
-    dense_rate_matrix_max_states: int = 8000
+    #: State count at or above which the rate matrix is stored sparse. The sparse solves and actions read the sparse
+    #: matrix without a conversion per epoch, and a dense one needs ``n_states**2`` memory.
+    dense_rate_matrix_max_states: int = 256
 
     #: Maximum number of states to construct before raising :class:`MemoryError`. Raise it if memory permits.
     max_state_space_size: int = 1_000_000

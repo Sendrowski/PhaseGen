@@ -5,6 +5,7 @@ These verify that the numba path reproduces the pure-Python construction (up to 
 state-space types and coalescent models, and that forcing the Python fallback gives identical results.
 """
 import numpy as np
+import scipy.sparse as sp
 import pytest
 
 import phasegen as pg
@@ -35,7 +36,7 @@ def _build_S(make_state_space, use_numba):
     Settings.use_numba = use_numba
     ss = make_state_space()
     rows = ss.lineages[:, 0, :, :].reshape(ss.k, -1)
-    return rows, np.asarray(ss.S)
+    return rows, ss.S.toarray() if sp.issparse(ss.S) else np.asarray(ss.S)
 
 
 def _assert_S_parity(make_state_space, label, atol=1e-11):

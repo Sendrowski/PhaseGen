@@ -8,6 +8,7 @@ from testing import state_space_old
 from testing.state_space_parity import build_old, old_ordering
 
 import numpy as np
+import scipy.sparse as sp
 import pytest
 from numpy import testing
 
@@ -91,7 +92,8 @@ class StateSpaceTestCase(TestCase):
                 order = [np.where(((python_ss.lineages == numba_ss.lineages[i])
                                    & (python_ss.linked == numba_ss.linked[i])).all(axis=(1, 2, 3)))[0][0]
                          for i in range(numba_ss.k)]
-                testing.assert_array_almost_equal(numba_ss.S, python_ss.S[order][:, order], decimal=12)
+                dense = [S.toarray() if sp.issparse(S) else S for S in (numba_ss.S, python_ss.S)]
+                testing.assert_array_almost_equal(dense[0], dense[1][order][:, order], decimal=12)
         finally:
             pg.Settings.use_numba = prev
 
