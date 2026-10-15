@@ -101,6 +101,27 @@ def test_parallelize_workers_inherit_settings_and_backend(monkeypatch):
         np.testing.assert_allclose(float(result[6]), expected[6], rtol=1e-12)
 
 
+def test_spawn_workers_see_the_globals_of_a_script_function(monkeypatch):
+    """A function defined in a script or notebook runs in a ``spawn`` worker with the globals it references.
+    Regression: ``dill`` pickled such a function with a reference to the worker's ``__main__``, which lacks the
+    caller's globals, so every call raised ``NameError`` and each parallel bootstrap replicate became NaN."""
+    get_context = utils.mp.get_context
+    monkeypatch.setattr(utils.mp, 'get_context', lambda *args, **kwargs: get_context('spawn'))
+
+    import __main__
+
+    # a function of the main module, as one defined in a script or notebook is
+    monkeypatch.setattr(__main__, '_offset', 10, raising=False)
+    exec("def _shift(x):\n    return x + _offset", vars(__main__))
+
+    try:
+        results = utils.parallelize(func=__main__._shift, data=[1, 2], parallelize=True, pbar=False)
+    finally:
+        del __main__._shift
+
+    np.testing.assert_array_equal(results, [11, 12])
+
+
 def test_parallel_workers_do_not_warn_about_the_backend(caplog):
     """The worker restores the caller's matrix-exponential backend. Regression: it did so through the deprecated
     Backend.register, so every worker logged a deprecation warning the caller never triggered."""

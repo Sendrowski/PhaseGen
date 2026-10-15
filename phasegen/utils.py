@@ -36,8 +36,9 @@ class _ConfiguredCall:
 
         :param func: Function to call in the worker process.
         """
-        #: Function to call.
-        self.func: Callable = func
+        #: Function to call, serialized together with the globals it references, which a worker started by
+        #: ``spawn`` lacks when the function is defined in a script or notebook.
+        self.func: bytes = dill.dumps(func, recurse=True)
 
         #: Values of the settings, by name.
         self.settings: Dict[str, Any] = {
@@ -86,7 +87,7 @@ class _ConfiguredCall:
         if self.backend is not None:
             Backend.backend = dill.loads(self.backend)
 
-        return self.func(item)
+        return dill.loads(self.func)(item)
 
 
 def _available_cpus() -> int:
