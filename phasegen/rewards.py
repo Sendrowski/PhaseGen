@@ -1,9 +1,9 @@
 """
 Rewards assign weights to states in the state space. They are used behind the scenes
 to calculate different coalescent tree statistics but can also be passed directly to
-:meth:`~phasegen.distributions.Coalescent.moment`,
-:meth:`~phasegen.distributions.Coalescent.accumulate`, or
-:meth:`~phasegen.distributions.Coalescent.distribution` to accumulate them into more
+:meth:`Coalescent.moment() <phasegen.distributions.Coalescent.moment>`,
+:meth:`Coalescent.accumulate() <phasegen.distributions.Coalescent.accumulate>`, or
+:meth:`Coalescent.distribution() <phasegen.distributions.Coalescent.distribution>` to accumulate them into more
 complex statistics and their distributions.
 """
 

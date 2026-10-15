@@ -5,7 +5,7 @@
 ```{versionadded} 2.0
 ```
 
-Any two rewards additionally have a joint distribution, from which the {meth}`JointRewardDistribution.marginal <phasegen.distributions.JointRewardDistribution.marginal>` and {meth}`JointRewardDistribution.conditional <phasegen.distributions.JointRewardDistribution.conditional>` distributions of one given the other follow.
+Any two rewards additionally have a joint distribution, from which the {meth}`JointRewardDistribution.marginal() <phasegen.distributions.JointRewardDistribution.marginal>` and {meth}`JointRewardDistribution.conditional() <phasegen.distributions.JointRewardDistribution.conditional>` distributions of one given the other follow.
 
 ```{code-cell} python
 :tags: [remove-cell]
@@ -32,7 +32,7 @@ pg <- load_phasegen()
 +++
 ## One-dimensional reward distributions
 
-Consider a single population that passes through a sharp bottleneck. Its {meth}`Coalescent.total_branch_length <phasegen.distributions.Coalescent.total_branch_length>`, the summed length of every branch in the tree, is a distribution whose `pdf`, `cdf` and `quantile` are callable at points and plottable.
+Consider a single population that passes through a sharp bottleneck. Its {attr}`Coalescent.total_branch_length <phasegen.distributions.Coalescent.total_branch_length>`, the summed length of every branch in the tree, is a distribution whose `pdf`, `cdf` and `quantile` are callable at points and plottable.
 
 ```{code-cell} python
 coal = pg.Coalescent(
@@ -115,7 +115,7 @@ The `quantile` is the inverse of the `cdf`. Thus `quantile(0.5)` is the median, 
 +++
 ## Joint distributions
 
-Any two accumulated rewards have a joint distribution. {meth}`UnfoldedSFSDistribution.joint <phasegen.distributions.UnfoldedSFSDistribution.joint>` returns it as a {class}`~phasegen.distributions.JointRewardDistribution` with a 2D `pdf` and `cdf`, computed as described at {class}`JointDensity <phasegen.distributions.JointDensity>` and {class}`JointCDF <phasegen.distributions.JointCDF>` (a joint quantile is not well-defined). As an example, consider two rewards from the bottleneck above, the singleton and doubleton branch lengths (SFS bins 1 and 2). They are not independent. Within a tree, branch length subtending one frequency class reduces that available to the other, so their joint distribution is bimodal and negatively correlated.
+Any two accumulated rewards have a joint distribution. {meth}`UnfoldedSFSDistribution.joint() <phasegen.distributions.UnfoldedSFSDistribution.joint>` returns it as a {class}`~phasegen.distributions.JointRewardDistribution` with a 2D `pdf` and `cdf`, computed as described at {class}`JointDensity <phasegen.distributions.JointDensity>` and {class}`JointCDF <phasegen.distributions.JointCDF>` (a joint quantile is not well-defined). As an example, consider two rewards from the bottleneck above, the singleton and doubleton branch lengths (SFS bins 1 and 2). They are not independent. Within a tree, branch length subtending one frequency class reduces that available to the other, so their joint distribution is bimodal and negatively correlated.
 
 ```{code-cell} python
 joint = coal.sfs.joint(1, 2)  # singleton and doubleton branch lengths
@@ -187,7 +187,7 @@ options(repr.plot.width = 5, repr.plot.height = 4)
 +++
 ## Marginal distributions
 
-{meth}`JointRewardDistribution.marginal <phasegen.distributions.JointRewardDistribution.marginal>` collapses the joint distribution onto one axis, recovering the ordinary 1D distribution of that reward, here identical to accessing the SFS bin directly via {meth}`UnfoldedSFSDistribution.bin <phasegen.distributions.UnfoldedSFSDistribution.bin>`.
+{meth}`JointRewardDistribution.marginal() <phasegen.distributions.JointRewardDistribution.marginal>` collapses the joint distribution onto one axis, recovering the ordinary 1D distribution of that reward, here identical to accessing the SFS bin directly via {meth}`UnfoldedSFSDistribution.bin() <phasegen.distributions.UnfoldedSFSDistribution.bin>`.
 
 ```{code-cell} python
 marg = joint.marginal('a')  # branch length of bin 1 (singletons)
@@ -219,7 +219,7 @@ stopifnot(abs(marg$mean - coal$sfs$bin(1L)$mean) < 1e-6 * coal$sfs$bin(1L)$mean)
 +++
 ## Conditional distributions
 
-{meth}`JointRewardDistribution.conditional <phasegen.distributions.JointRewardDistribution.conditional>` gives the 1D distribution of one reward given the other equals a fixed value, obtained by a nested inversion of the joint Laplace transform as described at {class}`ConditionalRewardDistribution <phasegen.distributions.ConditionalRewardDistribution>`. Because the two rewards are negatively correlated, the doubleton length shifts left as the conditioning singleton length grows. The doubleton length is bimodal given both a short and a long singleton branch, reflecting whether lineages coalesced during or after the bottleneck.
+{meth}`JointRewardDistribution.conditional() <phasegen.distributions.JointRewardDistribution.conditional>` gives the 1D distribution of one reward given the other equals a fixed value, obtained by a nested inversion of the joint Laplace transform as described at {class}`ConditionalRewardDistribution <phasegen.distributions.ConditionalRewardDistribution>`. Because the two rewards are negatively correlated, the doubleton length shifts left as the conditioning singleton length grows. The doubleton length is bimodal given both a short and a long singleton branch, reflecting whether lineages coalesced during or after the bottleneck.
 
 ```{code-cell} python
 print("E[R_b | R_a = v]:")
@@ -268,7 +268,7 @@ p
 +++
 ## Checking against the sampler
 
-Every one of these objects has an empirical counterpart from {meth}`PhaseTypeDistribution.to_empirical <phasegen.distributions.PhaseTypeDistribution.to_empirical>` (see {doc}`Empirical distributions <empirical_distributions>`), drawn from the same model by Monte Carlo, with the empirical {meth}`EmpiricalPhaseTypeSFSDistribution.joint <phasegen.distributions.EmpiricalPhaseTypeSFSDistribution.joint>` exposing the matching {meth}`EmpiricalJointDistribution.marginal <phasegen.distributions.EmpiricalJointDistribution.marginal>` and {meth}`EmpiricalJointDistribution.conditional <phasegen.distributions.EmpiricalJointDistribution.conditional>`. This independently validates the exact results, which is valuable because the Laplace-transform inversion can lose precision for extreme demographies. The sampled conditional is only approximate, since it is estimated by restricting the unconditioned sample to a narrow window around the conditioning value rather than drawn from the conditional law directly, but it is close enough to confirm the exact densities that coincide with it below.
+Every one of these objects has an empirical counterpart from {meth}`PhaseTypeDistribution.to_empirical() <phasegen.distributions.PhaseTypeDistribution.to_empirical>` (see {doc}`Empirical distributions <empirical_distributions>`), drawn from the same model by Monte Carlo, with the empirical {meth}`EmpiricalPhaseTypeSFSDistribution.joint() <phasegen.distributions.EmpiricalPhaseTypeSFSDistribution.joint>` exposing the matching {meth}`EmpiricalJointDistribution.marginal() <phasegen.distributions.EmpiricalJointDistribution.marginal>` and {meth}`EmpiricalJointDistribution.conditional() <phasegen.distributions.EmpiricalJointDistribution.conditional>`. This independently validates the exact results, which is valuable because the Laplace-transform inversion can lose precision for extreme demographies. The sampled conditional is only approximate, since it is estimated by restricting the unconditioned sample to a narrow window around the conditioning value rather than drawn from the conditional law directly, but it is close enough to confirm the exact densities that coincide with it below.
 
 ```{code-cell} python
 emp = coal.sfs.to_empirical(1_000_000, seed=42).joint(1, 2)

@@ -1,6 +1,6 @@
 # Empirical distributions
 
-Every exact phase-type distribution `phasegen` computes can also be sampled. {meth}`~phasegen.distributions.PhaseTypeDistribution.to_empirical` simulates trajectories of the same Markov jump process, as described at {meth}`PhaseTypeDistribution.sample <phasegen.distributions.PhaseTypeDistribution.sample>`, and returns an empirical counterpart ({class}`~phasegen.distributions.EmpiricalPhaseTypeDistribution`) that exposes the same interface as the exact {class}`~phasegen.distributions.PhaseTypeDistribution`, estimated by Monte Carlo.
+Every exact phase-type distribution `phasegen` computes can also be sampled. {meth}`PhaseTypeDistribution.to_empirical() <phasegen.distributions.PhaseTypeDistribution.to_empirical>` simulates trajectories of the same Markov jump process, as described at {meth}`PhaseTypeDistribution.sample() <phasegen.distributions.PhaseTypeDistribution.sample>`, and returns an empirical counterpart ({class}`~phasegen.distributions.EmpiricalPhaseTypeDistribution`) that exposes the same interface as the exact {class}`~phasegen.distributions.PhaseTypeDistribution`, estimated by Monte Carlo.
 
 ```{versionadded} 2.0
 ```
@@ -20,7 +20,7 @@ pg <- load_phasegen()
 +++
 ## Sampling a spectrum
 
-Consider a two-population demography with a size change and asymmetric migration. {meth}`~phasegen.distributions.JointSFSDistribution.to_empirical` draws genealogies from this model and bins each one's branch lengths into the joint SFS. Its `mean` is the sampled counterpart of the exact {attr}`~phasegen.distributions.Coalescent.jsfs`.
+Consider a two-population demography with a size change and asymmetric migration. {meth}`JointSFSDistribution.to_empirical() <phasegen.distributions.JointSFSDistribution.to_empirical>` draws genealogies from this model and bins each one's branch lengths into the joint SFS. Its `mean` is the sampled counterpart of the exact {attr}`~phasegen.distributions.Coalescent.jsfs`.
 
 ```{code-cell} python
 coal = pg.Coalescent(
@@ -140,7 +140,7 @@ stopifnot(
 +++
 ## External ground truth
 
-{meth}`~phasegen.distributions.Coalescent.to_msprime` returns an `msprime`-backed coalescent ({class}`~phasegen.distributions.MsprimeCoalescent`) with the same interface. Where `to_empirical` is `phasegen`'s own sampler, this is a fully independent implementation: an external ground truth rather than a self-consistency check, at the cost of the slower, non-vectorised `msprime` simulation. `phasegen` is extensively validated against `msprime` across a wide range of scenarios.
+{meth}`Coalescent.to_msprime() <phasegen.distributions.Coalescent.to_msprime>` returns an `msprime`-backed coalescent ({class}`~phasegen.distributions.MsprimeCoalescent`) with the same interface. Where `to_empirical` is `phasegen`'s own sampler, this is a fully independent implementation: an external ground truth rather than a self-consistency check, at the cost of the slower, non-vectorised `msprime` simulation. `phasegen` is extensively validated against `msprime` across a wide range of scenarios.
 
 ```{code-cell} python
 ms = coal.to_msprime(num_replicates=5_000, seed=42)

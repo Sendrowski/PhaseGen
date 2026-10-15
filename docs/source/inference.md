@@ -184,7 +184,7 @@ stopifnot(nrow(inf$bootstraps) == 20)
 
 +++
 ## Distributed bootstrapping
-For inferences with long runtimes, the bootstrapping process can be distributed by creating bootstrap samples which are {class}`~phasegen.inference.Inference` objects themselves ({meth}`~phasegen.inference.Inference.create_bootstrap`). These bootstraps can be run in parallel and the results combined afterwards ({meth}`~phasegen.inference.Inference.add_bootstraps`).
+For inferences with long runtimes, the bootstrapping process can be distributed by creating bootstrap samples which are {class}`~phasegen.inference.Inference` objects themselves ({meth}`Inference.create_bootstrap() <phasegen.inference.Inference.create_bootstrap>`). These bootstraps can be run in parallel and the results combined afterwards ({meth}`Inference.add_bootstraps() <phasegen.inference.Inference.add_bootstraps>`).
 
 +++ {"tags": ["python-only"]}
 Below is an example [Snakemake](https://snakemake.readthedocs.io/en/stable/) workflow for distributed bootstrapping: 
@@ -317,7 +317,7 @@ inf.to_file(out)
 ```
 
 +++ {"tags": ["r-only"]}
-In a production setting the bootstraps are typically distributed across a cluster, for instance with a [Snakemake](https://snakemake.readthedocs.io/en/stable/) workflow. In such a workflow, one rule sets up the inference and performs the initial run ({meth}`~phasegen.inference.Inference.to_file`), a second rule loads it ({meth}`~phasegen.inference.Inference.from_file`), creates a single bootstrap and runs it, and a final rule merges the bootstrap results back into the main inference object. Below we demonstrate the same API in a single notebook, running the bootstraps in a serial loop rather than as parallel cluster jobs.
+In a production setting the bootstraps are typically distributed across a cluster, for instance with a [Snakemake](https://snakemake.readthedocs.io/en/stable/) workflow. In such a workflow, one rule sets up the inference and performs the initial run ({meth}`Inference.to_file() <phasegen.inference.Inference.to_file>`), a second rule loads it ({meth}`Inference.from_file() <phasegen.inference.Inference.from_file>`), creates a single bootstrap and runs it, and a final rule merges the bootstrap results back into the main inference object. Below we demonstrate the same API in a single notebook, running the bootstraps in a serial loop rather than as parallel cluster jobs.
 
 From R, the `coal`, `loss` and `resample` callbacks must be Python functions, defined via `reticulate::py_run_string`, because `create_bootstrap` and `to_file` serialize them and R closures do not survive that round-trip.
 
@@ -364,7 +364,7 @@ inf$to_file(path)
 ```
 
 +++ {"tags": ["r-only"]}
-Each bootstrap is created from the inference object with {meth}`~phasegen.inference.Inference.create_bootstrap`, which resamples the observation using the provided `resample` callback, and is then run independently. On a cluster each iteration of this loop would instead be a separate job that loads ``inference.json``, creates the bootstrap of its index, runs it and writes its own file. Here we reload the saved object once and run the replicates serially.
+Each bootstrap is created from the inference object with {meth}`Inference.create_bootstrap() <phasegen.inference.Inference.create_bootstrap>`, which resamples the observation using the provided `resample` callback, and is then run independently. On a cluster each iteration of this loop would instead be a separate job that loads ``inference.json``, creates the bootstrap of its index, runs it and writes its own file. Here we reload the saved object once and run the replicates serially.
 
 ```{code-cell} r
 :tags: [remove-output]
@@ -378,7 +378,7 @@ boots <- lapply(seq_len(20L), function(i) {
 ```
 
 +++ {"tags": ["r-only"]}
-Finally we merge the bootstraps into the main inference object with {meth}`~phasegen.inference.Inference.add_bootstraps` and visualize the inferred demography and the bootstrap distribution of the inferred parameters.
+Finally we merge the bootstraps into the main inference object with {meth}`Inference.add_bootstraps() <phasegen.inference.Inference.add_bootstraps>` and visualize the inferred demography and the bootstrap distribution of the inferred parameters.
 
 ```{code-cell} r
 inf$add_bootstraps(boots)
