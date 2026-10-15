@@ -96,6 +96,147 @@ stopifnot(inf$loss_inferred <= inf$loss(inf$get_coal(t = 0, Ne = 1), NULL))
 ```
 
 +++
+## Exact gradients for many parameters
+The optimizers L-BFGS-B, TNC, SLSQP and trust-constr follow the gradient of the loss. By default (``gradient='exact'``), {class}`~phasegen.inference.Inference` computes this gradient exactly when the loss reads only the means of the site-frequency spectra and of the tree height or total branch length: the means are differentiated with respect to the population sizes, migration rates and epoch start times by the adjoint of their evaluation, at the cost of a few loss evaluations whatever the number of parameters. A finite-difference gradient instead costs one loss evaluation per parameter, so the exact gradient pays off most for models with many parameters and large state spaces. Other losses are differentiated by finite differences, which is logged as a warning.
+
+Below we infer ten parameters of a model of two demes, each sampled four times: the population size of each deme in each of four epochs, and the two migration rates. The observation is a joint SFS sampled at a known population-scaled mutation rate (``theta``), and the loss is the Poisson likelihood of its polymorphic bins.
+
+```{code-cell} python
+import numpy as np
+import pandas as pd
+
+times = [0, 0.2, 0.6, 1.5]
+theta = 1e5
+
+observation = pg.JointSFS(np.array([
+    [0, 138937, 91465, 71043, 85617],
+    [184413, 19530, 15553, 14613, 24988],
+    [73439, 14773, 10965, 9737, 18335],
+    [52424, 15796, 11647, 10142, 20223],
+    [77848, 37217, 32016, 30589, 0]
+], dtype=float), pop_names=['pop_0', 'pop_1'])
+
+def coal(**p):
+    return pg.Coalescent(
+        n={'pop_0': 4, 'pop_1': 4},
+        demography=pg.Demography(
+            pop_sizes={
+                'pop_0': {t: p[f'a{i}'] for i, t in enumerate(times)},
+                'pop_1': {t: p[f'b{i}'] for i, t in enumerate(times)}
+            },
+            migration_rates={
+                ('pop_0', 'pop_1'): p['m01'],
+                ('pop_1', 'pop_0'): p['m10']
+            }
+        )
+    )
+
+def loss(coal, obs):
+    return pg.PoissonLikelihood().compute(
+        observed=obs.data.ravel()[1:-1],
+        modelled=theta * coal.jsfs.mean.data.ravel()[1:-1]
+    )
+
+names = [f'a{i}' for i in range(4)] + [f'b{i}' for i in range(4)] + ['m01', 'm10']
+
+inf = pg.Inference(
+    bounds={name: (0.05, 5) for name in names},
+    x0={name: 1 for name in names},
+    coal=coal,
+    loss=loss,
+    observation=observation,
+    n_runs=1,
+    seed=42
+)
+```
+
+```{code-cell} r
+times <- c(0, 0.2, 0.6, 1.5)
+theta <- 1e5
+
+observation <- pg$JointSFS(matrix(c(
+    0, 138937, 91465, 71043, 85617,
+    184413, 19530, 15553, 14613, 24988,
+    73439, 14773, 10965, 9737, 18335,
+    52424, 15796, 11647, 10142, 20223,
+    77848, 37217, 32016, 30589, 0
+), nrow = 5, byrow = TRUE), pop_names = c("pop_0", "pop_1"))
+
+coal <- function(a0, a1, a2, a3, b0, b1, b2, b3, m01, m10) {
+    a <- c(a0, a1, a2, a3)
+    b <- c(b0, b1, b2, b3)
+    pg$Coalescent(
+        n = list(pop_0 = 4L, pop_1 = 4L),
+        demography = pg$Demography(
+            pop_sizes = list(pop_0 = a0, pop_1 = b0),
+            events = c(
+                lapply(2:4, function(i) pg$PopSizeChange(pop = "pop_0", time = times[i], size = a[i])),
+                lapply(2:4, function(i) pg$PopSizeChange(pop = "pop_1", time = times[i], size = b[i])),
+                pg$MigrationRateChange(source = "pop_0", dest = "pop_1", time = 0, rate = m01),
+                pg$MigrationRateChange(source = "pop_1", dest = "pop_0", time = 0, rate = m10)
+            )
+        )
+    )
+}
+
+loss <- function(coal, obs) {
+    k <- as.numeric(obs$data)
+    m <- as.numeric(coal$jsfs$mean$data)
+    pg$PoissonLikelihood()$compute(
+        observed = k[-c(1, length(k))],
+        modelled = theta * m[-c(1, length(m))]
+    )
+}
+
+names <- c(paste0("a", 0:3), paste0("b", 0:3), "m01", "m10")
+
+inf <- pg$Inference(
+    bounds = setNames(rep(list(c(0.05, 5)), length(names)), names),
+    x0 = setNames(as.list(rep(1, length(names))), names),
+    coal = coal,
+    loss = loss,
+    observation = observation,
+    n_runs = 1L,
+    seed = 42L
+)
+```
+
++++
+The log of the run confirms that the gradient is exact. The inferred parameters are close to those the observation was sampled from.
+
+```{code-cell} python
+inf.run()
+```
+
+```{code-cell} python
+true = dict(a0=2, a1=0.5, a2=1, a3=1, b0=0.3, b1=1.5, b2=0.8, b3=1, m01=0.2, m10=0.6)
+
+pd.DataFrame({'true': true, 'inferred': inf.params_inferred}).round(2)
+```
+
+```{code-cell} python
+:tags: [remove-cell]
+assert inf.loss_inferred <= loss(coal(**true), observation)
+assert all(abs(inf.params_inferred[k] - v) < 0.6 * v for k, v in true.items())
+```
+
+```{code-cell} r
+inf$run()
+```
+
+```{code-cell} r
+true <- list(a0 = 2, a1 = 0.5, a2 = 1, a3 = 1, b0 = 0.3, b1 = 1.5, b2 = 0.8, b3 = 1, m01 = 0.2, m10 = 0.6)
+
+round(data.frame(true = unlist(true), inferred = unlist(inf$params_inferred[names])), 2)
+```
+
+```{code-cell} r
+:tags: [remove-cell]
+stopifnot(inf$loss_inferred <= loss(do.call(coal, true), observation))
+stopifnot(all(abs(unlist(inf$params_inferred[names]) - unlist(true)) < 0.6 * unlist(true)))
+```
+
++++
 ## Parametric bootstrapping
 We may also wish to perform parametric bootstrapping. In order to do this, we provide a callback function to resample the data, and enable ``do_bootstrap``. Note that we specify {attr}`~phasegen.inference.Inference.observation` to {class}`~phasegen.inference.Inference`, which is necessary for the resampling to work.
 
