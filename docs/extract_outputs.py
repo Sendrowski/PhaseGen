@@ -16,11 +16,12 @@ import base64
 import json
 import re
 import sys
+import tempfile
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
 
-from notebook_outputs import displayed_outputs, mask_text, tags
+from notebook_outputs import displayed_outputs, tags
 
 ROOT = Path(__file__).parent.parent
 
@@ -28,9 +29,41 @@ HEADING = re.compile(r"^(#{1,6})\s+(.+?)\s*$", re.MULTILINE)
 
 FENCED_CODE = re.compile(r"^(`{3,}|~{3,}).*?^\1", re.MULTILINE | re.DOTALL)
 
+ANSI_ESCAPE = re.compile(r"\x1b\[[0-9;]*m")
+
+# elapsed time, and remaining time where the total is known, of a progress bar
+PROGRESS_TIME = re.compile(r"(?<=\[)\d+(?::\d+)+(?:<(?:\d+(?::\d+)+|\?))?(?=,)")
+
+# rate of a progress bar, with the spaces it is padded with. tqdm writes <unit>/s above one iteration
+# per second and s/<unit> below, so the direction depends on how fast the run happened to be. The
+# unit names what the bar counts and is kept
+PROGRESS_RATE = re.compile(r"[ \t]*[\d.?]+ ?(?:([a-z]+)/s|s/ ?([a-z]+))\b")
+
+# temporary directory of this machine, which executes the notebooks, and names of temporary files created in it
+TEMP_DIR = re.compile(re.escape(tempfile.gettempdir()))
+TEMP_FILE = re.compile(r"(?<=<tmp>/)tmp[a-z0-9_]{8}")
+
+# spaces a progress bar pads its redrawn line with
+TRAILING_SPACE = re.compile(r"[ \t]+$", re.MULTILINE)
+
 # creation and modification dates and file identifier of a PDF
 PDF_DATE = re.compile(rb"D:\d{14}")
 PDF_ID = re.compile(rb"(/ID\s*\[\s*<)([0-9a-fA-F]+)(>\s*<)([0-9a-fA-F]+)(>)")
+
+
+def mask_text(text: str) -> str:
+    """
+    Plain-text output with the parts that differ between runs of the same code replaced: ANSI colour codes, trailing
+    spaces of redrawn progress bars, progress-bar timings and rates, and the paths of temporary files.
+
+    :param text: The text of an output.
+    :return: The text with run-specific parts masked.
+    """
+    text = TRAILING_SPACE.sub("", ANSI_ESCAPE.sub("", text))
+    text = TEMP_FILE.sub("tmp--------", TEMP_DIR.sub("<tmp>", text))
+    text = PROGRESS_TIME.sub(lambda m: re.sub(r"[\d?]+", "--", m[0]), text)
+
+    return PROGRESS_RATE.sub(lambda m: f" --{m[1] or m[2]}/s", text)
 
 
 def slug(title: str) -> str:
