@@ -184,7 +184,7 @@ def _inference(coal: Callable, loss: Callable, x0: dict, bounds: dict, observati
 
 def _sfs_loss(coal, obs):
     mean = coal.sfs.mean
-    return -pg.PoissonLikelihood().compute(obs.polymorphic, mean.polymorphic * obs.n_polymorphic / mean.n_polymorphic)
+    return pg.PoissonLikelihood().compute(obs.polymorphic, mean.polymorphic * obs.n_polymorphic / mean.n_polymorphic)
 
 
 def _two_deme(**p) -> pg.Coalescent:
@@ -259,6 +259,22 @@ def test_loss_gradient_unsupported_read_caught_by_loss():
     assert LossGradient(coal, loss, None).compute({'N': 1.0}, {'N': (0.1, 5)}) is None
 
 
+def test_loss_gradient_unsupported_read_raised_as_other_error():
+    """A loss from another language, such as R, raises its own error in place of the signal of an unsupported read,
+    which is still detected."""
+    def loss(coal, obs):
+        try:
+            return float(coal.sfs.var.data[1])
+        except BaseException as e:
+            raise RuntimeError(f'Error in py_get_attr: {e}')
+
+    coal = lambda N: pg.Coalescent(n=4, demography=pg.Demography(pop_sizes={'pop_0': {0: 1, 0.5: N}}))
+    gradient = LossGradient(coal, loss, None)
+
+    assert gradient.compute({'N': 1.0}, {'N': (0.1, 5)}) is None
+    assert not gradient.supported({'N': 1.0})
+
+
 def test_loss_gradient_unsupported_read_at_perturbed_mean():
     """A loss that reads an unsupported quantity only at a perturbed mean has no exact gradient. Regression: the
     signal escaped every handler and aborted the optimization."""
@@ -322,6 +338,39 @@ def test_inference_exact_gradient_reaches_finite_difference_optimum():
 
     assert results['exact'].loss_inferred == pytest.approx(results['finite_differences'].loss_inferred, rel=1e-6)
     assert results['exact'].result.nfev < results['finite_differences'].result.nfev / 3
+
+
+def test_inference_logs_exact_gradient(caplog):
+    """A supported loss is announced at INFO level, without a warning."""
+    coal = lambda N: pg.Coalescent(n=4, demography=pg.Demography(pop_sizes={'pop_0': {0: 1, 0.5: N}}))
+    with caplog.at_level('INFO'):
+        _inference(coal, lambda c, obs: float(c.tree_height.mean), {'N': 1.0}, {'N': (0.1, 5)}, None).run()
+
+    assert any(r.levelname == 'INFO' and 'exact gradient' in r.getMessage() for r in caplog.records)
+    assert not [r for r in caplog.records if r.levelname == 'WARNING']
+
+
+def test_inference_warns_on_unsupported_loss(caplog):
+    """An unsupported loss is warned about once per run."""
+    coal = lambda N: pg.Coalescent(n=4, demography=pg.Demography(pop_sizes={'pop_0': {0: 1, 0.5: N}}))
+    with caplog.at_level('WARNING'):
+        _inference(coal, lambda c, obs: float(c.sfs.var.data[1]), {'N': 1.0}, {'N': (0.1, 5)}, None).run()
+
+    assert len([r for r in caplog.records if 'finite differences' in r.getMessage()]) == 1
+
+
+def test_inference_warns_after_repeated_gradient_failures(caplog, monkeypatch):
+    """Consecutive evaluations without an exact gradient switch the optimization to finite differences, with one
+    warning."""
+    monkeypatch.setattr(LossGradient, 'compute', lambda self, params, bounds: None)
+    coal = lambda N: pg.Coalescent(n=4, demography=pg.Demography(pop_sizes={'pop_0': {0: 1, 0.5: N}}))
+    with caplog.at_level('WARNING'):
+        inf = _inference(coal, lambda c, obs: (float(c.tree_height.mean) - 2.0) ** 2, {'N': 1.0}, {'N': (0.1, 5)},
+                         None)
+        inf.run()
+
+    assert len([r for r in caplog.records if 'consecutive evaluations' in r.getMessage()]) == 1
+    assert inf.loss_inferred == pytest.approx(0, abs=1e-8)
 
 
 def test_inference_rejects_unknown_gradient():

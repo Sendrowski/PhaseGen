@@ -165,11 +165,15 @@ class LossGradient:
         """
         recorder = _CoalescentRecorder(coal)
 
+        # a loss from another language, such as R, raises its own error in place of the signal, which the flag of the
+        # recorder identifies
         try:
             value = float(self.loss(recorder, self.observation))
-        except _Unsupported as e:
-            self._log.debug("Loss reads %s, which the exact gradient does not support", e)
-            return None
+        except BaseException as e:
+            if isinstance(e, _Unsupported) or recorder.unsupported:
+                self._log.debug("Loss reads %s, which the exact gradient does not support", e)
+                return None
+            raise
 
         if recorder.unsupported or not recorder.reads:
             return None
@@ -207,9 +211,11 @@ class LossGradient:
             host, R, positions = dist._mean_rewards()
             try:
                 dmu = self._loss_derivatives(recorder, name, dist.mean, positions)
-            except _Unsupported as e:
-                self._log.debug("Loss reads %s at a perturbed mean, which the exact gradient does not support", e)
-                return None
+            except BaseException as e:
+                if isinstance(e, _Unsupported) or recorder.unsupported:
+                    self._log.debug("Loss reads %s at a perturbed mean, which the exact gradient does not support", e)
+                    return None
+                raise
 
             terms = np.array([d * self._entry(dist.mean, pos) for d, pos in zip(dmu, positions)])
             entry = hosts.setdefault(id(host), [host, 0.0, np.zeros(0)])

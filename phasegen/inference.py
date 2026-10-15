@@ -460,6 +460,26 @@ class Inference(Serializable):
             pbar.update()
             pbar.set_postfix(data)
 
+    def _announce_gradient(self, x0: Dict[str, float], observation: Any) -> None:
+        """
+        Log how the optimizations take the gradient of the loss, at INFO level where it is exact and as a warning where
+        the exact gradient was asked for but the loss is not supported at ``x0`` and ``observation``. Each optimization
+        decides for itself at its own start point and observation.
+
+        :param x0: The parameters at which the loss is probed.
+        :param observation: The observation.
+        """
+        if self.gradient != 'exact' or self.method_mle.lower() not in _GRADIENT_METHODS:
+            return
+
+        if LossGradient(self.get_coal, self.loss, observation).supported(x0):
+            self._logger.info('Using the exact gradient of the loss.')
+        else:
+            self._logger.warning(
+                'The loss reads more than the means of sfs, fsfs, jsfs, tree_height and total_branch_length, or a mean '
+                'with an accumulation window. Using finite differences for its gradient.'
+            )
+
     @staticmethod
     def _get_loss_and_gradient(
             loss: Callable[[list], float],
@@ -506,6 +526,12 @@ class Inference(Serializable):
                 return out
 
             failures[0] += 1
+            if failures[0] == _MAX_GRADIENT_FAILURES:
+                logger.warning(
+                    'The exact gradient was unavailable at %d consecutive evaluations, the last at %s. Using finite '
+                    'differences for the rest of this optimization.', failures[0], params_dict
+                )
+
             value = loss(params)
             return value, approx_derivative(loss, params, method='2-point', f0=value, bounds=(lower, upper))
 
@@ -556,7 +582,8 @@ class Inference(Serializable):
             logger=logger
         )
 
-        # a loss the exact gradient does not support is left to the finite differences of the optimizer
+        # a loss the exact gradient does not support at its observation is left to the finite differences of the
+        # optimizer
         jac = None
         if (gradient == 'exact' and method_mle.lower() in _GRADIENT_METHODS and
                 LossGradient(get_dist, get_loss, observation).supported(x0)):
@@ -592,6 +619,8 @@ class Inference(Serializable):
         method_mle = self.method_mle
         gradient = self.gradient
         logger = self._logger
+
+        self._announce_gradient(self.x0, observation)
 
         self._logger.debug(f"Using '{method_mle}' optimizer.")
 
@@ -746,6 +775,8 @@ class Inference(Serializable):
         method_mle = self.method_mle
         gradient = self.gradient
         logger = self._logger
+
+        self._announce_gradient(x0, self.observation)
 
         def run_sample(observation: Any) -> OptimizeResult:
             """
