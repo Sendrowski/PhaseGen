@@ -18,7 +18,7 @@ options(repr.plot.width = 4.4, repr.plot.height = 3.3)
 ## Single-deme SFS
 {class}`~phasegen.inference.Inference` requires a parametrized coalescent distribution, a loss function, and parameter bounds to be specified. More specifically, the `coal` argument is a callable that returns a {class}`~phasegen.distributions.Coalescent` object, based on the parameter values of the current optimization step, and `loss` is a callable specifying the current loss given this coalescent and the observation. By default, 10 independent optimization runs are performed using the L-BFGS-B algorithm, and the best result is returned.
 
-We first simulate an observation. A demography with recent exponential growth that follows a bottleneck is sampled with the empirical coalescent at a million independent loci, each of which carries a Poisson-distributed number of mutations at a population-scaled mutation rate ``theta`` per unit of branch length. The resulting SFS has a sample size of 20.
+We first simulate an observation. A demography with recent exponential growth that follows a bottleneck is sampled a million times with the empirical coalescent, and each sample carries a Poisson-distributed number of mutations at a population-scaled mutation rate ``theta`` per unit of branch length. The resulting SFS has a sample size of 20.
 
 ```{code-cell} python
 :tags: [full-width]
@@ -41,7 +41,7 @@ true = pg.Demography(
     )]
 )
 
-# SFS branch lengths of each locus, then Poisson mutation counts summed over loci
+# SFS branch lengths of each sample, then Poisson mutation counts summed over samples
 samples = pg.Coalescent(n=20, demography=true).to_empirical(n_samples=n_samples, seed=42).sfs.samples
 counts = np.random.default_rng(42).poisson(theta * np.asarray(samples)).sum(axis=0)
 observation = pg.SFS(counts)
@@ -81,7 +81,7 @@ true <- pg$Demography(
     )
 )
 
-# SFS branch lengths of each locus, then Poisson mutation counts summed over loci
+# SFS branch lengths of each sample, then Poisson mutation counts summed over samples
 samples <- pg$Coalescent(n = 20L, demography = true)$to_empirical(n_samples = n_samples, seed = 42L)$sfs$samples
 counts <- np$random$default_rng(42L)$poisson(np$multiply(theta, np$ascontiguousarray(samples)))$sum(axis = 0L)
 observation <- pg$SFS(reticulate::py_to_r(counts))

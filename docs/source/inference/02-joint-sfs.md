@@ -23,8 +23,8 @@ theta <- 1
 
 +++
 (joint-sfs)=
-## Joint SFS
-The joint SFS of several demes carries information on their population sizes and on the migration between them. We sample a joint SFS of two demes ``A`` and ``B``, each sampled four times, in the same way as the SFS of one deme in {ref}`single-deme-sfs`, here at 100,000 loci, with a population-scaled mutation rate ``theta`` per locus. Deme ``A`` declines exponentially into the past before two size changes, deme ``B`` passes through a bottleneck, and lineages migrate in both directions.
+## Two-deme joint SFS
+The joint SFS of several demes carries information on their population sizes and on the migration between them. We sample a joint SFS of two demes ``A`` and ``B``, with four lineages from each, in the same way as the SFS of one deme in {ref}`single-deme-sfs`, here from 100,000 samples, with a population-scaled mutation rate ``theta`` per sample. Deme ``A`` declines exponentially into the past before two size changes, deme ``B`` passes through a bottleneck, and lineages migrate in both directions.
 
 ```{code-cell} python
 n_samples = 100_000
@@ -45,7 +45,7 @@ true = pg.Demography(
 
 ```{code-cell} python
 :tags: [full-width]
-# joint SFS branch lengths of each locus, then Poisson mutation counts summed over loci
+# joint SFS branch lengths of each sample, then Poisson mutation counts summed over samples
 samples = pg.Coalescent(n={'A': 4, 'B': 4}, demography=true).to_empirical(n_samples=n_samples, seed=42).jsfs.samples
 counts = np.random.default_rng(42).poisson(theta * np.asarray(samples)).sum(axis=0)
 observation = pg.JointSFS(counts.astype(float), pop_names=['A', 'B'])
@@ -86,7 +86,7 @@ options(repr.plot.width = 7, repr.plot.height = 3)
 
 ```{code-cell} r
 :tags: [full-width]
-# joint SFS branch lengths of each locus, then Poisson mutation counts summed over loci
+# joint SFS branch lengths of each sample, then Poisson mutation counts summed over samples
 samples <- pg$Coalescent(n = list(A = 4L, B = 4L), demography = true)$to_empirical(n_samples = n_samples, seed = 42L)$jsfs$samples
 counts <- np$random$default_rng(42L)$poisson(np$multiply(theta, np$ascontiguousarray(samples)))$sum(axis = 0L)
 observation <- pg$JointSFS(np$asarray(counts, dtype = "float64"), pop_names = c("A", "B"))
@@ -389,8 +389,8 @@ stopifnot(nrow(inf$bootstraps) == 20)
 ```
 
 +++
-### Three demes
-The same approach extends to three demes ``A``, ``B`` and ``C``, with two lineages sampled from each. Deme ``A`` declines exponentially into the past before two size changes, ``B`` passes through a bottleneck, ``C`` changes size once, and lineages migrate between every pair of demes.
+## Three-deme joint SFS
+The joint SFS of three demes ``A``, ``B`` and ``C`` is fitted in the same way, with two lineages sampled from each. Deme ``A`` declines exponentially into the past before two size changes, ``B`` passes through a bottleneck, ``C`` changes size once, and lineages migrate between every pair of demes.
 
 ```{code-cell} python
 pops = ['A', 'B', 'C']
@@ -434,11 +434,11 @@ true <- pg$Demography(
 ```
 
 +++
-We sample the joint SFS at 100,000 loci as before, and show it marginalized onto each pair of demes next to the true population sizes.
+We draw 100,000 samples of the joint SFS as before, and show it marginalized onto each pair of demes next to the true population sizes.
 
 ```{code-cell} python
 :tags: [full-width]
-# joint SFS branch lengths of each locus, then Poisson mutation counts summed over loci
+# joint SFS branch lengths of each sample, then Poisson mutation counts summed over samples
 samples = pg.Coalescent(n=dict.fromkeys(pops, 2), demography=true).to_empirical(n_samples=n_samples, seed=42).jsfs.samples
 counts = np.random.default_rng(42).poisson(theta * np.asarray(samples)).sum(axis=0)
 observation = pg.JointSFS(counts.astype(float), pop_names=pops)
@@ -458,7 +458,7 @@ options(repr.plot.width = 7, repr.plot.height = 5.5)
 
 ```{code-cell} r
 :tags: [full-width]
-# joint SFS branch lengths of each locus, then Poisson mutation counts summed over loci
+# joint SFS branch lengths of each sample, then Poisson mutation counts summed over samples
 n <- setNames(as.list(rep(2L, 3)), pops)
 samples <- pg$Coalescent(n = n, demography = true)$to_empirical(n_samples = n_samples, seed = 42L)$jsfs$samples
 counts <- np$random$default_rng(42L)$poisson(np$multiply(theta, np$ascontiguousarray(samples)))$sum(axis = 0L)
