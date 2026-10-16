@@ -277,8 +277,11 @@ rule plot_transitions:
     script:
         "scripts/plot_transitions.py"
 
-# User Guide pages, each written as one source (docs/source/{page}.md) holding the prose and the code of both languages
-doc_pages = [p.stem for p in Path("docs/source").glob("*.md")]
+# User Guide pages, each written as one source (docs/source/{page}.md) holding the prose and the code of both languages,
+# or as numbered parts (docs/source/{page}/{part}.md) that are executed independently and joined into one page
+single_pages = [p.stem for p in Path("docs/source").glob("*.md")]
+part_pages = {p.name: sorted(q.stem for q in p.glob("*.md")) for p in Path("docs/source").iterdir() if p.is_dir()}
+doc_pages = single_pages + list(part_pages)
 
 # resolution of the User Guide figures in dots per inch
 DOCS_FIGURE_DPI = 300
@@ -286,13 +289,15 @@ DOCS_FIGURE_DPI = 300
 # sources of the Python package, which envs/docs.yaml installs in editable mode, so that a change re-executes the pages
 phasegen_sources = ["pyproject.toml"] + [str(p) for p in Path("phasegen").rglob("*.py")]
 
-# split a User Guide source into its Python and R notebooks
+# split a User Guide source, or one part of it, into its Python and R notebooks
 rule split_page:
     input:
         "docs/source/{page}.md"
     output:
         python="results/docs/Python/{page}.ipynb",
         r="results/docs/R/{page}.ipynb"
+    wildcard_constraints:
+        page="|".join(single_pages + [f"{page}/{part}" for page, parts in part_pages.items() for part in parts])
     params:
         dpi=DOCS_FIGURE_DPI
     conda:
@@ -324,12 +329,14 @@ rule execute_python_page:
         python_sources=phasegen_sources
     output:
         "results/docs/Python/{page}.executed.ipynb"
+    wildcard_constraints:
+        page="|".join(single_pages + [f"{page}/{part}" for page, parts in part_pages.items() for part in parts])
     conda:
         "envs/docs.yaml"
     shell:
         """
         jupyter nbconvert --to notebook --execute --ExecutePreprocessor.timeout=-1 \
-            --output {wildcards.page}.executed.ipynb {input.notebook}
+            --output $(basename {wildcards.page}).executed.ipynb {input.notebook}
         python docs/coalesce_streams.py {output}
         """
 
@@ -341,15 +348,31 @@ rule execute_r_page:
         r_installed="results/docs/R/phasegen.installed"
     output:
         "results/docs/R/{page}.executed.ipynb"
+    wildcard_constraints:
+        page="|".join(single_pages + [f"{page}/{part}" for page, parts in part_pages.items() for part in parts])
     conda:
         "envs/docs.yaml"
     shell:
         """
         export RETICULATE_PYTHON="$CONDA_PREFIX/bin/python"
         jupyter nbconvert --to notebook --execute --ExecutePreprocessor.timeout=-1 \
-            --output {wildcards.page}.executed.ipynb {input.notebook}
+            --output $(basename {wildcards.page}).executed.ipynb {input.notebook}
         python docs/coalesce_streams.py {output}
         """
+
+# join the executed notebooks of the parts of a page in one language, in the order of their names
+rule join_page_parts:
+    input:
+        lambda wildcards: [f"results/docs/{wildcards.language}/{wildcards.page}/{part}.executed.ipynb"
+                           for part in part_pages[wildcards.page]]
+    output:
+        "results/docs/{language}/{page}.executed.ipynb"
+    wildcard_constraints:
+        page="|".join(part_pages) or "^$"
+    conda:
+        "envs/docs.yaml"
+    script:
+        "docs/join_notebooks.py"
 
 # merge the executed Python and R notebooks of a page into the User Guide page with language tabs
 rule merge_page:
