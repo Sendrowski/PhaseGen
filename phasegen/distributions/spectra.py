@@ -1434,9 +1434,7 @@ class JointSFSDistribution(SpectrumDistribution):
         max_order = MsprimeCoalescent._jsfs_max_order
         moments = np.stack([(samples ** order).mean(axis=0) for order in range(1, max_order + 1)])
 
-        cap = MsprimeCoalescent._jsfs_sample_cap
-
-        return EmpiricalJointSFSDistribution(moments=moments, samples=samples[:cap], n_samples=samples.shape[0],
+        return EmpiricalJointSFSDistribution(moments=moments, samples=samples, n_samples=samples.shape[0],
                                              lineage_config=self._layout_lineages, locus_config=self._layout_loci)
 
     def moment(

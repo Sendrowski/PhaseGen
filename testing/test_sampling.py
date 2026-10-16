@@ -162,6 +162,15 @@ def test_to_empirical_exposes_n_samples():
     assert pg.Coalescent(n=3, loci=2, recombination_rate=1).sfs2.to_empirical(8888, seed=SEED).n_samples == 8888
 
 
+def test_empirical_joint_sfs_keeps_every_sample():
+    """The empirical joint SFS keeps every sampled replicate. Regression: only the first 200,000 were kept, without a
+    warning, while the moments used all of them."""
+    dem = pg.Demography(pop_sizes={'p0': 1, 'p1': 1}, migration_rates={('p0', 'p1'): 1, ('p1', 'p0'): 1})
+    e = pg.Coalescent(n={'p0': 1, 'p1': 1}, demography=dem).jsfs.to_empirical(200_001, seed=SEED)
+
+    assert np.asarray(e.samples).shape[0] == 200_001
+
+
 def test_tree_height_per_deme_gated_for_multiple_loci():
     """Per-deme tree height is ill-posed under recombination (max over loci is not additively decomposable), so the
     accessor raises for multiple loci; the additive ``total_branch_length.demes`` is available instead."""

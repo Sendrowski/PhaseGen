@@ -3346,15 +3346,14 @@ class _MigrationTreeStatistics(_ReplicateStatistic):  # pragma: no cover
 
 class _JointSFSStatistics(_ReplicateStatistic):  # pragma: no cover
     """The joint (per-deme-of-origin) SFS branch lengths from the first locus' tree: the non-central moments (orders
-    1..``max_order``) over all replicates plus a capped subset of per-replicate values for the within-tree joint
-    ground truth. Single-locus only (accumulated from the ``j == 0`` tree)."""
+    1..``max_order``) and the per-replicate values, for the within-tree joint ground truth. Single-locus only
+    (accumulated from the ``j == 0`` tree)."""
 
-    def __init__(self, num_replicates: int, max_order: int, shape: tuple, sample_cap: int) -> None:
+    def __init__(self, num_replicates: int, max_order: int, shape: tuple) -> None:
         self.jsfs_acc = np.zeros((max_order,) + shape)
-        self.jsfs_samples = np.zeros((min(num_replicates, sample_cap),) + shape)
+        self.jsfs_samples = np.zeros((num_replicates,) + shape)
         self._max_order = max_order
         self._shape = shape
-        self._cap = sample_cap
 
     def process_tree(self, i, j, tree, ts, ctx) -> None:
         if j != 0:  # accumulated from the first locus' tree only
@@ -3380,8 +3379,7 @@ class _JointSFSStatistics(_ReplicateStatistic):  # pragma: no cover
         for order in range(self._max_order):
             self.jsfs_acc[order] += jsfs_rep ** (order + 1)
 
-        if i < self._cap:
-            self.jsfs_samples[i] = jsfs_rep
+        self.jsfs_samples[i] = jsfs_rep
 
 
 class _MutationStatistics(_ReplicateStatistic):  # pragma: no cover
@@ -4607,9 +4605,6 @@ class MsprimeCoalescent(AbstractCoalescent):
         name_to_index = {names[name]: i for i, name in enumerate(self.lineage_config.pop_names)}
         axis = np.array([name_to_index[pop.name] for pop in demography.populations])
         n_total = self.n_total = num_replicates * self.n_threads
-        # retain a capped subset of per-replicate joint SFS branch lengths (the moments use all replicates; the
-        # within-tree joint CDF / cross-moment ground truth needs only enough samples for a ~0.02 tolerance)
-        jsfs_sample_cap = self._jsfs_sample_cap // self.n_threads
 
         def simulate_batch(seed: np.random.SeedSequence) -> dict:
             """
@@ -4645,7 +4640,7 @@ class MsprimeCoalescent(AbstractCoalescent):
                 tree_stats = (_MigrationTreeStatistics(n_loci, n_pops, num_replicates, sample_size, axis)
                               if self.record_migration
                               else _TreeStatistics(n_loci, n_pops, num_replicates, sample_size))
-            jsfs_stats = (_JointSFSStatistics(num_replicates, jsfs_max_order, jsfs_shape, jsfs_sample_cap)
+            jsfs_stats = (_JointSFSStatistics(num_replicates, jsfs_max_order, jsfs_shape)
                           if main and compute_jsfs else None)
             mutation_stats = (_MutationStatistics(n_loci, n_pops, num_replicates, sample_size, self.mutation_rate,
                                                   jsfs_shape=jsfs_shape if compute_jsfs else None,
@@ -4958,9 +4953,6 @@ class MsprimeCoalescent(AbstractCoalescent):
 
     #: Highest moment order computed for the empirical joint SFS ground truth.
     _jsfs_max_order: int = 3
-
-    #: Max number of per-replicate joint SFS branch lengths retained for the within-tree joint ground truth
-    _jsfs_sample_cap: int = 200000
 
     @cached_property
     def jsfs(self) -> 'EmpiricalJointSFSDistribution':
