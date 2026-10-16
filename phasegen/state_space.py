@@ -64,6 +64,10 @@ def _numba_model_params(model: CoalescentModel) -> Tuple[int, float, float, floa
     )
 
 
+#: The types and sizes of state spaces warned about as large, so that each is warned about once.
+_WARNED_SIZES: set = set()
+
+
 class StateSpace(ABC):
     r"""
     Abstract base class for coalescent state spaces.
@@ -192,13 +196,19 @@ class StateSpace(ABC):
 
     def _warn_if_large(self, n_states: int) -> None:
         """
-        Warn once, at the highest severity whose threshold the number of states reaches. Means stay fast at any size,
-        while the cost of second-order statistics grows steeply with the number of states.
+        Warn at the highest severity whose threshold the number of states reaches, once per type and size of state
+        space, since an inference builds the same space at every evaluation. Means stay fast at any size, while the cost
+        of second-order statistics grows steeply with the number of states.
 
         :param n_states: The number of states.
         """
+        key = (type(self).__name__, n_states)
+        if key in _WARNED_SIZES:
+            return
+
         for threshold, level in ((50000, 'extremely slow'), (15000, 'very slow'), (5000, 'slow')):
             if n_states >= threshold:
+                _WARNED_SIZES.add(key)
                 self._logger.warning(
                     "State space is large (%d states). Second-order statistics such as var and cov may be %s.",
                     n_states, level

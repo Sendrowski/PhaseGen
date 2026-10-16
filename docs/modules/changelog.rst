@@ -9,7 +9,7 @@ Changelog
 - Add standard errors from the observed Fisher information with :meth:`Inference.fisher_information() <phasegen.inference.Inference.fisher_information>`, :meth:`Inference.covariance() <phasegen.inference.Inference.covariance>` and :meth:`Inference.standard_errors() <phasegen.inference.Inference.standard_errors>`.
 - Optimize parameters as their logarithms with :attr:`Inference.log_scale <phasegen.inference.Inference.log_scale>`.
 - Bin each parameter of :meth:`Inference.plot_bootstraps() <phasegen.inference.Inference.plot_bootstraps>` over its own range.
-- Run functions defined in scripts and notebooks in parallel workers started by ``spawn``, as on macOS, and keep every sample of the empirical joint SFS.
+- Run functions defined in scripts and notebooks in parallel workers started by ``spawn``, as on macOS, keep every sample of the empirical joint SFS, and warn about a large state space once per type and size.
 
 [2.1.0] - 2026-10-12
 ^^^^^^^^^^^^^^^^^^^^

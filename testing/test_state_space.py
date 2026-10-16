@@ -922,13 +922,19 @@ def test_update_epoch_restores_the_rate_matrix_of_the_epoch_left_last():
 
 @pytest.mark.parametrize('n_states, level', [(4999, None), (5000, 'slow'), (15000, 'very slow'),
                                               (50000, 'extremely slow')])
-def test_large_state_space_warns_once_at_the_highest_level(n_states, level, caplog):
-    """A state space logs one warning at the severity of the highest threshold it reaches, and none below 5,000."""
+def test_large_state_space_warns_once_at_the_highest_level(n_states, level, caplog, monkeypatch):
+    """A state space logs one warning at the severity of the highest threshold it reaches, and none below 5,000. A
+    space of the same type and size built again, as at every evaluation of an inference, is not warned about again.
+    Regression: an inference warned at every loss evaluation."""
+    import phasegen.state_space
+
+    monkeypatch.setattr(phasegen.state_space, '_WARNED_SIZES', set())
     ss = pg.Coalescent(n=3).block_counting_state_space
     caplog.clear()
 
     with caplog.at_level('WARNING'):
         ss._warn_if_large(n_states)
+        pg.Coalescent(n=3).block_counting_state_space._warn_if_large(n_states)
 
     records = [r for r in caplog.records if 'State space is large' in r.getMessage()]
 
