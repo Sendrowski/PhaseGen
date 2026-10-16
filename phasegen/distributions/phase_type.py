@@ -196,12 +196,11 @@ class PhaseTypeDistribution(CallableDistributionFunctions, MomentEvaluator, Mome
             raise NotImplementedError('Gradients are available for moments accumulated until absorption only.')
 
         host, R, positions = self._mean_rewards(None if rewards is None else rewards[0])
-        gradients = []
-        for j in range(R.shape[1]):
-            out = MeanGradient(host).compute(R[:, j])
-            if out is None:
-                raise ValueError('The occupation times have no closed form, so the moment has no exact gradient.')
-            gradients.append(out[1])
+        out = MeanGradient(host).compute_columns(R)
+        if out is None:
+            raise ValueError('The occupation times have no closed form, so the moment has no exact gradient.')
+
+        gradients = [g for _, g in out]
 
         if positions == [()]:
             return gradients[0]

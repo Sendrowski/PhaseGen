@@ -240,6 +240,7 @@ class _GeneratorBasis:
         self._transient: Dict[bytes, Tuple[Dict[str, sp.csr_matrix], Dict[Tuple[str, str], sp.csr_matrix],
                                            np.ndarray, np.ndarray]] = {}
 
+
     def transient(self, idx_t: np.ndarray) -> Tuple[
         Dict[str, sp.csr_matrix], Dict[Tuple[str, str], sp.csr_matrix], np.ndarray, np.ndarray]:
         """
@@ -462,6 +463,20 @@ class MeanGradient:
         :return: The mean and its gradient, or ``None`` where the occupation times are not defined in closed form.
         :raises ValueError: If the generator is not affine in the inverse time scales and migration rates.
         """
+        out = self.compute_columns(np.asarray(reward, dtype=float)[:, None])
+
+        return None if out is None else out[0]
+
+    def compute_columns(self, rewards: np.ndarray) -> Optional[List[Tuple[float, DemographyGradient]]]:
+        """
+        The means and gradients of several rewards, sharing the forward pass, the factorization of the last epoch and
+        the adjoint of the initial distribution.
+
+        :param rewards: The reward vectors over the states of the state space, one per column.
+        :return: The mean and gradient of each column, or ``None`` where the occupation times are not defined in closed
+            form.
+        :raises ValueError: If the generator is not affine in the inverse time scales and migration rates.
+        """
         dist = self.distribution
         tape: List[_OccupationStep] = []
         occupation = dist._occupation_times(tape=tape)
@@ -469,61 +484,64 @@ class MeanGradient:
             return None
 
         m, idx_t = occupation
-        r = np.asarray(reward, dtype=float)[idx_t]
         nt = len(idx_t)
-
         basis = self._basis()
         C, M, rows, cols = basis.transient(idx_t)
-        grad = DemographyGradient([step.epoch for step in tape], basis.pops, basis.pairs)
-
-        # G is the derivative with respect to the transient block of the generator of epoch e, which enters the
-        # exponent of a finite epoch multiplied by its duration, passed as the scale
-        def accumulate(e: int, step: _OccupationStep, G: 'sp.spmatrix | np.ndarray', scale: float) -> None:
-            coefficients = basis.coefficients(step.epoch)
-            G = sp.csr_matrix(G)
-            for i, pop in enumerate(basis.pops):
-                grad.pop_sizes[e, i] += scale * coefficients[pop] * float(C[pop].multiply(G).sum())
-            for j, pair in enumerate(basis.pairs):
-                grad.migration_rates[e, j] += scale * float(M[pair].multiply(G).sum())
 
         # last epoch: d(p (-T)^{-1} r) = q dT u with q = p (-T)^{-1} and u = (-T)^{-1} r
         last = tape[-1]
-        p = last.w[:nt]
         neg_t = -last.T
-        u = dist._lu_solver(neg_t, last.sparse)(r)
-        q = dist._lu_solver(neg_t.T, last.sparse)(p)
-        accumulate(len(tape) - 1, last,
-                   sp.csr_matrix((q[rows] * u[cols], (rows, cols)), shape=(nt, nt)) if last.sparse else np.outer(q, u),
-                   1.0)
+        solve = dist._lu_solver(neg_t, last.sparse)
+        q = dist._lu_solver(neg_t.T, last.sparse)(last.w[:nt])
 
-        v = np.concatenate([u, r])
-        value = float(m @ r)
+        out = []
+        for r in np.asarray(rewards, dtype=float)[idx_t].T:
+            grad = DemographyGradient([step.epoch for step in tape], basis.pops, basis.pairs)
 
-        # the last augmented generator annihilates its adjoint vector on the transient states
-        V_next_v = np.concatenate([last.T @ u + r, np.zeros(nt)])
+            # G is the derivative with respect to the transient block of the generator of epoch e, which enters the
+            # exponent of a finite epoch multiplied by its duration, passed as the scale
+            def accumulate(e: int, step: _OccupationStep, G: 'sp.spmatrix | np.ndarray', scale: float) -> None:
+                coefficients = basis.coefficients(step.epoch)
+                G = sp.csr_matrix(G)
+                for i, pop in enumerate(basis.pops):
+                    grad.pop_sizes[e, i] += scale * coefficients[pop] * float(C[pop].multiply(G).sum())
+                for j, pair in enumerate(basis.pairs):
+                    grad.migration_rates[e, j] += scale * float(M[pair].multiply(G).sum())
 
-        for e in range(len(tape) - 2, -1, -1):
-            step = tape[e]
-            V = step.augmented()
-            w_next = tape[e + 1].w
-            grad.start_times[e + 1] += float(w_next @ (V @ v) - w_next @ V_next_v)
+            u = solve(r)
+            accumulate(len(tape) - 1, last,
+                       sp.csr_matrix((q[rows] * u[cols], (rows, cols)), shape=(nt, nt)) if last.sparse
+                       else np.outer(q, u), 1.0)
 
-            if step.action is None:
-                A = V.toarray() * step.tau
-                G = sla.expm_frechet(A.T, np.outer(step.w, v), compute_expm=False)[:nt, :nt]
-                accumulate(e, step, G, step.tau)
-                v = step.exp_aug @ v
-            else:
-                # the action applies exp(A^T) to [p, 0], so dL/dA_{rc} = dL/dM_{cr}, taken over the entries every
-                # generator of the space can take, also those at a rate of zero in this epoch
-                v_in, gM = step.action.reverse(v, step.checkpoints, cols, rows)
-                GA = sp.csr_matrix((gM, (rows, cols)), shape=(nt, nt))
-                accumulate(e, step, GA, step.tau)
-                v = self._adjoint_input(v_in, v, nt)
+            v = np.concatenate([u, r])
 
-            V_next_v = V @ v
+            # the last augmented generator annihilates its adjoint vector on the transient states
+            V_next_v = np.concatenate([last.T @ u + r, np.zeros(nt)])
 
-        return value, grad
+            for e in range(len(tape) - 2, -1, -1):
+                step = tape[e]
+                V = step.augmented()
+                w_next = tape[e + 1].w
+                grad.start_times[e + 1] += float(w_next @ (V @ v) - w_next @ V_next_v)
+
+                if step.action is None:
+                    A = V.toarray() * step.tau
+                    G = sla.expm_frechet(A.T, np.outer(step.w, v), compute_expm=False)[:nt, :nt]
+                    accumulate(e, step, G, step.tau)
+                    v = step.exp_aug @ v
+                else:
+                    # the action applies exp(A^T) to [p, 0], so dL/dA_{rc} = dL/dM_{cr}, taken over the entries every
+                    # generator of the space can take, also those at a rate of zero in this epoch
+                    v_in, gM = step.action.reverse(v, step.checkpoints, cols, rows)
+                    GA = sp.csr_matrix((gM, (rows, cols)), shape=(nt, nt))
+                    accumulate(e, step, GA, step.tau)
+                    v = self._adjoint_input(v_in, v, nt)
+
+                V_next_v = V @ v
+
+            out.append((float(m @ r), grad))
+
+        return out
 
     def _basis(self) -> _GeneratorBasis:
         """
