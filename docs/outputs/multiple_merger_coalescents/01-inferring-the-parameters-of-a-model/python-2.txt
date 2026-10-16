@@ -1,0 +1,4 @@
+       estimate  standard error
+alpha     1.600           0.002
+N0        1.011           0.021
+N1        3.000           0.030

@@ -1,0 +1,578 @@
+```{code-cell} python
+:tags: [remove-cell]
+import matplotlib
+import matplotlib.pyplot as plt
+import numpy as np
+import pandas as pd
+import phasegen as pg
+
+matplotlib.rcParams['figure.figsize'] = [4.4, 3.3]
+theta = 1
+```
+
+```{code-cell} r
+:tags: [remove-cell]
+library(phasegen)
+library(ggplot2)
+library(patchwork)
+pg <- load_phasegen()
+np <- reticulate::import("numpy", convert = FALSE)
+options(repr.plot.width = 4.4, repr.plot.height = 3.3)
+theta <- 1
+```
+
++++
+(joint-sfs)=
+## Joint SFS
+The joint SFS of several demes carries information on their population sizes and on the migration between them. We sample a joint SFS of two demes ``A`` and ``B``, each sampled four times, in the same way as the SFS of one deme in {ref}`single-deme-sfs`, here at 100,000 loci, with a population-scaled mutation rate ``theta`` per locus. Deme ``A`` declines exponentially into the past before two size changes, deme ``B`` passes through a bottleneck, and lineages migrate in both directions.
+
+```{code-cell} python
+n_samples = 100_000
+
+# A declines exponentially into the past, B passes through a bottleneck
+true = pg.Demography(
+    pop_sizes={'A': {0.4: 0.6, 1.0: 1.2}, 'B': {0: 0.8, 0.3: 0.15, 0.5: 1}},
+    migration_rates={('A', 'B'): 0.3, ('B', 'A'): 0.6},
+    events=[pg.ExponentialPopSizeChanges(
+        initial_size={'A': 3},
+        growth_rate={'A': 4},
+        start_time={'A': 0},
+        end_time={'A': 0.4},
+        step_size=0.05
+    )]
+)
+
+samples = pg.Coalescent(n={'A': 4, 'B': 4}, demography=true).to_empirical(n_samples=n_samples, seed=42).jsfs.samples
+counts = np.random.default_rng(42).poisson(theta * np.asarray(samples)).sum(axis=0)
+observation = pg.JointSFS(counts.astype(float), pop_names=['A', 'B'])
+
+observation.plot();
+```
+
+```{code-cell} r
+n_samples <- 100000L
+
+# A declines exponentially into the past, B passes through a bottleneck
+true <- pg$Demography(
+    pop_sizes = list(B = 0.8),
+    events = list(
+        pg$ExponentialPopSizeChanges(
+            initial_size = list(A = 3),
+            growth_rate = list(A = 4),
+            start_time = list(A = 0),
+            end_time = list(A = 0.4),
+            step_size = 0.05
+        ),
+        pg$PopSizeChange(pop = "A", time = 0.4, size = 0.6),
+        pg$PopSizeChange(pop = "A", time = 1, size = 1.2),
+        pg$PopSizeChange(pop = "B", time = 0.3, size = 0.15),
+        pg$PopSizeChange(pop = "B", time = 0.5, size = 1),
+        pg$MigrationRateChange(source = "A", dest = "B", time = 0, rate = 0.3),
+        pg$MigrationRateChange(source = "B", dest = "A", time = 0, rate = 0.6)
+    )
+)
+
+samples <- pg$Coalescent(n = list(A = 4L, B = 4L), demography = true)$to_empirical(n_samples = n_samples, seed = 42L)$jsfs$samples
+counts <- np$random$default_rng(42L)$poisson(np$multiply(theta, np$ascontiguousarray(samples)))$sum(axis = 0L)
+observation <- pg$JointSFS(np$asarray(counts, dtype = "float64"), pop_names = c("A", "B"))
+
+plot(observation)
+```
+
++++
+We approximate this demography by four epochs of constant population size in each deme and constant migration rates, which gives ten parameters: the population sizes ``A0`` to ``A3`` and ``B0`` to ``B3`` of each deme in the four epochs, and the migration rates ``m_AB`` and ``m_BA``. The loss is the Poisson likelihood of the polymorphic bins of the joint SFS.
+
+```{code-cell} python
+times = [0, 0.2, 0.6, 1.5]
+
+def coal(A0, A1, A2, A3, B0, B1, B2, B3, m_AB, m_BA):
+    return pg.Coalescent(
+        n={'A': 4, 'B': 4},
+        demography=pg.Demography(
+            pop_sizes={
+                'A': dict(zip(times, [A0, A1, A2, A3])),
+                'B': dict(zip(times, [B0, B1, B2, B3]))
+            },
+            migration_rates={('A', 'B'): m_AB, ('B', 'A'): m_BA}
+        )
+    )
+
+def loss(coal, obs):
+    # all bins except the two monomorphic corners
+    return pg.PoissonLikelihood().compute(
+        observed=obs.data.ravel()[1:-1],
+        modelled=n_samples * theta * coal.jsfs.mean.data.ravel()[1:-1]
+    )
+
+names = [f'{pop}{i}' for pop in 'AB' for i in range(4)] + ['m_AB', 'm_BA']
+
+inf = pg.Inference(
+    bounds={name: (0.05, 5) for name in names},
+    x0={name: 1 for name in names},
+    coal=coal,
+    loss=loss,
+    observation=observation,
+    n_runs=1,
+    seed=42
+)
+```
+
+```{code-cell} r
+times <- c(0, 0.2, 0.6, 1.5)
+
+coal <- function(A0, A1, A2, A3, B0, B1, B2, B3, m_AB, m_BA) {
+    A <- c(A0, A1, A2, A3)
+    B <- c(B0, B1, B2, B3)
+    pg$Coalescent(
+        n = list(A = 4L, B = 4L),
+        demography = pg$Demography(
+            pop_sizes = list(A = A0, B = B0),
+            events = c(
+                lapply(2:4, function(i) pg$PopSizeChange(pop = "A", time = times[i], size = A[i])),
+                lapply(2:4, function(i) pg$PopSizeChange(pop = "B", time = times[i], size = B[i])),
+                pg$MigrationRateChange(source = "A", dest = "B", time = 0, rate = m_AB),
+                pg$MigrationRateChange(source = "B", dest = "A", time = 0, rate = m_BA)
+            )
+        )
+    )
+}
+
+loss <- function(coal, obs) {
+    # all bins except the two monomorphic corners
+    k <- as.numeric(obs$data)
+    m <- as.numeric(coal$jsfs$mean$data)
+    pg$PoissonLikelihood()$compute(
+        observed = k[-c(1, length(k))],
+        modelled = n_samples * theta * m[-c(1, length(m))]
+    )
+}
+
+names <- c(paste0("A", 0:3), paste0("B", 0:3), "m_AB", "m_BA")
+
+inf <- pg$Inference(
+    bounds = setNames(rep(list(c(0.05, 5)), length(names)), names),
+    x0 = setNames(as.list(rep(1, length(names))), names),
+    coal = coal,
+    loss = loss,
+    observation = observation,
+    n_runs = 1L,
+    seed = 42L
+)
+```
+
++++
+The log of the run confirms that the gradient is exact (see {ref}`exact-gradients`).
+
+```{code-cell} python
+inf.run()
+```
+
+```{code-cell} python
+:tags: [remove-cell]
+assert inf.loss_inferred <= loss(coal(**{name: 1 for name in names}), observation)
+```
+
+```{code-cell} r
+inf$run()
+```
+
+```{code-cell} r
+:tags: [remove-cell]
+stopifnot(inf$loss_inferred <= loss(do.call(coal, setNames(as.list(rep(1, length(names))), names)), observation))
+```
+
++++
+The inferred population size trajectories approximate the true ones in both demes. The shaded bands are approximate 95% confidence intervals, the estimate plus or minus 1.96 standard errors. The standard errors follow from the curvature of the loss at the estimate, as the inverse of the observed Fisher information, which costs two exact gradients per parameter (see {ref}`exact-gradients`). They describe the uncertainty locally only. They do not account for other optima, and they understate the uncertainty of weakly identified parameters, such as the ancient population sizes, for which the parametric bootstrap below is more reliable.
+
+```{code-cell} python
+:tags: [full-width]
+se = inf.standard_errors()
+
+fig, axes = plt.subplots(1, 2, figsize=(7, 3), sharey=True)
+t = np.linspace(0, 2, 401)
+# index of the epoch containing each time point
+epoch = np.searchsorted(times, t, side='right') - 1
+
+for ax, pop in zip(axes, 'AB'):
+    ax.plot(t, [true.get_epoch(u).pop_sizes[pop] for u in t], drawstyle='steps-post', label='true')
+
+    estimate = np.array([inf.params_inferred[f'{pop}{i}'] for i in epoch])
+    # approximate 95% confidence interval
+    error = 1.96 * np.array([se[f'{pop}{i}'] for i in epoch])
+    line, = ax.plot(t, estimate, drawstyle='steps-post', label='inferred')
+    ax.fill_between(t, np.maximum(estimate - error, 0), estimate + error, step='post', color=line.get_color(), alpha=0.25)
+
+    ax.set_title(pop)
+    ax.set_xlabel('t')
+
+axes[0].set_ylim(0, 5)
+axes[0].set_ylabel('population size')
+axes[0].legend();
+```
+
+```{code-cell} r
+:tags: [remove-cell]
+options(repr.plot.width = 7, repr.plot.height = 3)
+```
+
+```{code-cell} r
+:tags: [full-width]
+se <- inf$standard_errors()
+
+t <- seq(0, 2, length.out = 401)
+truth <- do.call(rbind, lapply(c("A", "B"), function(pop) data.frame(
+    pop = pop, t = t, size = sapply(t, function(u) true$get_epoch(u)$pop_sizes[[pop]]), label = "true"
+)))
+epochs <- do.call(rbind, lapply(c("A", "B"), function(pop) {
+    estimate <- unlist(inf$params_inferred[paste0(pop, 0:3)])
+    # approximate 95% confidence interval
+    error <- 1.96 * se[paste0(pop, 0:3)]
+    data.frame(pop = pop, start = times, end = c(times[-1], 2), size = estimate,
+               lower = pmax(estimate - error, 0), upper = estimate + error, label = "inferred")
+}))
+steps <- rbind(transform(epochs, t = start), transform(epochs[epochs$end == 2, ], t = end))
+steps <- steps[order(steps$pop, steps$t), ]
+
+ggplot() +
+    geom_rect(data = epochs, aes(xmin = start, xmax = end, ymin = lower, ymax = upper, fill = label), alpha = 0.25) +
+    geom_step(data = truth, aes(t, size, colour = label)) +
+    geom_step(data = steps, aes(t, size, colour = label)) +
+    facet_wrap(~pop) +
+    coord_cartesian(ylim = c(0, 5)) +
+    scale_colour_discrete(limits = c("true", "inferred")) +
+    scale_fill_manual(values = c(inferred = scales::hue_pal()(2)[2]), guide = "none") +
+    labs(y = "population size", colour = NULL)
+```
+
+```{code-cell} r
+:tags: [remove-cell]
+options(repr.plot.width = 4.4, repr.plot.height = 3.3)
+```
+
++++
+The observed and the fitted joint SFS side by side, with their relative difference in each bin.
+
+```{code-cell} python
+:tags: [full-width]
+from matplotlib.colors import LogNorm
+
+observed = observation.data
+fitted = n_samples * theta * inf.dist_inferred.jsfs.mean.data
+# absolute difference relative to the mean of both spectra
+mean = (observed + fitted) / 2
+diff = np.divide(np.abs(observed - fitted), mean, out=np.zeros_like(mean), where=mean > 0)
+
+fig, axes = plt.subplots(1, 3, figsize=(7, 2.6), layout='constrained')
+norm = LogNorm(observed[observed > 0].min(), observed.max())
+
+for ax, data, title in zip(axes, [observed, fitted], ['observed', 'fitted']):
+    image = ax.imshow(np.ma.masked_equal(data, 0), origin='lower', norm=norm)
+    ax.set_title(title)
+
+diff_image = axes[2].imshow(diff, origin='lower', cmap='coolwarm', vmin=0, vmax=0.1)
+axes[2].set_title('difference')
+fig.colorbar(image, ax=axes[:2], shrink=0.7)
+fig.colorbar(diff_image, ax=axes[2], shrink=0.7)
+
+for ax in axes:
+    ax.set_xlabel('allele count B')
+axes[0].set_ylabel('allele count A');
+```
+
+```{code-cell} python
+:tags: [remove-cell]
+assert diff.max() < 0.15
+```
+
+```{code-cell} r
+:tags: [remove-cell]
+options(repr.plot.width = 7, repr.plot.height = 2.6)
+```
+
+```{code-cell} r
+:tags: [full-width]
+observed <- observation$data
+fitted <- n_samples * theta * inf$dist_inferred$jsfs$mean$data
+# absolute difference relative to the mean of both spectra
+diff <- abs(observed - fitted) / ((observed + fitted) / 2)
+diff[observed == 0 & fitted == 0] <- 0
+
+grid <- function(m) expand.grid(A = seq_len(nrow(m)) - 1, B = seq_len(ncol(m)) - 1)
+counts <- rbind(
+    cbind(grid(observed), count = as.numeric(observed), panel = "observed"),
+    cbind(grid(fitted), count = as.numeric(fitted), panel = "fitted")
+)
+counts$panel <- factor(counts$panel, levels = c("observed", "fitted"))
+counts$count[counts$count == 0] <- NA
+
+spectra <- ggplot(counts, aes(B, A, fill = count)) +
+    geom_tile() +
+    facet_wrap(~panel) +
+    scale_fill_viridis_c(trans = "log10", na.value = "white") +
+    coord_equal() +
+    labs(x = "allele count B", y = "allele count A")
+
+differences <- ggplot(cbind(grid(diff), difference = as.numeric(diff)), aes(B, A, fill = difference)) +
+    geom_tile() +
+    scale_fill_distiller(palette = "RdBu", limits = c(0, 0.1), oob = scales::squish) +
+    coord_equal() +
+    labs(title = "difference", x = "allele count B", y = NULL)
+
+spectra + differences + plot_layout(widths = c(2, 1))
+```
+
+```{code-cell} r
+:tags: [remove-cell]
+stopifnot(max(diff) < 0.15)
+```
+
+```{code-cell} r
+:tags: [remove-cell]
+options(repr.plot.width = 4.4, repr.plot.height = 3.3)
+```
+
++++
+### Bootstrapping
+As for the SFS of one deme in {ref}`single-deme-sfs`, a parametric bootstrap resamples each bin of the observed joint SFS from a Poisson distribution and reruns the inference from the estimate. Its spread can be compared with the standard errors from the Fisher information.
+
+```{code-cell} python
+:tags: [remove-output]
+# Poisson draw of each bin
+inf.resample = lambda obs, rng: pg.JointSFS(rng.poisson(obs.data).astype(float), pop_names=obs.pop_names)
+inf.n_bootstraps = 20
+inf.parallelize = True
+
+inf.bootstrap()
+```
+
+```{code-cell} python
+import pandas as pd
+
+pd.DataFrame({
+    'estimate': inf.params_inferred,
+    'standard error (Fisher)': se,
+    'standard deviation (bootstrap)': inf.bootstraps[names].std()
+}).round(3)
+```
+
+```{code-cell} python
+:tags: [remove-cell]
+matplotlib.rcParams['figure.figsize'] = [7, 7]
+```
+
+```{code-cell} python
+inf.plot_bootstraps();
+```
+
+```{code-cell} python
+:tags: [remove-cell]
+matplotlib.rcParams['figure.figsize'] = [4.4, 3.3]
+assert len(inf.bootstraps) == 20
+```
+
+```{code-cell} r
+:tags: [remove-output]
+# Poisson draw of each bin
+inf$resample <- function(obs, rng) pg$JointSFS(rng$poisson(obs$data) * 1, pop_names = obs$pop_names)
+inf$n_bootstraps <- 20L
+
+inf$bootstrap()
+```
+
+```{code-cell} r
+boots <- as.matrix(inf$bootstraps[names])
+
+round(data.frame(
+    estimate = unlist(inf$params_inferred[names]),
+    `standard error (Fisher)` = se[names],
+    `standard deviation (bootstrap)` = apply(boots, 2, sd),
+    check.names = FALSE
+), 3)
+```
+
+```{code-cell} r
+:tags: [remove-cell]
+options(repr.plot.width = 7, repr.plot.height = 7)
+```
+
+```{code-cell} r
+plot(inf, which = "bootstraps")
+```
+
+```{code-cell} r
+:tags: [remove-cell]
+options(repr.plot.width = 4.4, repr.plot.height = 3.3)
+stopifnot(nrow(inf$bootstraps) == 20)
+```
+
++++
+### Three demes
+The same approach extends to three demes ``A``, ``B`` and ``C``, sampled twice each. We fit the population sizes of each deme in three epochs and the migration rates between every ordered pair of demes, fifteen parameters in all. Population sizes and migration rates often span orders of magnitude, and optimizing them as their logarithms with ``log_scale=True`` reduces the number of iterations considerably, while the estimates stay on the original scale.
+
+```{code-cell} python
+pops = ['A', 'B', 'C']
+pairs = [(a, b) for a in pops for b in pops if a != b]
+times = [0, 0.2, 0.6]
+
+# A declines exponentially into the past, B passes through a bottleneck, C changes size once
+true = pg.Demography(
+    pop_sizes={'A': {0.4: 0.6, 1.0: 1.2}, 'B': {0: 0.8, 0.3: 0.15, 0.5: 1}, 'C': {0: 1.5, 0.8: 0.7}},
+    migration_rates={('A', 'B'): 0.3, ('B', 'A'): 0.6, ('A', 'C'): 0.1,
+                     ('C', 'A'): 0.2, ('B', 'C'): 0.4, ('C', 'B'): 0.15},
+    events=[pg.ExponentialPopSizeChanges(
+        initial_size={'A': 3},
+        growth_rate={'A': 4},
+        start_time={'A': 0},
+        end_time={'A': 0.4},
+        step_size=0.05
+    )]
+)
+
+samples = pg.Coalescent(n=dict.fromkeys(pops, 2), demography=true).to_empirical(n_samples=n_samples, seed=42).jsfs.samples
+counts = np.random.default_rng(42).poisson(theta * np.asarray(samples)).sum(axis=0)
+observation = pg.JointSFS(counts.astype(float), pop_names=pops)
+
+def coal(**params):
+    return pg.Coalescent(
+        n=dict.fromkeys(pops, 2),
+        demography=pg.Demography(
+            pop_sizes={p: dict(zip(times, [params[f'{p}{i}'] for i in range(3)])) for p in pops},
+            migration_rates={(a, b): params[f'm_{a}{b}'] for a, b in pairs}
+        )
+    )
+
+names = [f'{p}{i}' for p in pops for i in range(3)] + [f'm_{a}{b}' for a, b in pairs]
+
+inf = pg.Inference(
+    bounds={name: (0.05, 5) for name in names},
+    x0={name: 1 for name in names},
+    coal=coal,
+    loss=loss,
+    observation=observation,
+    log_scale=True,
+    n_runs=1,
+    seed=42
+)
+
+inf.run()
+```
+
+```{code-cell} python
+:tags: [remove-cell]
+assert inf.loss_inferred <= loss(coal(**{name: 1 for name in names}), observation)
+```
+
+```{code-cell} r
+pops <- c("A", "B", "C")
+pairs <- Filter(function(pair) pair[1] != pair[2],
+                unlist(lapply(pops, function(a) lapply(pops, function(b) c(a, b))), recursive = FALSE))
+times <- c(0, 0.2, 0.6)
+
+# A declines exponentially into the past, B passes through a bottleneck, C changes size once
+true <- pg$Demography(
+    pop_sizes = list(B = 0.8, C = 1.5),
+    events = c(
+        list(pg$ExponentialPopSizeChanges(
+            initial_size = list(A = 3),
+            growth_rate = list(A = 4),
+            start_time = list(A = 0),
+            end_time = list(A = 0.4),
+            step_size = 0.05
+        )),
+        unname(Map(function(pop, time, size) pg$PopSizeChange(pop = pop, time = time, size = size),
+                   c("A", "A", "B", "B", "C"), c(0.4, 1, 0.3, 0.5, 0.8), c(0.6, 1.2, 0.15, 1, 0.7))),
+        unname(Map(function(source, dest, rate) pg$MigrationRateChange(source = source, dest = dest, time = 0, rate = rate),
+                   c("A", "B", "A", "C", "B", "C"), c("B", "A", "C", "A", "C", "B"), c(0.3, 0.6, 0.1, 0.2, 0.4, 0.15)))
+    )
+)
+
+n <- setNames(as.list(rep(2L, 3)), pops)
+samples <- pg$Coalescent(n = n, demography = true)$to_empirical(n_samples = n_samples, seed = 42L)$jsfs$samples
+counts <- np$random$default_rng(42L)$poisson(np$multiply(theta, np$ascontiguousarray(samples)))$sum(axis = 0L)
+observation <- pg$JointSFS(np$asarray(counts, dtype = "float64"), pop_names = pops)
+
+coal <- function(...) {
+    params <- list(...)
+    pg$Coalescent(
+        n = n,
+        demography = pg$Demography(
+            pop_sizes = setNames(lapply(pops, function(p) params[[paste0(p, 0)]]), pops),
+            events = c(
+                unlist(lapply(pops, function(p) lapply(2:3, function(i) {
+                    pg$PopSizeChange(pop = p, time = times[i], size = params[[paste0(p, i - 1)]])
+                })), recursive = FALSE),
+                lapply(pairs, function(pair) pg$MigrationRateChange(
+                    source = pair[1], dest = pair[2], time = 0, rate = params[[paste0("m_", pair[1], pair[2])]]
+                ))
+            )
+        )
+    )
+}
+
+names <- c(paste0(rep(pops, each = 3), 0:2), sapply(pairs, function(pair) paste0("m_", pair[1], pair[2])))
+
+inf <- pg$Inference(
+    bounds = setNames(rep(list(c(0.05, 5)), length(names)), names),
+    x0 = setNames(as.list(rep(1, length(names))), names),
+    coal = coal,
+    loss = loss,
+    observation = observation,
+    log_scale = TRUE,
+    n_runs = 1L,
+    seed = 42L
+)
+
+inf$run()
+```
+
+```{code-cell} r
+:tags: [remove-cell]
+stopifnot(inf$loss_inferred <= loss(do.call(coal, setNames(as.list(rep(1, length(names))), names)), observation))
+```
+
++++
+The inferred population size trajectories of the three demes.
+
+```{code-cell} python
+:tags: [full-width]
+fig, axes = plt.subplots(1, 3, figsize=(7, 2.6), sharey=True)
+t = np.linspace(0, 2, 401)
+epoch = np.searchsorted(times, t, side='right') - 1
+
+for ax, pop in zip(axes, pops):
+    ax.plot(t, [true.get_epoch(u).pop_sizes[pop] for u in t], drawstyle='steps-post', label='true')
+    ax.plot(t, [inf.params_inferred[f'{pop}{i}'] for i in epoch], drawstyle='steps-post', label='inferred')
+    ax.set_title(pop)
+    ax.set_xlabel('t')
+
+axes[0].set_ylabel('population size')
+axes[0].legend();
+```
+
+```{code-cell} r
+:tags: [remove-cell]
+options(repr.plot.width = 7, repr.plot.height = 2.6)
+```
+
+```{code-cell} r
+:tags: [full-width]
+t <- seq(0, 2, length.out = 401)
+epoch <- findInterval(t, times)
+sizes <- do.call(rbind, lapply(pops, function(pop) rbind(
+    data.frame(pop = pop, t = t, label = "true",
+               size = sapply(t, function(u) true$get_epoch(u)$pop_sizes[[pop]])),
+    data.frame(pop = pop, t = t, label = "inferred",
+               size = unlist(inf$params_inferred[paste0(pop, epoch - 1)]))
+)))
+sizes$label <- factor(sizes$label, levels = c("true", "inferred"))
+
+ggplot(sizes, aes(t, size, colour = label)) +
+    geom_step() +
+    facet_wrap(~pop) +
+    labs(y = "population size", colour = NULL)
+```
+
+```{code-cell} r
+:tags: [remove-cell]
+options(repr.plot.width = 4.4, repr.plot.height = 3.3)
+```
