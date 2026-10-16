@@ -746,3 +746,78 @@ def test_loss_gradient_model_and_recombination_parameters_without_loss_differenc
 
     assert not calls
 
+
+def _epochs(n_epochs: int, scale: float, step: float = 0.15) -> Dict[float, float]:
+    """Population sizes over epochs of equal length, scaled."""
+    return {e * step: scale * (1 + 0.5 * np.sin(e)) for e in range(n_epochs)}
+
+
+#: Configurations of the regimes the exact gradient reaches: a coalescent callback, the parameters, the statistic, and
+#: whether every parameter is differentiated exactly
+_REGIMES = {
+    '10 epochs, SFS': (
+        lambda a, b: pg.Coalescent(n=5, demography=pg.Demography(
+            pop_sizes={'pop_0': {t: (a if i % 2 else b) * N for i, (t, N) in enumerate(_epochs(10, 1).items())}})),
+        dict(a=1.3, b=0.8), lambda c: c.sfs.mean.polymorphic),
+    '20 epochs, two demes': (
+        lambda a, b, m: pg.Coalescent(n={'pop_0': 2, 'pop_1': 2}, demography=pg.Demography(
+            pop_sizes={'pop_0': _epochs(20, a, 0.08), 'pop_1': _epochs(20, b, 0.08)},
+            migration_rates={('pop_0', 'pop_1'): m, ('pop_1', 'pop_0'): 0.5})),
+        dict(a=1.2, b=0.7, m=0.4), lambda c: c.tree_height.mean),
+    'exponential growth': (
+        lambda N, r: pg.Coalescent(n=5, demography=pg.Demography(
+            pop_sizes={'pop_0': {0.3: 0.5}},
+            events=[pg.ExponentialPopSizeChanges(initial_size={'pop_0': N}, growth_rate={'pop_0': r},
+                                                 start_time={'pop_0': 0}, end_time={'pop_0': 0.3}, step_size=0.05)])),
+        dict(N=2.0, r=3.0), lambda c: c.sfs.mean.polymorphic),
+    'pulse': (
+        lambda p, N: pg.Coalescent(n={'pop_0': 2, 'pop_1': 2}, demography=pg.Demography(
+            pop_sizes={'pop_0': 1, 'pop_1': N}, migration_rates={('pop_0', 'pop_1'): 0.2, ('pop_1', 'pop_0'): 0.2},
+            events=[pg.Pulse(time=0.3, source='pop_0', dest='pop_1', proportion=p)])),
+        dict(p=0.3, N=1.5), lambda c: c.jsfs.mean.data.ravel()[1:-1]),
+    'split': (
+        lambda N, M: pg.Coalescent(n={'pop_0': 2, 'pop_1': 2}, demography=pg.Demography(
+            pop_sizes={'pop_0': N, 'pop_1': M}, events=[pg.PopulationSplit(time=0.5, derived='pop_1', ancestral='pop_0')])),
+        dict(N=1.2, M=0.6), lambda c: c.total_branch_length.mean),
+    'initial distribution': (
+        lambda N, m: pg.Coalescent(
+            n=pg.InitialDistribution([(1, {'pop_0': 2, 'pop_1': 1}), (3, {'pop_0': 1, 'pop_1': 2})]),
+            demography=pg.Demography(pop_sizes={'pop_0': {0: 1, 0.4: N}, 'pop_1': 1},
+                                     migration_rates={('pop_0', 'pop_1'): m, ('pop_1', 'pop_0'): m})),
+        dict(N=1.5, m=0.6), lambda c: c.tree_height.mean),
+    'sparse action, 268 states': (
+        lambda N, m: pg.Coalescent(n={'pop_0': 3, 'pop_1': 3}, demography=pg.Demography(
+            pop_sizes={'pop_0': {0: 1, 0.3: N, 0.9: 1.2}, 'pop_1': {0: 0.7, 0.3: 1.1, 0.9: N}},
+            migration_rates={('pop_0', 'pop_1'): m, ('pop_1', 'pop_0'): 0.5})),
+        dict(N=1.4, m=0.3), lambda c: c.jsfs.mean.data[1, 1]),
+    'beta coalescent over 5 epochs': (
+        lambda alpha, N: pg.Coalescent(n=5, model=pg.BetaCoalescent(alpha=alpha), demography=pg.Demography(
+            pop_sizes={'pop_0': {t: N * v for t, v in _epochs(5, 1).items()}})),
+        dict(alpha=1.4, N=1.3), lambda c: c.sfs.mean.polymorphic),
+    'two loci over 3 epochs': (
+        lambda r, N: pg.Coalescent(n=3, loci=2, recombination_rate=r, demography=pg.Demography(
+            pop_sizes={'pop_0': {0: 1, 0.3: N, 0.8: 0.6}})),
+        dict(r=0.8, N=1.6), lambda c: c.tree_height.mean),
+}
+
+
+@pytest.mark.parametrize('closed_form', [True, False])
+@pytest.mark.parametrize('regime', list(_REGIMES))
+def test_parameter_jacobian_across_regimes(regime, closed_form, caplog):
+    """The exact Jacobian against Richardson-extrapolated central differences through the callback, over many epochs,
+    event-built demographies, an initial distribution, a sparse-action space, the model parameters and the
+    recombination rate, with and without the closed form of the last epoch."""
+    import logging
+
+    Settings.closed_form_last_epoch = closed_form
+    coal, params, statistic = _REGIMES[regime]
+    gradient = pg.Gradient(coal, statistic)
+
+    with caplog.at_level(logging.INFO, logger='phasegen'):
+        value, jacobian = gradient.compute(params)
+
+    assert not any('no exact gradient' in r.getMessage() for r in caplog.records)
+
+    for i, key in enumerate(params):
+        numeric = _richardson(lambda x: gradient._entries(coal(**(params | {key: x}))), params[key])
+        np.testing.assert_allclose(jacobian[..., i], numeric, rtol=1e-6, atol=1e-8 * np.abs(numeric).max())
