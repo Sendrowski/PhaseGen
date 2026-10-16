@@ -18,7 +18,7 @@ from ..coalescent_models import StandardCoalescent
 from ..demography import Epoch
 from ..errors import ModelError
 from .._blas import BlasThreadLimit
-from ..expm import Backend
+from ..expm import Backend, SciPyExpmBackend
 from ..rewards import Reward, CustomReward, UnfoldedSFSReward, FoldedSFSReward, UnitReward, CombinedReward
 from ..settings import Settings
 from ..state_space import BlockCountingStateSpace
@@ -63,6 +63,9 @@ _DENSE_EXPM_STEP_NORM = 5e-5
 #: epochs and Van Loan dimensions 35 to 1216, where it brings the total time within 0.1% of always taking the faster
 #: of the two exponentials. It sends dimensions below about 74 to the dense exponential.
 _ACTION_STEP_NORM_OFFSET = 20
+
+#: Largest number of entries of a stack of matrices exponentiated at once, about a megabyte, so that it stays in cache.
+_MAX_STACK_ENTRIES = 2 ** 17
 
 #: Largest ratio of the pairwise coalescence and migration rates of an epoch that double precision resolves, see
 #: ``MomentEvaluator._rate_spread``.
@@ -117,22 +120,49 @@ class MomentEvaluator:
         ])
 
     @staticmethod
-    def _van_loan_expm(A: np.ndarray, k: int, n: int) -> np.ndarray:
+    def _block_expm(A: np.ndarray, n: int, scalar: Sequence[bool]) -> np.ndarray:
         """
-        The dense exponential of a Van Loan matrix of :meth:`_van_loan_matrix`, with its strictly lower blocks set to
-        their exact value of zero. The rebases between balancing factors multiply these blocks by powers of the
-        factor ratio, so the rounding the exponential leaves in them would otherwise reach the moment.
+        The dense exponentials of a stack of Van Loan matrices of :meth:`_van_loan_matrix` or of augmented occupation
+        generators, block upper triangular. With the default backend, :func:`scipy.linalg.expm` evaluates the stack,
+        and other backends each matrix. The strictly lower blocks are exactly zero. The rebases between balancing
+        factors multiply them by powers of the factor ratio, so any rounding left in them would reach the moment.
 
-        :param A: Van Loan matrix of ``(k + 1) x (k + 1)`` blocks of size ``n``, times the step.
-        :param k: The order of the moment.
-        :param n: The number of states, the size of one block.
-        :return: The exponential of ``A``.
+        :param A: Stack of block upper triangular matrices of ``len(scalar)`` blocks of size ``n`` in each dimension,
+            times their steps, of shape ``(m, dim, dim)``.
+        :param n: The size of one block.
+        :param scalar: Whether each diagonal block is a scalar multiple of the identity.
+        :return: The exponentials of ``A``.
         """
-        E = expm(A)
-        for i in range(1, k + 1):
-            E[i * n:(i + 1) * n, :i * n] = 0.0
+        backend = Backend.backend
+        default = type(backend) is SciPyExpmBackend and backend.precision == np.float64
+        if default and np.abs(A).sum(axis=-2).max(initial=0.0) <= backend._max_norm:
+            E = sla.expm(A)
+        else:
+            E = np.stack([expm(a) for a in A])
+        for i in range(1, len(scalar)):
+            E[:, i * n:(i + 1) * n, :i * n] = 0.0
 
         return E
+
+    def _block_expms(
+            self,
+            builders: Sequence['Callable[[], np.ndarray]'],
+            n: int,
+            scalar: Sequence[bool]
+    ) -> 'Iterator[np.ndarray]':
+        """
+        The exponentials of the matrices returned by ``builders``, in order, by ``_block_expm`` in stacks of at most
+        ``_MAX_STACK_ENTRIES`` entries. The epochs of one evaluation do not depend on the propagated vector, so their
+        exponentials share a stack.
+
+        :param builders: Functions returning the matrices, of ``len(scalar)`` blocks of size ``n`` in each dimension.
+        :param n: The size of one block.
+        :param scalar: Whether each diagonal block is a scalar multiple of the identity.
+        :return: Iterator over the exponentials.
+        """
+        size = max(1, _MAX_STACK_ENTRIES // (n * len(scalar)) ** 2)
+        for i in range(0, len(builders), size):
+            yield from self._block_expm(np.stack([b() for b in builders[i:i + size]]), n, scalar)
 
     @staticmethod
     def _block_triangular_order(A) -> Optional[np.ndarray]:
@@ -1052,7 +1082,7 @@ class MomentEvaluator:
             if use_action:
                 return self._advance_action(w, tau, lamb, op, k)
 
-            return w @ self._van_loan_expm(op * tau / lamb, k, n), lamb
+            return w @ self._block_expm((op * tau / lamb)[None], n, [False] * (k + 1))[0], lamb
 
         moments = np.zeros_like(t_sorted, dtype=float)
 
@@ -1534,31 +1564,39 @@ class MomentEvaluator:
         z[(m - 1 + k) * n + idx_a] = e[idx_a]
 
         # --- preceding finite epochs, backward, via the (sparse or dense) full Van Loan matrix exponential ---
+        # Each epoch is balanced on its own rates. ``V * tau`` carries the epoch's generator on the diagonal and its
+        # reward blocks divided by the factor, so a factor drawn from one epoch leaves the reward blocks of an epoch
+        # with a different rate scale far from one, and the scaling-and-squaring of the exponential loses their
+        # cancellation. Rebasing the stored vector is the exact diagonal similarity that permits it. The factors,
+        # steps and Van Loan matrices do not depend on the extended vector, so they are gathered first and the dense
+        # exponentials evaluated in stacks.
+        steps = []
+        R = [r._get(self.state_space) for r in heads + tuple(rewards[1:])]
         for i_epoch, epoch in reversed(list(enumerate(epochs[:-1]))):
             if epoch.end_time <= start_time:
                 break
 
             self.state_space.update_epoch(epoch)
-
-            # balance each epoch on its own rates. ``V * tau`` carries the epoch's generator on the diagonal and its
-            # reward blocks divided by the factor, so a factor drawn from one epoch leaves the reward blocks of an
-            # epoch with a different rate scale far from one, and the scaling-and-squaring of the exponential loses
-            # their cancellation. Rebasing the stored vector is the exact diagonal similarity that permits it.
-            lamb_new = self._balance(epoch, start_time, np.inf, scale)
-            z[:(m - 1) * n] *= (lamb / lamb_new) ** k
-            lamb = self._rebase(z[(m - 1) * n:], lamb, lamb_new, k, n)
-
             self._check_numerical_stability(self.state_space.S, i_epoch)
-            tau = (epoch.end_time - max(epoch.start_time, start_time)) / lamb
+            lamb_e = self._balance(epoch, start_time, np.inf, scale)
+            tau = (epoch.end_time - max(epoch.start_time, start_time)) / lamb_e
 
             if use_action:
-                r_vecs = [np.asarray(r._get(self.state_space), dtype=float) for r in heads + tuple(rewards[1:])]
-                V = self._van_loan_matrix(r_vecs, self._epoch_csr(i_epoch) * lamb, k, sparse=True, heads=m)
-                z = Backend.expm_multiply(V * tau, z)
+                r_vecs = [np.asarray(r, dtype=float) for r in R]
+                V = self._van_loan_matrix(r_vecs, self._epoch_csr(i_epoch) * lamb_e, k, sparse=True, heads=m)
+                steps.append((lamb_e, V * tau))
             else:
-                R = [r._get(self.state_space) for r in heads + tuple(rewards[1:])]
-                V = self._van_loan_matrix(R, self._dense_rate_matrix() * lamb, k)
-                z = self._van_loan_expm(V * tau, k, n) @ z
+                steps.append((lamb_e, (self._dense_rate_matrix() * lamb_e, tau)))
+
+        if not use_action:
+            exps = self._block_expms([
+                lambda S=S, tau=tau: self._van_loan_matrix(R, S, k) * tau for _, (S, tau) in steps
+            ], n, [False] * (k + 1))
+
+        for lamb_e, op in steps:
+            z[:(m - 1) * n] *= (lamb / lamb_e) ** k
+            lamb = self._rebase(z[(m - 1) * n:], lamb, lamb_e, k, n)
+            z = Backend.expm_multiply(op, z) if use_action else next(exps) @ z
 
         # the entry distribution propagated to the start time with the plain generator
         alpha_ext = np.zeros((k + 1) * n)
@@ -1745,7 +1783,7 @@ class MomentEvaluator:
                 aug = np.zeros((2 * n, 2 * n))
                 aug[:n, :n] = np.asarray(S.todense()) if sp.issparse(S) else np.asarray(S)
                 aug[:n, n:] = np.eye(n)
-                w = np.concatenate([p, m]) @ expm(aug * tau)
+                w = np.concatenate([p, m]) @ self._block_expm((aug * tau)[None], n, [False, True])[0]
             return w[:n], w[n:]
 
         p = np.asarray(self.state_space.alpha, dtype=float)
@@ -1812,28 +1850,21 @@ class MomentEvaluator:
         # augmented generator ``[[S, I], [0, 0]]``, robust even when ``S`` is singular (e.g. a migration barrier),
         # unlike ``(exp(S tau) - I) S^-1``. Only the row-action ``[p, 0] exp(aug tau) = [p exp(S tau), p A]`` is needed
         # (the propagated entry distribution and the occupation increment ``p A`` at once), so for large state spaces
-        # apply the sparse matrix-exponential action instead of forming the dense ``2 nt x 2 nt`` exponential.
+        # apply the sparse matrix-exponential action instead of forming the dense ``2 nt x 2 nt`` exponential. The
+        # generators and steps do not depend on ``p``, so they are gathered first and the dense exponentials evaluated
+        # in stacks.
+        steps = []
         for i_epoch, epoch in enumerate(epochs):
             self.state_space.update_epoch(epoch)
             self._check_numerical_stability(self.state_space.S, i_epoch)
 
-            if not (np.isfinite(p).all() and np.isfinite(m).all()):
-                raise ModelError(
-                    f"Non-finite occupation times at the start of epoch {i_epoch}. This is likely due to an "
-                    "ill-conditioned rate matrix. Use less extreme population sizes or growth rates."
-                )
-
             upper = epoch.end_time if cap is None else min(epoch.end_time, cap)
+            S = self._transient_block(idx_t, sparse=sparse)
 
             if np.isinf(upper):
-                # final unbounded epoch, no cap: occupation to absorption = p (-T)^{-1}, i.e. solve (-T)^T x = p
-                neg_t = -self._transient_block(idx_t, sparse=sparse)
-                if tape is not None:
-                    tape.append(_OccupationStep(epoch, idx_t, np.inf, -neg_t, np.concatenate([p, m]), sparse=sparse))
-                m += self._lu_solver(neg_t.T, sparse)(p)
+                steps.append((epoch, np.inf, S, False))
                 break
 
-            S = self._transient_block(idx_t, sparse=sparse)
             tau = upper - epoch.start_time
 
             # the dense exponential where the step is stiff enough to be the cheaper one, see ``_DENSE_EXPM_STEP_NORM``
@@ -1842,6 +1873,35 @@ class MomentEvaluator:
                     float(abs(S).sum(axis=0).max()) * tau + _ACTION_STEP_NORM_OFFSET >
                     _DENSE_EXPM_STEP_NORM * (2 * nt) ** 3
             )
+            steps.append((epoch, tau, S, use_action))
+
+            if cap is not None and upper >= cap:
+                break
+
+        def augmented(S, tau) -> np.ndarray:
+            aug = np.zeros((2 * nt, 2 * nt))
+            aug[:nt, :nt] = S.toarray() if sp.issparse(S) else S
+            aug[:nt, nt:] = np.eye(nt)
+            return aug * tau
+
+        exps = self._block_expms([
+            lambda S=S, tau=tau: augmented(S, tau) for _, tau, S, use_action in steps
+            if np.isfinite(tau) and not use_action
+        ], nt, [False, True])
+
+        for i_epoch, (epoch, tau, S, use_action) in enumerate(steps):
+            if not (np.isfinite(p).all() and np.isfinite(m).all()):
+                raise ModelError(
+                    f"Non-finite occupation times at the start of epoch {i_epoch}. This is likely due to an "
+                    "ill-conditioned rate matrix. Use less extreme population sizes or growth rates."
+                )
+
+            if np.isinf(tau):
+                # final unbounded epoch, no cap: occupation to absorption = p (-T)^{-1}, i.e. solve (-T)^T x = p
+                if tape is not None:
+                    tape.append(_OccupationStep(epoch, idx_t, np.inf, S, np.concatenate([p, m]), sparse=sparse))
+                m += self._lu_solver(-S.T, sparse)(p)
+                break
 
             if use_action:
                 aug = sp.bmat([
@@ -1859,17 +1919,11 @@ class MomentEvaluator:
                 m += w[nt:]
                 p = w[:nt]
             else:
-                aug = np.zeros((2 * nt, 2 * nt))
-                aug[:nt, :nt] = S.toarray() if sp.issparse(S) else S
-                aug[:nt, nt:] = np.eye(nt)
-                exp_aug = expm(aug * tau)
+                exp_aug = next(exps)
                 if tape is not None:
                     tape.append(_OccupationStep(epoch, idx_t, tau, S, np.concatenate([p, m]), exp_aug=exp_aug))
                 m += p @ exp_aug[:nt, nt:]
                 p = p @ exp_aug[:nt, :nt]
-
-            if cap is not None and upper >= cap:
-                break
 
         return m, idx_t
 
