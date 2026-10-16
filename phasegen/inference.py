@@ -44,6 +44,9 @@ _GRADIENT_METHODS = ('l-bfgs-b', 'tnc', 'slsqp', 'trust-constr')
 #: Consecutive evaluations of an optimization without an exact gradient after which it takes finite differences only.
 _MAX_GRADIENT_FAILURES = 3
 
+#: Step of the central differences of a trajectory over a parameter, relative to its magnitude (at least 1).
+_TRAJECTORY_STEP = 1e-6
+
 #: Eigenvalues of the Fisher information below this fraction of the largest count as no curvature.
 _CURVATURE_RTOL = 1e-10
 
@@ -1033,41 +1036,163 @@ class Inference(Serializable):
         """
         return pd.Series(np.sqrt(np.diag(self.covariance().to_numpy())), index=self.param_names)
 
-    def _plot_demography_data(
-            self,
-            t: np.ndarray = None,
-            kind: Literal['all', 'pop_sizes', 'migration'] = 'all',
-            include_bootstraps: bool = True
-    ) -> Tuple['_CurveData', List['_CurveData']]:
+    def _trajectory_times(self, t: np.ndarray = None) -> np.ndarray:
         """
-        Trajectories of the inferred demography and of the demography of each bootstrap replicate, as drawn by
-        :meth:`plot_demography`, :meth:`plot_pop_sizes` and :meth:`plot_migration`.
+        The times at which trajectories are evaluated.
 
-        :param t: Times at which to evaluate the trajectories. By default, :attr:`Settings.plot_inference_n_grid`
-            points up to the :attr:`Settings.plot_inference_quantile` quantile of the inferred tree height, or up to
-            the end time of a windowed coalescent.
-        :param kind: The trajectories to include, ``'pop_sizes'``, ``'migration'`` or ``'all'``.
-        :param include_bootstraps: Whether to include the bootstrap replicates.
-        :return: The inferred trajectories, and the trajectories of each bootstrap replicate.
+        :param t: Times, by default :attr:`Settings.plot_inference_n_grid` points up to the
+            :attr:`Settings.plot_inference_quantile` quantile of the inferred tree height, or up to the end time of a
+            windowed coalescent.
+        :return: The times.
         :raises RuntimeError: If the main optimization has not been run.
         """
         if self.dist_inferred is None:
             raise RuntimeError('The main optimization must be run first (call run()).')
 
-        if t is None:
-            tree_height = self.dist_inferred.tree_height
+        if t is not None:
+            return np.asarray(t, dtype=float)
 
-            # a windowed coalescent has no tree-height quantile, so its end time bounds the plot
-            if tree_height._windowed:
-                t_end = tree_height.t_max
-            else:
-                t_end = tree_height.quantile(Settings.plot_inference_quantile)
+        tree_height = self.dist_inferred.tree_height
 
-            t = np.linspace(0, t_end, Settings.plot_inference_n_grid)
+        # a windowed coalescent has no tree-height quantile, so its end time bounds the plot
+        t_end = tree_height.t_max if tree_height._windowed else tree_height.quantile(Settings.plot_inference_quantile)
 
-        bootstraps = self._bootstrap_demographies if include_bootstraps else []
+        return np.linspace(0, t_end, Settings.plot_inference_n_grid)
 
-        return self.dist_inferred.demography._plot_data(t, kind), [d._plot_data(t, kind) for d in bootstraps]
+    def _trajectory_band(
+            self,
+            t: np.ndarray,
+            kind: Literal['all', 'pop_sizes', 'migration'],
+            level: float
+    ) -> Tuple['_CurveData', np.ndarray, np.ndarray, np.ndarray]:
+        """
+        The trajectories of the estimate with their standard errors and confidence limits, see
+        :meth:`trajectory_intervals`.
+
+        :param t: Times.
+        :param kind: The trajectories.
+        :param level: The confidence level.
+        :return: The trajectories, and the standard errors, lower and upper limits, each of shape
+            ``(n_trajectories, n_times)``.
+        """
+        from scipy.stats import norm
+
+        names = self.param_names
+        cov = self.covariance().to_numpy()
+        estimate = self.dist_inferred.demography._plot_data(t, kind)
+        y = np.asarray(estimate.y, dtype=float)
+        positive = y > 0
+
+        # derivatives of the logarithms of positive trajectories, and of the values of the others, by central
+        # differences of the demographies the callback builds, which need no moments
+        jacobian = np.zeros((len(names),) + y.shape)
+        for i, name in enumerate(names):
+            lo, hi = self.bounds[name]
+            if lo == hi:
+                continue
+
+            x = self.params_inferred[name]
+            h = _TRAJECTORY_STEP * max(abs(x), 1.0)
+            up, down = min(x + h, hi), max(x - h, lo)
+            curves = [np.asarray(self.get_coal(**(self.params_inferred | {name: v})).demography._plot_data(t, kind).y,
+                                 dtype=float) for v in (up, down)]
+
+            with np.errstate(divide='ignore', invalid='ignore'):
+                jacobian[i] = np.where(positive, np.log(curves[0]) - np.log(curves[1]), curves[0] - curves[1])
+            jacobian[i] /= up - down
+
+        # a parameter without a defined variance leaves undefined the trajectories that depend on it
+        undefined = np.isnan(np.diag(cov))
+        cov = np.nan_to_num(cov)
+        variance = np.einsum('i...,ij,j...->...', jacobian, cov, jacobian)
+        variance[np.any(jacobian[undefined] != 0, axis=0)] = np.nan
+        se = np.sqrt(np.maximum(variance, 0))
+
+        z = norm.ppf(0.5 + level / 2)
+        lower = np.where(positive, y * np.exp(-z * se), np.maximum(y - z * se, 0))
+        upper = np.where(positive, y * np.exp(z * se), y + z * se)
+        se = np.where(positive, y * se, se)
+
+        return estimate, se, lower, upper
+
+    def trajectory_intervals(
+            self,
+            t: np.ndarray = None,
+            kind: Literal['all', 'pop_sizes', 'migration'] = 'pop_sizes',
+            level: float = 0.95
+    ) -> pd.DataFrame:
+        r"""
+        Approximate confidence intervals of the population size and migration rate trajectories of the estimate, from
+        the covariance :math:`\Sigma` of :meth:`Inference.covariance() <phasegen.inference.Inference.covariance>` by
+        the delta method. A positive trajectory value :math:`y(t)`, such as the population size of a deme at time
+        :math:`t`, has the standard error :math:`y(t)\, s(t)` with
+
+        .. math::
+            s(t)^2 = \nabla_\theta \log y(t)^\top\, \Sigma\, \nabla_\theta \log y(t),
+
+        where :math:`\theta` are the parameters and the gradient is a central difference of the demography the
+        ``coal`` callback builds. The limits :math:`y(t)\, e^{\pm z s(t)}`, with :math:`z` the normal quantile of
+        the level, stay positive. A trajectory that is zero, such as an absent migration rate, takes limits on the
+        linear scale, clipped at zero. The intervals are local, as the covariance is.
+
+        ::
+
+            inf.run()
+            inf.trajectory_intervals(kind='pop_sizes')
+
+        :param t: Times. By default, :attr:`Settings.plot_inference_n_grid
+            <phasegen.settings.Settings.plot_inference_n_grid>` points up to the
+            :attr:`Settings.plot_inference_quantile <phasegen.settings.Settings.plot_inference_quantile>` quantile of
+            the inferred tree height.
+        :param kind: The trajectories, ``'pop_sizes'``, ``'migration'`` or ``'all'``.
+        :param level: The confidence level.
+        :return: One row per time and trajectory, with the columns ``time``, ``trajectory``, ``estimate``,
+            ``standard error``, ``lower`` and ``upper``.
+        :raises RuntimeError: If :meth:`Inference.run() <phasegen.inference.Inference.run>` has not been called.
+        """
+        t = self._trajectory_times(t)
+        estimate, se, lower, upper = self._trajectory_band(t, kind, level)
+
+        return pd.DataFrame({
+            'time': np.tile(t, len(estimate.labels)),
+            'trajectory': np.repeat(estimate.labels, len(t)),
+            'estimate': np.asarray(estimate.y, dtype=float).ravel(),
+            'standard error': se.ravel(),
+            'lower': lower.ravel(),
+            'upper': upper.ravel()
+        })
+
+    def _plot_demography_data(
+            self,
+            t: np.ndarray = None,
+            kind: Literal['all', 'pop_sizes', 'migration'] = 'all',
+            interval: Literal['bootstrap', 'fisher'] | None = 'bootstrap'
+    ) -> Tuple['_CurveData', List['_CurveData'], Optional[Tuple[np.ndarray, np.ndarray]]]:
+        """
+        Trajectories of the inferred demography with their uncertainty, as drawn by :meth:`plot_demography`,
+        :meth:`plot_pop_sizes` and :meth:`plot_migration`.
+
+        :param t: Times at which to evaluate the trajectories, see :meth:`trajectory_intervals`.
+        :param kind: The trajectories to include, ``'pop_sizes'``, ``'migration'`` or ``'all'``.
+        :param interval: ``'bootstrap'`` for the trajectories of the bootstrap replicates, ``'fisher'`` for the 95%
+            intervals of :meth:`trajectory_intervals`, or ``None``.
+        :return: The inferred trajectories, those of each bootstrap replicate, and the lower and upper limits of the
+            intervals, ``None`` without them.
+        :raises RuntimeError: If the main optimization has not been run.
+        :raises ValueError: If ``interval`` is unknown.
+        """
+        if interval not in ('bootstrap', 'fisher', None):
+            raise ValueError(f"interval must be 'bootstrap', 'fisher' or None, got {interval!r}.")
+
+        t = self._trajectory_times(t)
+
+        if interval == 'fisher':
+            inferred, _, lower, upper = self._trajectory_band(t, kind, 0.95)
+            return inferred, [], (lower, upper)
+
+        bootstraps = self._bootstrap_demographies if interval == 'bootstrap' else []
+
+        return self.dist_inferred.demography._plot_data(t, kind), [d._plot_data(t, kind) for d in bootstraps], None
 
     def plot_bootstraps(
             self,
@@ -1143,7 +1268,7 @@ class Inference(Serializable):
     def plot_demography(
             self,
             t: np.ndarray = None,
-            include_bootstraps: bool = True,
+            interval: Literal['bootstrap', 'fisher'] | None = 'bootstrap',
             show: bool = True,
             file: str = None,
             kwargs: dict = None,
@@ -1156,7 +1281,9 @@ class Inference(Serializable):
             <phasegen.settings.Settings.plot_inference_n_grid>` points up to the
             :attr:`Settings.plot_inference_quantile <phasegen.settings.Settings.plot_inference_quantile>` quantile of
             the inferred tree height, or up to the end time of a windowed coalescent.
-        :param include_bootstraps: Whether to include bootstraps.
+        :param interval: The uncertainty drawn with the estimate: ``'bootstrap'`` for the trajectory of each
+            bootstrap replicate, ``'fisher'`` for the 95% intervals of :meth:`Inference.trajectory_intervals()
+            <phasegen.inference.Inference.trajectory_intervals>`, or ``None``.
         :param show: Whether to show the plot.
         :param file: File to save the plot.
         :param kwargs: Additional keyword arguments passed to the plot function.
@@ -1166,7 +1293,7 @@ class Inference(Serializable):
         return self._plot_demography(
             t=t,
             show=show,
-            include_bootstraps=include_bootstraps,
+            interval=interval,
             file=file,
             kwargs=kwargs,
             ax=ax,
@@ -1177,7 +1304,7 @@ class Inference(Serializable):
             self,
             t: np.ndarray = None,
             show: bool = True,
-            include_bootstraps: bool = True,
+            interval: Literal['bootstrap', 'fisher'] | None = 'bootstrap',
             file: str = None,
             kwargs: dict = None,
             ax: Optional['plt.Axes'] = None
@@ -1190,7 +1317,9 @@ class Inference(Serializable):
             :attr:`Settings.plot_inference_quantile <phasegen.settings.Settings.plot_inference_quantile>` quantile of
             the inferred tree height, or up to the end time of a windowed coalescent.
         :param show: Whether to show the plot.
-        :param include_bootstraps: Whether to include bootstraps.
+        :param interval: The uncertainty drawn with the estimate: ``'bootstrap'`` for the trajectory of each
+            bootstrap replicate, ``'fisher'`` for the 95% intervals of :meth:`Inference.trajectory_intervals()
+            <phasegen.inference.Inference.trajectory_intervals>`, or ``None``.
         :param file: File to save the plot.
         :param kwargs: Additional keyword arguments passed to the plot function.
         :param ax: Axes to plot on.
@@ -1199,7 +1328,7 @@ class Inference(Serializable):
         return self._plot_demography(
             t=t,
             show=show,
-            include_bootstraps=include_bootstraps,
+            interval=interval,
             file=file,
             kwargs=kwargs,
             ax=ax,
@@ -1211,7 +1340,7 @@ class Inference(Serializable):
             t: np.ndarray = None,
             show: bool = True,
             file: str = None,
-            include_bootstraps: bool = True,
+            interval: Literal['bootstrap', 'fisher'] | None = 'bootstrap',
             kwargs: dict = None,
             ax: Optional['plt.Axes'] = None
     ) -> 'plt.Axes':
@@ -1224,7 +1353,9 @@ class Inference(Serializable):
             the inferred tree height, or up to the end time of a windowed coalescent.
         :param show: Whether to show the plot.
         :param file: File to save the plot.
-        :param include_bootstraps: Whether to include bootstraps.
+        :param interval: The uncertainty drawn with the estimate: ``'bootstrap'`` for the trajectory of each
+            bootstrap replicate, ``'fisher'`` for the 95% intervals of :meth:`Inference.trajectory_intervals()
+            <phasegen.inference.Inference.trajectory_intervals>`, or ``None``.
         :param kwargs: Additional keyword arguments passed to the plot function.
         :param ax: Axes to plot on.
         :return: Axes.
@@ -1232,7 +1363,7 @@ class Inference(Serializable):
         return self._plot_demography(
             t=t,
             show=show,
-            include_bootstraps=include_bootstraps,
+            interval=interval,
             file=file,
             kwargs=kwargs,
             ax=ax,
@@ -1243,7 +1374,7 @@ class Inference(Serializable):
             self,
             t: np.ndarray,
             show: bool,
-            include_bootstraps: bool,
+            interval: Literal['bootstrap', 'fisher'] | None,
             ax: Optional['plt.Axes'],
             kind: Literal['pop_sizes', 'migration', 'all'],
             file: str = None,
@@ -1254,7 +1385,9 @@ class Inference(Serializable):
 
         :param t: Time points, ``None`` for the default of :meth:`_plot_demography_data`.
         :param show: Whether to show the plot.
-        :param include_bootstraps: Whether to include bootstraps.
+        :param interval: The uncertainty drawn with the estimate: ``'bootstrap'`` for the trajectory of each
+            bootstrap replicate, ``'fisher'`` for the 95% intervals of :meth:`Inference.trajectory_intervals()
+            <phasegen.inference.Inference.trajectory_intervals>`, or ``None``.
         :param ax: Axes to plot on.
         :param kind: The trajectories to include.
         :param file: File to save the plot.
@@ -1267,15 +1400,19 @@ class Inference(Serializable):
         if kwargs is None:
             kwargs = {}
 
-        inferred, bootstraps = self._plot_demography_data(t, kind, include_bootstraps)
+        inferred, bootstraps, band = self._plot_demography_data(t, kind, interval)
 
         if ax is None:
             ax = plt.subplots()[1]
 
         Visualization.plot_rates(ax=ax, data=inferred, show=False, kwargs=kwargs)
 
-        # each bootstrap trajectory in the colour of its series, without a legend entry of its own
+        # each bootstrap trajectory and interval in the colour of its series, without a legend entry of its own
         colors = [line.get_color() for line in ax.lines[-len(inferred.labels):]]
+
+        if band is not None:
+            for lower, upper, color in zip(*band, colors):
+                ax.fill_between(inferred.x, lower, upper, step='post', color=color, alpha=0.25, linewidth=0)
 
         for data in bootstraps:
             for y, color in zip(data.y, colors):

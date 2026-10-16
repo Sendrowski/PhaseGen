@@ -227,12 +227,12 @@ def test_inference_bootstrap_plot_data():
 
     Settings.plot_inference_quantile = 0.5
     Settings.plot_inference_n_grid = 13
-    inferred, bootstraps = inf._plot_demography_data(kind='pop_sizes')
+    inferred, bootstraps, _ = inf._plot_demography_data(kind='pop_sizes')
     np.testing.assert_allclose(inferred.x, np.linspace(0, inf.dist_inferred.tree_height.quantile(0.5), 13))
     assert len(bootstraps) == 2 and bootstraps[1].labels == ['pop_0']
     np.testing.assert_allclose(bootstraps[1].y, demographies[1]._plot_data(inferred.x, 'pop_sizes').y)
 
-    assert inf._plot_demography_data(include_bootstraps=False)[1] == []
+    assert inf._plot_demography_data(interval=None)[1] == []
 
     ax = inf.plot_pop_sizes(show=False)
     assert len(ax.lines) == 3
@@ -422,8 +422,8 @@ def test_plots_without_ax_leave_other_figures_alone():
         lambda: coal.tree_height.pdf.plot(show=False),
         lambda: coal.sfs.plot_accumulation(k=1, show=False),
         lambda: coal.demography.plot(show=False),
-        lambda: inf.plot_pop_sizes(show=False, include_bootstraps=False),
-        lambda: inf.plot_demography(show=False, include_bootstraps=False)
+        lambda: inf.plot_pop_sizes(show=False, interval=None),
+        lambda: inf.plot_demography(show=False, interval=None)
     )
     for plot in plots:
         plt.figure(current.number)

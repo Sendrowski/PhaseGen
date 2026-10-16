@@ -1225,7 +1225,7 @@ def test_demography_plots_skip_bootstrap_replicates_without_estimate():
     inf.bootstrap()
     inf.add_bootstrap({'Ne': 1.1})
 
-    inferred, bootstraps = inf._plot_demography_data(kind='pop_sizes')
+    inferred, bootstraps, _ = inf._plot_demography_data(kind='pop_sizes')
 
     assert len(bootstraps) == 1
 
@@ -1636,3 +1636,50 @@ def test_log_scale_gradient_is_that_of_the_logarithms():
     numeric = [(fun(y + h * e)[0] - fun(y - h * e)[0]) / (2 * h) for e in np.eye(len(y))]
 
     np.testing.assert_allclose(g, numeric, rtol=1e-5, atol=1e-8 * np.abs(numeric).max())
+
+
+def test_trajectory_intervals_by_the_delta_method():
+    """The standard error of a population size trajectory is that of the delta method: for an epoch size estimated
+    directly, its own standard error; for a time-scaled size, the error propagated through the scaling. The limits
+    stay positive and contain the estimate."""
+    inf = pg.Inference(
+        bounds=dict(Ne=(0.1, 10), r=(0.1, 10)),
+        x0=dict(Ne=1, r=2),
+        coal=lambda Ne, r: pg.Coalescent(n=5, demography=pg.Demography(pop_sizes={'pop_0': {0: Ne, 0.5: Ne * r}})),
+        loss=lambda coal, obs: pg.PoissonLikelihood().compute(
+            observed=obs.polymorphic, modelled=100 * coal.sfs.mean.polymorphic
+        ),
+        observation=pg.SFS([0, 180, 95, 70, 52, 0]),
+        n_runs=1,
+        pbar=False
+    )
+    inf.run()
+
+    t = np.array([0.1, 1.0])
+    intervals = inf.trajectory_intervals(t=t)
+    cov = inf.covariance().to_numpy()
+    Ne, r = inf.params_inferred['Ne'], inf.params_inferred['r']
+
+    # N = Ne before 0.5 and N = Ne r after it, so that log N has the gradients (1 / Ne, 0) and (1 / Ne, 1 / r)
+    se_before = np.sqrt(cov[0, 0])
+    grad_after = np.array([1 / Ne, 1 / r])
+    se_after = Ne * r * np.sqrt(grad_after @ cov @ grad_after)
+
+    np.testing.assert_allclose(intervals['standard error'], [se_before, se_after], rtol=1e-5)
+    assert (intervals['lower'] > 0).all()
+    assert ((intervals['lower'] < intervals['estimate']) & (intervals['estimate'] < intervals['upper'])).all()
+
+
+def test_plot_pop_sizes_with_fisher_intervals():
+    """The trajectory plot draws the Fisher intervals as one shaded band per trajectory."""
+    import matplotlib.pyplot as plt
+
+    inf = _linear_poisson_inference('exact')
+    inf.run()
+    ax = inf.plot_pop_sizes(show=False, interval='fisher')
+
+    assert len(ax.collections) == 1
+    plt.close('all')
+
+    with pytest.raises(ValueError, match='interval'):
+        inf.plot_pop_sizes(show=False, interval='bands')

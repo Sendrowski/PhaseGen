@@ -185,3 +185,25 @@ test_that("Inference uses the exact gradient for an R loss", {
   inf$run()
   expect_equal(inf$loss_inferred, 0, tolerance = 1e-8)
 })
+
+test_that("the trajectory plot draws Fisher intervals", {
+  skip_if_not(phasegen_is_installed())
+
+  inf <- pg$Inference(
+    bounds = list(N = c(0.1, 5)),
+    x0 = list(N = 1),
+    coal = function(N) pg$Coalescent(n = 5L, demography = pg$Demography(pop_sizes = list(pop_0 = N))),
+    loss = function(coal, obs) pg$PoissonLikelihood()$compute(
+      observed = obs$polymorphic, modelled = 100 * coal$sfs$mean$polymorphic
+    ),
+    observation = pg$SFS(c(0, 180, 95, 70, 52, 0)),
+    n_runs = 1L,
+    pbar = FALSE
+  )
+  inf$run()
+
+  p <- plot(inf, which = "pop_sizes", interval = "fisher")
+  built <- ggplot2::ggplot_build(p)
+
+  expect_true(any(vapply(built$data, function(layer) "ymin" %in% names(layer), logical(1))))
+})

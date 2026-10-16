@@ -374,6 +374,7 @@ line_plot <- function(data, xlab, ylab, title, legend = NULL, step = FALSE, unde
     geom +
     ggplot2::scale_colour_manual(values = series_colours(n_series), drop = FALSE,
                                  guide = if (n_series > 1) "legend" else "none") +
+    ggplot2::scale_fill_manual(values = series_colours(n_series), drop = FALSE, guide = "none") +
     ggplot2::scale_linewidth_identity() +
     ggplot2::scale_alpha_identity() +
     ggplot2::scale_x_continuous(expand = c(0, 0)) +
@@ -1278,14 +1279,15 @@ accumulation_plot <- function(source, k, end_times, rewards, center, permute, ti
 
 #' Plot the results of a demographic inference
 #'
-#' Draws the inferred demography together with its bootstrapped trajectories, or the distributions of the bootstrapped
-#' parameters.
+#' Draws the inferred demography together with its bootstrapped trajectories or Fisher intervals, or the distributions
+#' of the bootstrapped parameters.
 #'
 #' @param x An `Inference` object after `x$run()`.
 #' @param which What to draw: `"demography"` for population sizes and migration rates, `"pop_sizes"`, `"migration"`,
 #'        or `"bootstraps"` for the bootstrapped parameters.
 #' @param t Times at which to evaluate the trajectories, `NULL` for the default.
-#' @param include_bootstraps Logical, whether to draw the bootstrapped trajectories. Default is `TRUE`.
+#' @param interval The uncertainty drawn with the trajectories: `"bootstrap"` for the bootstrapped trajectories,
+#'        `"fisher"` for 95% intervals from the Fisher information (see `Inference$trajectory_intervals()`), or `NULL`.
 #' @param kind For `which = "bootstraps"`, `"hist"` for histograms or `"kde"` for kernel density estimates.
 #' @param bins Number of histogram bins. Default is `20`.
 #' @param title Plot title, `NULL` for the default.
@@ -1324,7 +1326,7 @@ accumulation_plot <- function(source, k, end_times, rewards, center, permute, ti
 #' @method plot phasegen.inference.Inference
 #' @export
 plot.phasegen.inference.Inference <- function(x, which = c("demography", "pop_sizes", "migration", "bootstraps"),
-                                              t = NULL, include_bootstraps = TRUE, kind = c("hist", "kde"),
+                                              t = NULL, interval = "bootstrap", kind = c("hist", "kde"),
                                               bins = 20L, title = NULL, ...) {
 
   check_unused(...)
@@ -1334,11 +1336,30 @@ plot.phasegen.inference.Inference <- function(x, which = c("demography", "pop_si
     return(plot_bootstraps(x, match.arg(kind), bins, title))
   }
 
-  result <- x$`_plot_demography_data`(np_or_null(t), if (which == "demography") "all" else which, include_bootstraps)
+  result <- x$`_plot_demography_data`(np_or_null(t), if (which == "demography") "all" else which, interval)
   curves <- result[[1]]
   data <- curve_frame(curves)
   data$series <- factor(data$series, levels = unique(data$series))
   under <- NULL
+
+  if (!is.null(result[[3]])) {
+
+    # the intervals as steps, each value held until the next time
+    lower <- as.matrix(result[[3]][[1]])
+    upper <- as.matrix(result[[3]][[2]])
+    tx <- as.numeric(curves$x)
+    n <- length(tx)
+    steps <- c(rbind(tx[-n], tx[-1]), tx[n])
+    hold <- c(rbind(seq_len(n - 1), seq_len(n - 1)), n)
+    band <- do.call(rbind, lapply(seq_len(nrow(lower)), function(i) data.frame(
+      x = steps, lower = lower[i, hold], upper = upper[i, hold], series = levels(data$series)[i]
+    )))
+    band$series <- factor(band$series, levels = levels(data$series))
+    under <- ggplot2::geom_ribbon(
+      data = band, ggplot2::aes(x = .data$x, ymin = .data$lower, ymax = .data$upper, fill = .data$series),
+      inherit.aes = FALSE, alpha = 0.25, show.legend = FALSE
+    )
+  }
 
   if (length(result[[2]]) > 0) {
 
