@@ -18,6 +18,7 @@ from ..coalescent_models import StandardCoalescent
 from ..demography import Epoch
 from ..errors import ModelError
 from .._blas import BlasThreadLimit
+from .._block_expm import BlockTriangularExpm
 from ..expm import Backend, SciPyExpmBackend
 from ..rewards import Reward, CustomReward, UnfoldedSFSReward, FoldedSFSReward, UnitReward, CombinedReward
 from ..settings import Settings
@@ -63,6 +64,13 @@ _DENSE_EXPM_STEP_NORM = 5e-5
 #: epochs and Van Loan dimensions 35 to 1216, where it brings the total time within 0.1% of always taking the faster
 #: of the two exponentials. It sends dimensions below about 74 to the dense exponential.
 _ACTION_STEP_NORM_OFFSET = 20
+
+#: Smallest dimension from which the dense exponentials of the Van Loan matrices and of the augmented occupation
+#: generator take ``BlockTriangularExpm``, one matrix at a time, rather than the generic exponential of the stack.
+#: Over matrices of 2 to 4 diagonal blocks of 8 to 128 states each and step norms 0.1 to 100, it picked an exponential
+#: within 10% of the faster one for 89 to 100% of them on an arm64 Mac and an x86-64 cluster node, and the
+#: structured one was 1.1 to 2.5 times as fast from this dimension on.
+_BLOCK_EXPM_MIN_DIM = 96
 
 #: Largest number of entries of a stack of matrices exponentiated at once, about a megabyte, so that it stays in cache.
 _MAX_STACK_ENTRIES = 2 ** 17
@@ -123,8 +131,9 @@ class MomentEvaluator:
     def _block_expm(A: np.ndarray, n: int, scalar: Sequence[bool]) -> np.ndarray:
         """
         The dense exponentials of a stack of Van Loan matrices of :meth:`_van_loan_matrix` or of augmented occupation
-        generators, block upper triangular. With the default backend, :func:`scipy.linalg.expm` evaluates the stack,
-        and other backends each matrix. The strictly lower blocks are exactly zero. The rebases between balancing
+        generators, block upper triangular of the structure of ``BlockTriangularExpm``. With the default backend, that
+        class evaluates each matrix where ``_block_expm_applies``, and :func:`scipy.linalg.expm` the stack otherwise.
+        Other backends evaluate each matrix. The strictly lower blocks are exactly zero. The rebases between balancing
         factors multiply them by powers of the factor ratio, so any rounding left in them would reach the moment.
 
         :param A: Stack of block upper triangular matrices of ``len(scalar)`` blocks of size ``n`` in each dimension,
@@ -135,6 +144,10 @@ class MomentEvaluator:
         """
         backend = Backend.backend
         default = type(backend) is SciPyExpmBackend and backend.precision == np.float64
+        if default and MomentEvaluator._block_expm_applies(A.shape[-1]):
+            block = BlockTriangularExpm(n, scalar)
+            return np.stack([block.compute(a) for a in A])
+
         if default and np.abs(A).sum(axis=-2).max(initial=0.0) <= backend._max_norm:
             E = sla.expm(A)
         else:
@@ -144,6 +157,17 @@ class MomentEvaluator:
 
         return E
 
+    @staticmethod
+    def _block_expm_applies(dim: int) -> bool:
+        """
+        Whether ``BlockTriangularExpm`` is faster than the generic exponential on matrices of dimension ``dim``, see
+        ``_BLOCK_EXPM_MIN_DIM``.
+
+        :param dim: The dimension of the matrices.
+        :return: Whether to take ``BlockTriangularExpm``.
+        """
+        return dim >= _BLOCK_EXPM_MIN_DIM
+
     def _block_expms(
             self,
             builders: Sequence['Callable[[], np.ndarray]'],
@@ -152,15 +176,16 @@ class MomentEvaluator:
     ) -> 'Iterator[np.ndarray]':
         """
         The exponentials of the matrices returned by ``builders``, in order, by ``_block_expm`` in stacks of at most
-        ``_MAX_STACK_ENTRIES`` entries. The epochs of one evaluation do not depend on the propagated vector, so their
-        exponentials share a stack.
+        ``_MAX_STACK_ENTRIES`` entries, or one by one where ``_block_expm_applies``. The epochs of one evaluation do not
+        depend on the propagated vector, so their generic exponentials share a stack.
 
         :param builders: Functions returning the matrices, of ``len(scalar)`` blocks of size ``n`` in each dimension.
         :param n: The size of one block.
         :param scalar: Whether each diagonal block is a scalar multiple of the identity.
         :return: Iterator over the exponentials.
         """
-        size = max(1, _MAX_STACK_ENTRIES // (n * len(scalar)) ** 2)
+        dim = n * len(scalar)
+        size = 1 if self._block_expm_applies(dim) else max(1, _MAX_STACK_ENTRIES // dim ** 2)
         for i in range(0, len(builders), size):
             yield from self._block_expm(np.stack([b() for b in builders[i:i + size]]), n, scalar)
 
