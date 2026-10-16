@@ -7,7 +7,8 @@ analytic test suite is validated against, must stay identical to within ``RTOL``
 refactor. The comparison is a relative tolerance rather than an exact one because floating-point reassociation
 differs between architectures, so a baseline generated on one machine differs from another in the last few bits
 (measured at 3.5e-16 relative, about 1.5 double-precision epsilon, between arm64 macOS and x86-64 Linux), while a
-genuine behavioural change moves the arrays far more than that.
+genuine behavioural change moves the arrays far more than that. On Windows the seeded trajectories themselves differ
+from the baseline, so the comparison is skipped there.
 
 With a fixed ``seed`` and ``n_threads=1, parallelize=False`` the msprime simulation is fully deterministic, so the
 arrays are reproducible run-to-run. A committed baseline (``fixtures/msprime_characterization.npz``) is generated
@@ -15,6 +16,7 @@ from the current code (``REGENERATE=1 pytest ...`` or delete the file) and the t
 it. The baseline is tied to the installed msprime version; regenerate it if msprime is upgraded.
 """
 import os
+import sys
 from pathlib import Path
 
 import numpy as np
@@ -78,6 +80,7 @@ if os.environ.get('REGENERATE') or not BASELINE.exists():
     np.savez_compressed(BASELINE, **_generate_baseline())
 
 
+@pytest.mark.skipif(sys.platform == 'win32', reason='seeded msprime trajectories differ from the baseline on Windows')
 @pytest.mark.parametrize('name', list(CONFIGS), ids=list(CONFIGS))
 def test_simulate_matches_baseline(name):
     """The deterministic simulation output matches the committed baseline to within ``RTOL`` (per result field)."""
