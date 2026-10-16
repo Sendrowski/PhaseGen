@@ -215,7 +215,9 @@ from .spectrum import (
 )
 
 from .errors import ModelError
-from .inference import Inference, Gradient
+from .inference import Inference
+
+from .gradient import Gradient
 
 from .lineage import LineageConfig
 

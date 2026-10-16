@@ -1777,9 +1777,8 @@ class MomentEvaluator:
         time, and the epoch containing it is treated as finite, so a windowed mean subtracts the capped occupation.
 
         :param cap: If given, accumulate occupation only up to this absolute time instead of to absorption.
-        :param tape: If given, receives one :class:`~phasegen.distributions._gradient._OccupationStep` per epoch, the
-            record :class:`~phasegen.distributions._gradient.MeanGradient` differentiates. The sparse actions are then
-            applied by :class:`~phasegen.distributions._gradient._TapedAction`.
+        :param tape: If given, receives one ``_OccupationStep`` per epoch, the record ``MeanGradient`` differentiates.
+            The sparse actions are then applied by ``_TapedAction``.
         :return: ``(occupation, idx_t)`` with the occupation times over the transient states ``idx_t`` of the final
             epoch, or ``None`` if absorption is not almost sure (callers then fall back to per-bin evaluation).
         :raises ModelError: if the occupation times propagated to an epoch are not finite.

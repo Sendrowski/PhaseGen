@@ -147,3 +147,41 @@ test_that("plot_accumulation() draws empirical distributions and coalescents lik
 
   expect_equal(length(unique(plot_accumulation(ms$sfs, end_times = t)$data$series)), 3)
 })
+
+test_that("Gradient differentiates a statistic of an R callback exactly", {
+  skip_if_not(phasegen_is_installed())
+
+  gradient <- pg$Gradient(
+    coal = function(N) pg$Coalescent(
+      n = 4L,
+      demography = pg$Demography(
+        pop_sizes = list(pop_0 = 1),
+        events = list(pg$PopSizeChange(pop = "pop_0", time = 0.5, size = N))
+      )
+    ),
+    statistic = function(coal) coal$tree_height$mean
+  )
+  mean <- function(N) gradient$coal(N)$tree_height$mean
+  h <- 1e-4
+
+  result <- gradient$compute(list(N = 1.5))
+
+  expect_equal(as.numeric(result[[2]]), (mean(1.5 + h) - mean(1.5 - h)) / (2 * h), tolerance = 1e-6)
+})
+
+test_that("Inference uses the exact gradient for an R loss", {
+  skip_if_not(phasegen_is_installed())
+
+  inf <- pg$Inference(
+    bounds = list(N = c(0.1, 5)),
+    x0 = list(N = 1),
+    coal = function(N) pg$Coalescent(n = 4L, demography = pg$Demography(pop_sizes = list(pop_0 = N))),
+    loss = function(coal, obs) (coal$tree_height$mean - 2)^2,
+    n_runs = 1L,
+    pbar = FALSE
+  )
+
+  expect_true(pg$Gradient(inf$get_coal, function(coal) inf$loss(coal, NULL))$supported(list(N = 1)))
+  inf$run()
+  expect_equal(inf$loss_inferred, 0, tolerance = 1e-8)
+})

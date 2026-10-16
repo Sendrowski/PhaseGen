@@ -1,13 +1,11 @@
 """
-Exact gradients of first moments with respect to the population sizes, migration rates and epoch start times of a
-demography, by the adjoint of the occupation-time recursion of
-:meth:`PhaseTypeDistribution.moment() <phasegen.distributions.PhaseTypeDistribution.moment>`.
+The backward pass of the occupation-time recursion that gives the exact derivatives of first moments, as described in
+:meth:`PhaseTypeDistribution.gradient() <phasegen.distributions.PhaseTypeDistribution.gradient>`.
 """
 
 import copy
-import inspect
 import logging
-from typing import Any, Dict, List, Optional, Sequence, Tuple, TYPE_CHECKING
+from typing import Dict, List, Optional, Sequence, Tuple, TYPE_CHECKING
 
 import numpy as np
 import scipy.linalg as sla
@@ -17,8 +15,10 @@ from scipy.sparse.linalg._expm_multiply import LazyOperatorNormInfo, _exact_1_no
 from ..demography import Epoch
 
 if TYPE_CHECKING:
+    from ..coalescent_models import CoalescentModel
+    from ..locus import LocusConfig
     from ..state_space import StateSpace
-    from .phase_type import PhaseTypeDistribution
+    from .phase_type import DemographyGradient, PhaseTypeDistribution
 
 #: Unit roundoff targeted by the truncated Taylor action, as in :func:`scipy.sparse.linalg.expm_multiply`.
 _TOL = 2.0 ** -53
@@ -29,9 +29,29 @@ _CHUNK = 64
 #: Relative tolerance of the reconstruction of a generator from the basis of :class:`_GeneratorBasis`.
 _BASIS_RTOL = 1e-10
 
-#: Step of the central differences of the generator over a parameter of the coalescent model or the recombination
+#: Largest step of the differences of the generator over a parameter of the coalescent model or the recombination
 #: rate, relative to the magnitude of the parameter (at least 1).
 _PARAMETER_STEP = 1e-6
+
+#: Smallest relative step tried, below which a parameter counts as not variable.
+_MIN_PARAMETER_STEP = 1e-14
+
+#: Number of steps a parameter must be able to move towards each side of a difference.
+_STEP_MARGIN = 1000
+
+
+
+def _rate_parameters(model: 'CoalescentModel', locus_config: 'LocusConfig') -> Dict[str, float]:
+    """
+    The parameters the generator depends on besides the demography: those of the coalescent model, such as ``alpha``
+    of a Beta coalescent, and the recombination rate of two loci.
+
+    :param model: The coalescent model.
+    :param locus_config: The locus configuration.
+    :return: The parameters by name.
+    """
+    return model._parameters() | ({'recombination_rate': float(locus_config.recombination_rate)}
+                                  if locus_config.n == 2 else {})
 
 
 class _TapedAction:
@@ -147,7 +167,7 @@ class _TapedAction:
 class _OccupationStep:
     """
     One epoch of the occupation-time recursion of ``MomentEvaluator._occupation_times``, as recorded for
-    :class:`MeanGradient`.
+    ``MeanGradient``.
     """
 
     def __init__(
@@ -246,105 +266,110 @@ class _GeneratorBasis:
         self._transient: Dict[bytes, Tuple[Dict[str, sp.csr_matrix], Dict[Tuple[str, str], sp.csr_matrix],
                                            np.ndarray, np.ndarray]] = {}
 
-        #: The bases at a parameter shifted down and up, with the shifted values, by parameter.
-        self._shifted: Dict[str, Optional[Tuple['_GeneratorBasis', '_GeneratorBasis', float, float]]] = {}
+        #: Finite-difference stencils of the generator over the parameters of :func:`_rate_parameters`, as bases with
+        #: weights, by parameter, ``None`` for a parameter that cannot be varied.
+        self._stencils: Dict[str, Optional[List[Tuple['_GeneratorBasis', float]]]] = {}
 
-    @staticmethod
-    def parameters(model: Any, locus_config: Any) -> Dict[str, float]:
+    def _generator(self, sizes: Dict[str, float], rates: Dict[Tuple[str, str], float]) -> sp.csr_matrix:
         """
-        The continuous parameters of a coalescent model, such as ``alpha`` of a Beta coalescent or ``psi`` and ``c`` of
-        a Dirac coalescent, and the recombination rate of two loci.
+        The generator rebuilt from the basis.
 
-        :param model: The coalescent model.
-        :param locus_config: The locus configuration.
-        :return: The parameters by name.
+        :param sizes: The population sizes by deme.
+        :param rates: The migration rates by ordered pair, zero where absent.
+        :return: The generator.
         """
-        out = {}
-        for name in inspect.signature(type(model).__init__).parameters:
-            value = getattr(model, name, None)
-            if name not in ('self', 'scale_time') and isinstance(value, (int, float)) and not isinstance(value, bool):
-                out[name] = float(value)
+        model = self.state_space.model
+        S = self.K + sum((self.C[p] / model._get_timescale(sizes[p]) for p in self.pops), sp.csr_matrix(self.K.shape))
+        for pair in self.pairs:
+            S = S + rates.get(pair, 0.0) * self.M[pair]
 
-        if locus_config.n == 2:
-            out['recombination_rate'] = float(locus_config.recombination_rate)
+        return S.tocsr()
 
-        return out
-
-    def _shift(self, name: str, value: float) -> '_GeneratorBasis':
+    def _varied(self, name: str, value: float) -> '_GeneratorBasis':
         """
-        The basis of a copy of the state space with one parameter changed.
+        The basis of the state space with one parameter of :func:`_rate_parameters` changed.
 
         :param name: The parameter.
         :param value: Its value.
         :return: The basis.
+        :raises ValueError: If the value is invalid.
         """
         ss = self.state_space
-        clone = copy.copy(ss)
-        for key in ('S', 'transition', '_generator_basis'):
-            clone.__dict__.pop(key, None)
-        clone._previous_S, clone._cache = {}, {}
-
         if name == 'recombination_rate':
-            clone.locus_config = copy.copy(ss.locus_config)
-            clone.locus_config.recombination_rate = value
-        else:
-            model = ss.model
-            kwargs = {k: getattr(model, k) for k in inspect.signature(type(model).__init__).parameters
-                      if k != 'self' and hasattr(model, k)}
-            clone.model = type(model)(**(kwargs | {name: value}))
+            if value < 0:
+                raise ValueError('The recombination rate must not be negative.')
+            locus_config = copy.copy(ss.locus_config)
+            locus_config.recombination_rate = value
+            return _GeneratorBasis(ss._with(locus_config=locus_config))
 
-        return _GeneratorBasis(clone)
+        return _GeneratorBasis(ss._with(model=ss.model._with(**{name: value})))
 
-    def _shifted_bases(self, name: str) -> Optional[Tuple['_GeneratorBasis', '_GeneratorBasis', float, float]]:
+    def _valid(self, name: str, value: float) -> bool:
         """
-        The bases at a parameter shifted down and up by a central step, one-sided where a shifted value is invalid,
-        memoized.
+        Whether a parameter of :func:`_rate_parameters` may take a value.
 
         :param name: The parameter.
-        :return: The bases and the shifted values, or ``None`` if neither side can be shifted.
+        :param value: The value.
+        :return: Whether it may.
         """
-        if name not in self._shifted:
-            x = self.parameters(self.state_space.model, self.state_space.locus_config)[name]
-            h = _PARAMETER_STEP * max(abs(x), 1.0)
-            sides = []
-            for y in (x - h, x + h):
-                try:
-                    sides.append((self._shift(name, y), y))
-                except (ValueError, ZeroDivisionError):
-                    sides.append((self, x))
+        if name == 'recombination_rate':
+            return value >= 0
 
-            (down, x_down), (up, x_up) = sides
-            self._shifted[name] = None if x_up == x_down else (down, up, x_down, x_up)
+        try:
+            self.state_space.model._with(**{name: value})
+        except (ValueError, ZeroDivisionError, TypeError):
+            return False
 
-        return self._shifted[name]
+        return True
+
+    def _stencil(self, name: str) -> Optional[List[Tuple['_GeneratorBasis', float]]]:
+        """
+        The bases and weights of a second-order difference of the generator over a parameter, central where the
+        parameter may vary by a thousand steps either way and one-sided towards valid values otherwise, memoized.
+
+        :param name: The parameter.
+        :return: The bases with their weights, or ``None`` if the parameter cannot be varied.
+        """
+        if name not in self._stencils:
+            x = _rate_parameters(self.state_space.model, self.state_space.locus_config)[name]
+            scale = max(abs(x), 1.0)
+            stencil = None
+
+            h = _PARAMETER_STEP * scale
+            while stencil is None and h > _MIN_PARAMETER_STEP * scale:
+                if self._valid(name, x - _STEP_MARGIN * h) and self._valid(name, x + _STEP_MARGIN * h):
+                    stencil = [(self._varied(name, x + h), 1 / (2 * h)), (self._varied(name, x - h), -1 / (2 * h))]
+                h /= 10
+
+            for sign in (1, -1):
+                h = sign * _PARAMETER_STEP * scale
+                while stencil is None and abs(h) > _MIN_PARAMETER_STEP * scale:
+                    if self._valid(name, x + 2 * _STEP_MARGIN * h):
+                        stencil = [(self, -3 / (2 * h)), (self._varied(name, x + h), 4 / (2 * h)),
+                                   (self._varied(name, x + 2 * h), -1 / (2 * h))]
+                    h /= 10
+
+            self._stencils[name] = stencil
+
+        return self._stencils[name]
 
     def parameter_derivatives(self, epoch: Epoch, idx_t: np.ndarray) -> Dict[str, sp.csr_matrix]:
         r"""
         The derivatives :math:`\partial \mathbf{T} / \partial \theta` of the transient block of the generator of an
-        epoch by the parameters :math:`\theta` of :meth:`parameters`, by central differences of the bases, which are
-        exact for the recombination rate, on which the generator depends linearly.
+        epoch by the parameters :math:`\theta` of :func:`_rate_parameters`, by second-order differences of the bases,
+        which are exact for the recombination rate, on which the generator depends linearly.
 
         :param epoch: The epoch.
         :param idx_t: The transient states.
-        :return: The derivatives by parameter, omitting a parameter that cannot be shifted.
+        :return: The derivatives by parameter, omitting a parameter that cannot be varied.
         """
         out = {}
-        for name in self.parameters(self.state_space.model, self.state_space.locus_config):
-            shifted = self._shifted_bases(name)
-            if shifted is None:
-                continue
-
-            down, up, x_down, x_up = shifted
-            generators = []
-            for basis in (down, up):
-                model = basis.state_space.model
-                S = basis.K + sum((basis.C[p] / model._get_timescale(epoch.pop_sizes[p]) for p in basis.pops),
-                                  sp.csr_matrix(basis.K.shape))
-                for pair in basis.pairs:
-                    S = S + epoch.migration_rates.get(pair, 0.0) * basis.M[pair]
-                generators.append(S)
-
-            out[name] = ((generators[1] - generators[0]) / (x_up - x_down)).tocsr()[idx_t][:, idx_t].tocsr()
+        for name in _rate_parameters(self.state_space.model, self.state_space.locus_config):
+            stencil = self._stencil(name)
+            if stencil is not None:
+                dS = sum((w * basis._generator(epoch.pop_sizes, epoch.migration_rates) for basis, w in stencil),
+                         sp.csr_matrix(self.K.shape))
+                out[name] = dS.tocsr()[idx_t][:, idx_t].tocsr()
 
         return out
 
@@ -399,162 +424,18 @@ class _GeneratorBasis:
         :param S: The generator.
         :raises ValueError: If the generator is not reproduced.
         """
-        model = self.state_space.model
-        rebuilt = self.K + sum((self.C[p] / model._get_timescale(sizes[p]) for p in self.pops), sp.csr_matrix(S.shape))
-        for pair in self.pairs:
-            rebuilt = rebuilt + rates.get(pair, 0.0) * self.M[pair]
-
-        diff = abs(rebuilt - S).max()
+        diff = abs(self._generator(sizes, rates) - S).max()
         if diff > _BASIS_RTOL * max(abs(S).max(), 1e-300):
             raise ValueError(
                 f"The generator is not affine in the inverse time scales and migration rates (deviation {diff:.3g})."
             )
 
 
-class DemographyGradient:
-    r"""
-    Derivatives of a first moment :math:`\mu` with respect to the population sizes :math:`N_{d,e}` of the demes
-    :math:`d`, the migration rates :math:`m_{ab,e}` from deme :math:`a` to deme :math:`b` and the start times
-    :math:`t_e` of the epochs :math:`e` the moment was evaluated over, as returned by
-    :meth:`PhaseTypeDistribution.gradient() <phasegen.distributions.PhaseTypeDistribution.gradient>`. For a spectrum,
-    each array carries the shape of the spectrum as leading axes, one derivative per bin.
-    """
-
-    def __init__(self, epochs: Sequence[Epoch], pops: Sequence[str], pairs: Sequence[Tuple[str, str]],
-                 shape: Tuple[int, ...] = (), parameters: Sequence[str] = ()) -> None:
-        """
-        Initialize a zero gradient.
-
-        :param epochs: The epochs.
-        :param pops: The demes.
-        :param pairs: The ordered pairs of demes.
-        :param shape: The shape of the moment, empty for a scalar.
-        :param parameters: The parameters of the coalescent model and the recombination rate differentiated by.
-        """
-        #: The epochs, the last of which extends until absorption.
-        self.epochs: List[Epoch] = list(epochs)
-
-        #: The demes.
-        self.pops: List[str] = list(pops)
-
-        #: The ordered pairs of demes.
-        self.pairs: List[Tuple[str, str]] = list(pairs)
-
-        #: Derivative :math:`\partial \mu / \partial N_{d,e}`, of shape ``shape + (n_epochs, n_demes)``.
-        self.pop_sizes: np.ndarray = np.zeros(tuple(shape) + (len(self.epochs), len(self.pops)))
-
-        #: Derivative :math:`\partial \mu / \partial m_{ab,e}`, of shape ``shape + (n_epochs, n_pairs)``, in the
-        #: order of :attr:`pairs`.
-        self.migration_rates: np.ndarray = np.zeros(tuple(shape) + (len(self.epochs), len(self.pairs)))
-
-        #: Derivative :math:`\partial \mu / \partial t_e`, of shape ``shape + (n_epochs,)``. The first epoch starts at
-        #: zero, so its entry is zero.
-        self.start_times: np.ndarray = np.zeros(tuple(shape) + (len(self.epochs),))
-
-        #: Derivatives by the continuous parameters of the coalescent model, such as ``alpha`` of a Beta coalescent or
-        #: ``psi`` and ``c`` of a Dirac coalescent, and by the ``recombination_rate`` of two loci, each of shape
-        #: ``shape``.
-        self.parameters: Dict[str, np.ndarray] = {name: np.zeros(tuple(shape)) for name in parameters}
-
-    @classmethod
-    def _stack(cls, gradients: Sequence['DemographyGradient'], positions: Sequence[Tuple[int, ...]],
-               shape: Tuple[int, ...]) -> 'DemographyGradient':
-        """
-        The gradient of a spectrum from the gradients of its entries.
-
-        :param gradients: The gradients of the entries, over the same epochs.
-        :param positions: The positions of the entries in the spectrum.
-        :param shape: The shape of the spectrum.
-        :return: The gradient, zero at the other positions.
-        """
-        first = gradients[0]
-        out = cls(first.epochs, first.pops, first.pairs, shape, list(first.parameters))
-        for g, pos in zip(gradients, positions):
-            out.pop_sizes[pos] = g.pop_sizes
-            out.migration_rates[pos] = g.migration_rates
-            out.start_times[pos] = g.start_times
-            for name, value in g.parameters.items():
-                out.parameters[name][pos] = value
-
-        return out
-
-    def __iadd__(self, other: 'DemographyGradient') -> 'DemographyGradient':
-        """
-        Add a gradient over the same epochs.
-
-        :param other: The gradient.
-        :return: This gradient.
-        :raises ValueError: If the epochs or demes differ.
-        """
-        if ([e.index for e in other.epochs] != [e.index for e in self.epochs] or other.pops != self.pops or
-                other.pairs != self.pairs):
-            raise ValueError("The gradients are over different epochs or demes.")
-
-        self.pop_sizes += other.pop_sizes
-        self.migration_rates += other.migration_rates
-        self.start_times += other.start_times
-        for name, value in other.parameters.items():
-            self.parameters[name] = self.parameters.get(name, 0.0) + value
-
-        return self
-
-    @staticmethod
-    def quantities(epochs: Sequence[Epoch], pops: Sequence[str], pairs: Sequence[Tuple[str, str]]) -> np.ndarray:
-        """
-        The population sizes, migration rates and start times of epochs, in the layout of :meth:`flat`.
-
-        :param epochs: The epochs.
-        :param pops: The demes.
-        :param pairs: The ordered pairs of demes.
-        :return: The quantities.
-        """
-        return np.concatenate([
-            [e.pop_sizes[p] for e in epochs for p in pops],
-            [e.migration_rates.get(pair, 0.0) for e in epochs for pair in pairs],
-            [e.start_time for e in epochs]
-        ])
-
-    def flat(self) -> np.ndarray:
-        """
-        The gradient as one vector, in the layout of :meth:`quantities`.
-        """
-        return np.concatenate([self.pop_sizes.ravel(), self.migration_rates.ravel(), self.start_times])
-
-
 class MeanGradient:
-    r"""
-    Value and gradient of the mean :math:`\mathbb{E}[R] = \mathbf{m}\, \mathbf{r}` of an accumulated reward with
-    reward vector :math:`\mathbf{r}`, where :math:`\mathbf{m}` holds the expected occupation times of the states
-    until absorption, with respect to the demographic quantities of :class:`DemographyGradient`.
-
-    The occupation is threaded through the finite epochs as the row vector :math:`\mathbf{w}_e = [\mathbf{p}_e,
-    \mathbf{m}_e]` of the state distribution and the accumulated occupation, :math:`\mathbf{w}_{e+1} = \mathbf{w}_e
-    e^{\mathbf{A}_e}` with :math:`\mathbf{A}_e = \tau_e [[\mathbf{T}_e, \mathbf{I}], [\mathbf{0}, \mathbf{0}]]`, where
-    :math:`\mathbf{T}_e` is the transient block of the generator of epoch :math:`e` and :math:`\tau_e` its duration.
-    The last epoch :math:`E` contributes :math:`\mathbf{p}_E (-\mathbf{T}_E)^{-1}`. With the adjoint vectors
-    :math:`\mathbf{v}_E = [(-\mathbf{T}_E)^{-1} \mathbf{r}; \mathbf{r}]` and :math:`\mathbf{v}_e = e^{\mathbf{A}_e}
-    \mathbf{v}_{e+1}`,
-
-    .. math::
-        \frac{\partial\, \mathbb{E}[R]}{\partial \theta} =
-        \sum_{e < E} \tau_e \Big\langle \frac{\partial \mathbf{T}_e}{\partial \theta},\,
-        L\big(\mathbf{A}_e^\top, \mathbf{w}_e^\top \mathbf{v}_{e+1}^\top\big)_{11} \Big\rangle
-        + \mathbf{p}_E (-\mathbf{T}_E)^{-1} \frac{\partial \mathbf{T}_E}{\partial \theta} (-\mathbf{T}_E)^{-1} \mathbf{r},
-
-    where :math:`\theta` is a population size or a migration rate, :math:`L(\mathbf{A}, \mathbf{E})` the Fréchet
-    derivative of the matrix exponential, :math:`[\cdot]_{11}` its upper left block and :math:`\langle \cdot, \cdot
-    \rangle` the entrywise inner product. On the sparse path, the Fréchet derivative is replaced by the reverse pass of
-    the truncated Taylor action. The start time :math:`t_{e+1}` of epoch :math:`e + 1` enters as :math:`\mathbf{w}_{e+1} (\mathbf{V}_e - \mathbf{V}_{e+1}) \mathbf{v}_{e+1}`,
-    :math:`\mathbf{V}_e = \mathbf{A}_e / \tau_e`.
-
-    The following example evaluates the gradient of the expected tree height.
-
-    ::
-
-        coal = pg.Coalescent(n=5, demography=pg.Demography(pop_sizes={'pop_0': {0: 1, 0.5: 2}}))
-        th = coal.tree_height
-
-        value, grad = MeanGradient(th).compute(th.reward._get(th.state_space))
+    """
+    Values and derivatives of the first moments of rewards, by a forward pass through the occupation-time recursion
+    that records each epoch and a backward pass per reward, as described in :meth:`PhaseTypeDistribution.gradient()
+    <phasegen.distributions.PhaseTypeDistribution.gradient>`.
     """
 
     def __init__(self, distribution: 'PhaseTypeDistribution') -> None:
@@ -572,7 +453,7 @@ class MeanGradient:
         """
         return logging.getLogger(f"phasegen.{type(self).__name__}")
 
-    def compute(self, reward: np.ndarray) -> Optional[Tuple[float, DemographyGradient]]:
+    def compute(self, reward: np.ndarray) -> Optional[Tuple[float, 'DemographyGradient']]:
         """
         The mean and its gradient.
 
@@ -584,7 +465,7 @@ class MeanGradient:
 
         return None if out is None else out[0]
 
-    def compute_columns(self, rewards: np.ndarray) -> Optional[List[Tuple[float, DemographyGradient]]]:
+    def compute_columns(self, rewards: np.ndarray) -> Optional[List[Tuple[float, 'DemographyGradient']]]:
         """
         The means and gradients of several rewards, sharing the forward pass, the factorization of the last epoch and
         the adjoint of the initial distribution.
@@ -594,6 +475,8 @@ class MeanGradient:
             form.
         :raises ValueError: If the generator is not affine in the inverse time scales and migration rates.
         """
+        from .phase_type import DemographyGradient
+
         dist = self.distribution
         tape: List[_OccupationStep] = []
         occupation = dist._occupation_times(tape=tape)
@@ -611,7 +494,9 @@ class MeanGradient:
         solve = dist._lu_solver(neg_t, last.sparse)
         q = dist._lu_solver(neg_t.T, last.sparse)(last.w[:nt])
 
-        # the derivatives of the generator by the model parameters and the recombination rate, per epoch
+        # the factors of the coalescence parts and the derivatives of the generator by the model parameters and the
+        # recombination rate, per epoch
+        coefficients = [basis.coefficients(step.epoch) for step in tape]
         dT = [basis.parameter_derivatives(step.epoch, idx_t) for step in tape]
         names = list(dT[0])
 
@@ -621,18 +506,17 @@ class MeanGradient:
 
             # G is the derivative with respect to the transient block of the generator of epoch e, which enters the
             # exponent of a finite epoch multiplied by its duration, passed as the scale
-            def accumulate(e: int, step: _OccupationStep, G: 'sp.spmatrix | np.ndarray', scale: float) -> None:
-                coefficients = basis.coefficients(step.epoch)
+            def accumulate(e: int, G: 'sp.spmatrix | np.ndarray', scale: float) -> None:
                 G = sp.csr_matrix(G)
                 for i, pop in enumerate(basis.pops):
-                    grad.pop_sizes[e, i] += scale * coefficients[pop] * float(C[pop].multiply(G).sum())
+                    grad.pop_sizes[e, i] += scale * coefficients[e][pop] * float(C[pop].multiply(G).sum())
                 for j, pair in enumerate(basis.pairs):
                     grad.migration_rates[e, j] += scale * float(M[pair].multiply(G).sum())
                 for name in names:
                     grad.parameters[name] += scale * float(dT[e][name].multiply(G).sum())
 
             u = solve(r)
-            accumulate(len(tape) - 1, last,
+            accumulate(len(tape) - 1,
                        sp.csr_matrix((q[rows] * u[cols], (rows, cols)), shape=(nt, nt)) if last.sparse
                        else np.outer(q, u), 1.0)
 
@@ -650,18 +534,20 @@ class MeanGradient:
                 if step.action is None:
                     A = V.toarray() * step.tau
                     G = sla.expm_frechet(A.T, np.outer(step.w, v), compute_expm=False)[:nt, :nt]
-                    accumulate(e, step, G, step.tau)
+                    accumulate(e, G, step.tau)
                     v = step.exp_aug @ v
                 else:
                     # the action applies exp(A^T) to [p, 0], so dL/dA_{rc} = dL/dM_{cr}, taken over the entries every
                     # generator of the space can take, also those at a rate of zero in this epoch
                     v_in, gM = step.action.reverse(v, step.checkpoints, cols, rows)
                     GA = sp.csr_matrix((gM, (rows, cols)), shape=(nt, nt))
-                    accumulate(e, step, GA, step.tau)
-                    v = self._adjoint_input(v_in, v, nt)
+                    accumulate(e, GA, step.tau)
+                    # the action is applied to [p, 0], and the accumulated occupation is carried past it
+                    v = np.concatenate([v_in[:nt], v[nt:]])
 
                 V_next_v = V @ v
 
+            grad.parameters = {name: float(value) for name, value in grad.parameters.items()}
             out.append((float(m @ r), grad))
 
         return out
@@ -674,28 +560,13 @@ class MeanGradient:
         :raises ValueError: If the generator is not affine in the inverse time scales and migration rates.
         """
         ss = self.distribution.state_space
-        basis = ss.__dict__.get('_generator_basis')
-        if not isinstance(basis, (_GeneratorBasis, ValueError)):
+        if ss._generator_basis is None:
             try:
-                basis = _GeneratorBasis(ss)
+                ss._generator_basis = _GeneratorBasis(ss)
             except ValueError as e:
-                basis = e
-            ss.__dict__['_generator_basis'] = basis
+                ss._generator_basis = e
 
-        if isinstance(basis, ValueError):
-            raise basis
+        if isinstance(ss._generator_basis, ValueError):
+            raise ss._generator_basis
 
-        return basis
-
-    @staticmethod
-    def _adjoint_input(v_in: np.ndarray, v_out: np.ndarray, nt: int) -> np.ndarray:
-        """
-        The adjoint at the start of an epoch on the sparse path, where the action is applied to ``[p, 0]`` and the
-        accumulated occupation is carried past it.
-
-        :param v_in: The adjoint of the input of the action.
-        :param v_out: The adjoint at the end of the epoch.
-        :param nt: The number of transient states.
-        :return: The adjoint of ``[p, m]`` at the start of the epoch.
-        """
-        return np.concatenate([v_in[:nt], v_out[nt:]])
+        return ss._generator_basis

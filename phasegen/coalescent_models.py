@@ -2,16 +2,30 @@
 Coalescent models for simulating genealogies. Besides the standard Kingman coalescent,
 this module implements the beta coalescent and Dirac coalescent models.
 """
+import functools
+import inspect
 import itertools
 import math
 from abc import ABC, abstractmethod
-from typing import List, Tuple, Sequence
+from typing import Dict, List, Tuple, Sequence
 
 import numpy as np
 from scipy.special import comb, beta
 from scipy.stats import binom
 
 from .state_space_numba import _LOG_SPACE_MIN_LINEAGES, _log_beta, _log_comb
+
+
+
+@functools.lru_cache(maxsize=None)
+def _constructor_parameters(cls: type) -> Tuple[str, ...]:
+    """
+    The names of the arguments of the constructor of a class.
+
+    :param cls: The class.
+    :return: The names.
+    """
+    return tuple(name for name in inspect.signature(cls.__init__).parameters if name != 'self')
 
 
 class CoalescentModel(ABC):
@@ -129,6 +143,33 @@ class CoalescentModel(ABC):
         """
         pass
 
+
+    def _parameters(self) -> Dict[str, float]:
+        """
+        The continuous parameters of the model, by the names its constructor takes them under.
+
+        :return: The parameters.
+        """
+        out = {}
+        for name in _constructor_parameters(type(self)):
+            value = getattr(self, name, None)
+            if isinstance(value, (int, float)) and not isinstance(value, bool):
+                out[name] = float(value)
+
+        return out
+
+    def _with(self, **changes: float) -> 'CoalescentModel':
+        """
+        A copy of the model with some of its parameters changed.
+
+        :param changes: The new values by name.
+        :return: The model.
+        :raises ValueError: If a value is invalid for the model.
+        :raises TypeError: If the constructor takes arguments that are not attributes of the model.
+        """
+        kwargs = {name: getattr(self, name) for name in _constructor_parameters(type(self)) if hasattr(self, name)}
+
+        return type(self)(**(kwargs | changes))
 
 class StandardCoalescent(CoalescentModel):
     r"""

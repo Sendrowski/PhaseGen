@@ -1,0 +1,590 @@
+"""
+Exact Jacobians of statistics of a parametrized coalescent with respect to its parameters.
+"""
+
+import copy
+import itertools
+import logging
+from typing import Any, Callable, Dict, List, NamedTuple, Optional, Sequence, Tuple
+
+import numpy as np
+from scipy.optimize._numdiff import approx_derivative
+
+from .distributions import Coalescent, DemographyGradient
+from .distributions._gradient import MeanGradient, _rate_parameters
+
+#: The distributions of a :class:`~phasegen.distributions.Coalescent` whose first moments the gradient supports.
+_DISTRIBUTIONS = ('sfs', 'fsfs', 'jsfs', 'tree_height', 'total_branch_length')
+
+#: Relative step of the central differences of the statistic over the entries of a moment. The statistic is evaluated on
+#: moments it is handed, a smooth function of them, so that a small step leaves a truncation error of order its square.
+_MOMENT_STEP = 1e-5
+
+#: Relative step of the central differences of the quantities of the coalescent over a parameter.
+_PARAMETER_STEP = 1e-6
+
+#: Relative tolerance between a moment and its value recomputed by the backward pass.
+_VALUE_RTOL = 1e-9
+
+
+class _Unsupported(BaseException):
+    """
+    The statistic reads a quantity the gradient does not support. A :class:`BaseException`, so that a statistic
+    catching :class:`Exception` does not absorb it.
+    """
+    pass
+
+
+class _Read(NamedTuple):
+    """
+    A first moment the statistic reads: the distribution whose state space carries it, the reward multiplied with the
+    rewards of its entries (``None`` for the reward of the distribution), and its value.
+    """
+    dist: Any
+    reward: Any
+    value: Any
+
+
+class _DistributionRecorder:
+    """
+    Stand-in for a distribution of a coalescent that serves its mean and its first moments, recording each read.
+    """
+
+    def __init__(self, distribution: Any, recorder: '_CoalescentRecorder', name: str) -> None:
+        """
+        Wrap a distribution.
+
+        :param distribution: The distribution.
+        :param recorder: The recorder of the coalescent.
+        :param name: The attribute name of the distribution.
+        """
+        self._distribution, self._recorder, self._name = distribution, recorder, name
+
+    def __getattr__(self, attr: str) -> Any:
+        """
+        Serve the mean.
+
+        :param attr: The attribute.
+        :return: The mean, possibly overridden.
+        :raises _Unsupported: For any attribute other than the mean.
+        """
+        dist = self._distribution
+
+        if attr == 'mean':
+            return self._recorder.serve(lambda: _Read(dist, None, dist.mean))
+
+        self._recorder.unsupported = True
+        raise _Unsupported(f"{self._name}.{attr}")
+
+    def moment(self, k: int = 1, rewards: Sequence = None, start_time: float = None, end_time: float = None,
+               center: bool = True, permute: bool = True) -> Any:
+        """
+        Serve a first moment, see :meth:`_CoalescentRecorder.first_moment`.
+        """
+        dist = self._distribution
+
+        return self._recorder.first_moment(
+            k, rewards, start_time, end_time, f"{self._name}.moment",
+            lambda reward: _Read(dist, reward, dist.moment(1, rewards=rewards))
+        )
+
+
+class _CoalescentRecorder:
+    """
+    Stand-in for a :class:`~phasegen.distributions.Coalescent` passed to a statistic, admitting only first moments:
+    the means and first moments of :data:`_DISTRIBUTIONS` and :meth:`Coalescent.moment` of order one. The reads of one
+    evaluation are numbered in order, so that a moment can be overridden in the next evaluation.
+    """
+
+    def __init__(self, coal: Coalescent) -> None:
+        """
+        Wrap a coalescent.
+
+        :param coal: The coalescent.
+        """
+        self._coal = coal
+
+        #: The reads of the current evaluation, in order.
+        self.reads: List[_Read] = []
+
+        #: The reads of the first evaluation, in order.
+        self._first: List[_Read] = []
+
+        #: Moments served in place of the computed ones, by the number of the read.
+        self.overrides: Dict[int, Any] = {}
+
+        #: Whether the statistic read an unsupported quantity.
+        self.unsupported: bool = False
+
+    def serve(self, make: Callable[[], _Read]) -> Any:
+        """
+        Record a read and serve its moment.
+
+        :param make: Returns the read, called at the first evaluation only.
+        :return: The moment, possibly overridden.
+        """
+        i = len(self.reads)
+        if i == len(self._first):
+            self._first.append(make())
+
+        self.reads.append(self._first[i])
+
+        return self.overrides.get(i, self._first[i].value)
+
+    def first_moment(self, k: Any, rewards: Optional[Sequence], start_time: Optional[float],
+                     end_time: Optional[float], name: str, make: Callable[[Any], _Read]) -> Any:
+        """
+        Serve a first moment after validating its arguments.
+
+        :param k: The order, which must be one.
+        :param rewards: One reward or ``None``.
+        :param start_time: Must be ``None``.
+        :param end_time: Must be ``None``.
+        :param name: The quantity, for the signal.
+        :param make: Returns the read for the reward, ``None`` for that of the distribution.
+        :return: The moment, possibly overridden.
+        :raises _Unsupported: For another order, several rewards or a time window.
+        """
+        if k != 1 or (rewards is not None and len(rewards) != 1) or start_time is not None or end_time is not None:
+            self.unsupported = True
+            raise _Unsupported(f"{name} with k={k}, a time window or several rewards")
+
+        reward = None if rewards is None else rewards[0]
+
+        return self.serve(lambda: make(reward))
+
+    def moment(self, k: int = 1, rewards: Sequence = None, start_time: float = None, end_time: float = None,
+               center: bool = True, permute: bool = True) -> Any:
+        """
+        Serve a first moment of :meth:`Coalescent.moment`, see :meth:`first_moment`.
+        """
+        coal = self._coal
+
+        # the distribution carries the reward of the moment as its own
+        return self.first_moment(
+            k, rewards, start_time, end_time, 'moment',
+            lambda reward: _Read(coal._get_dist(1, rewards), None, coal.moment(1, rewards=rewards))
+        )
+
+    def __getattr__(self, attr: str) -> Any:
+        """
+        Wrap a supported distribution.
+
+        :param attr: The attribute.
+        :return: The wrapped distribution.
+        :raises _Unsupported: For any other attribute.
+        """
+        if attr not in _DISTRIBUTIONS:
+            self.unsupported = True
+            raise _Unsupported(attr)
+
+        return _DistributionRecorder(getattr(self._coal, attr), self, attr)
+
+
+class _Host(NamedTuple):
+    """
+    The derivatives of the statistic by the quantities of the epochs of one state space: the epochs, demes, pairs and
+    parameters of the quantities, and the derivatives of each entry of the statistic in the layout of
+    :meth:`DemographyGradient.flat() <phasegen.distributions.DemographyGradient.flat>`.
+    """
+    indices: List[int]
+    pops: List[str]
+    pairs: List[Tuple[str, str]]
+    names: List[str]
+    flat: np.ndarray
+
+
+class Gradient:
+    r"""
+    Exact Jacobian of a statistic of a parametrized coalescent with respect to its parameters,
+
+    .. math::
+        J_{j i} = \frac{\partial s_j\big(\mathrm{coal}(\theta)\big)}{\partial \theta_i},
+
+    where :math:`\theta` are the parameters, :math:`\mathrm{coal}(\theta)` the coalescent returned by the ``coal``
+    callback and :math:`s_j` the entries of the statistic. The statistic may be any function of first moments of the
+    coalescent: the means and first moments of :attr:`Coalescent.sfs <phasegen.distributions.Coalescent.sfs>`,
+    :attr:`Coalescent.fsfs <phasegen.distributions.Coalescent.fsfs>`, :attr:`Coalescent.jsfs
+    <phasegen.distributions.Coalescent.jsfs>`, :attr:`Coalescent.tree_height
+    <phasegen.distributions.Coalescent.tree_height>` and :attr:`Coalescent.total_branch_length
+    <phasegen.distributions.Coalescent.total_branch_length>`, and :meth:`Coalescent.moment()
+    <phasegen.distributions.Coalescent.moment>` of order one, each with at most one reward and no time window, such
+    as a normalized SFS or the loss of an :class:`~phasegen.inference.Inference`. By the chain rule,
+
+    .. math::
+        J_{j i} = \sum_l \frac{\partial s_j}{\partial \mu_l} \sum_k \frac{\partial \mu_l}{\partial q_k}
+        \frac{\partial q_k}{\partial \theta_i},
+
+    where :math:`\mu_l` are the entries of the moments the statistic reads and :math:`q_k` the population sizes,
+    migration rates and start times of the epochs, the parameters of the coalescent model and the recombination rate.
+    The derivatives :math:`\partial \mu_l / \partial q_k` are those of :meth:`PhaseTypeDistribution.gradient()
+    <phasegen.distributions.PhaseTypeDistribution.gradient>`, :math:`\partial s_j / \partial \mu_l` are central
+    differences of the statistic over the computed moments, and :math:`\partial q_k / \partial \theta_i` central
+    differences of the coalescent the callback builds. The Jacobian costs about one evaluation of the moments, whatever
+    the number of parameters. A parameter that changes the coalescent otherwise is differentiated by a central
+    difference of the statistic, and a statistic without an exact gradient by central differences altogether, as noted
+    in the log.
+
+    ::
+
+        gradient = pg.Gradient(
+            coal=lambda t, Ne: pg.Coalescent(n=10, demography=pg.Demography(pop_sizes={'pop_0': {0: 1, t: Ne}})),
+            statistic=lambda coal: coal.sfs.mean.normalize().polymorphic
+        )
+
+        value, jacobian = gradient.compute(dict(t=0.3, Ne=0.5))
+    """
+
+    def __init__(self, coal: Callable[..., Coalescent], statistic: Callable[[Coalescent], Any]) -> None:
+        """
+        Configure the Jacobian.
+
+        :param coal: Callback returning the coalescent for keyword parameters.
+        :param statistic: Function of the coalescent returning a number, an array or a spectrum.
+        """
+        #: Callback returning the coalescent for keyword parameters.
+        self.coal: Callable[..., Coalescent] = coal
+
+        #: Function of the coalescent returning the statistic.
+        self.statistic: Callable[[Coalescent], Any] = statistic
+
+    @property
+    def _log(self) -> logging.Logger:
+        """
+        The logger.
+        """
+        return logging.getLogger(f"phasegen.{type(self).__name__}")
+
+    def _entries(self, coal: Any) -> np.ndarray:
+        """
+        The entries of the statistic.
+
+        :param coal: The coalescent or its recorder.
+        :return: The entries, the data of a spectrum.
+        """
+        value = self.statistic(coal)
+
+        return np.asarray(getattr(value, 'data', value), dtype=float)
+
+    def compute(
+            self,
+            params: Dict[str, float],
+            bounds: Dict[str, Tuple[float, float]] = None,
+            exact: bool = True
+    ) -> Tuple[np.ndarray, np.ndarray]:
+        """
+        The statistic and its Jacobian at given parameters.
+
+        :param params: The parameters.
+        :param bounds: Bounds of the parameters, which the differences taken through the callback respect. By default,
+            the parameters are unbounded. A parameter whose bounds coincide has a derivative of zero.
+        :param exact: Whether to try the exact Jacobian, which a statistic without one replaces by central differences.
+        :return: The entries of the statistic, and the Jacobian of shape ``entries.shape + (len(params),)``, with the
+            parameters in the order of ``params``.
+        """
+        bounds = bounds or {}
+        out = self._exact(params, bounds) if exact else None
+
+        if out is not None:
+            return out
+
+        if exact:
+            self._log.info('The statistic has no exact gradient, using finite differences.')
+
+        x = np.array(list(params.values()), dtype=float)
+        value = self._entries(self.coal(**params))
+        jacobian = self._differences(lambda y: self._entries(self.coal(**dict(zip(params, y)))).ravel(), x,
+                                     [bounds.get(key, (-np.inf, np.inf)) for key in params])
+
+        return value, jacobian.reshape(value.shape + (len(params),))
+
+    @staticmethod
+    def _differences(f: Callable[[np.ndarray], Any], x: np.ndarray, bounds: Sequence[Tuple[float, float]],
+                     rel_step: float = None) -> np.ndarray:
+        """
+        The Jacobian of a function by central differences, one-sided at a bound, zero for a parameter whose bounds
+        coincide.
+
+        :param f: The function of the parameters, returning a number or a vector.
+        :param x: The parameters.
+        :param bounds: Their bounds.
+        :param rel_step: The step relative to the magnitude of each parameter, by default that of
+            :func:`scipy.optimize.approx_derivative` for central differences.
+        :return: The Jacobian, of shape ``(len(x),)`` for a number and ``(len(f(x)), len(x))`` for a vector.
+        """
+        lower, upper = np.array(bounds, dtype=float).reshape(-1, 2).T
+        free = lower < upper
+        value = np.asarray(f(x), dtype=float)
+        jacobian = np.zeros(value.shape + (len(x),))
+
+        if free.any():
+            def g(y: np.ndarray) -> Any:
+                z = x.copy()
+                z[free] = y
+                return f(z)
+
+            jacobian[..., free] = approx_derivative(g, x[free], method='3-point', rel_step=rel_step, f0=value,
+                                                    bounds=(lower[free], upper[free]))
+
+        return jacobian
+
+    def supported(self, params: Dict[str, float]) -> bool:
+        """
+        Whether the statistic reads only supported first moments, evaluated at some parameters. A model that cannot be
+        evaluated there leaves the question open, which is answered in favour of the exact Jacobian.
+
+        :param params: The parameters.
+        :return: Whether the statistic is supported.
+        """
+        try:
+            return self._record(self.coal(**params)) is not None
+        except Exception:
+            return True
+
+    def _record(self, coal: Coalescent) -> Optional[Tuple[np.ndarray, _CoalescentRecorder]]:
+        """
+        Evaluate the statistic through a recorder.
+
+        :param coal: The coalescent.
+        :return: The entries and the recorder, or ``None`` if the statistic reads an unsupported quantity, a windowed
+            moment, or no moment.
+        """
+        recorder = _CoalescentRecorder(coal)
+
+        # a statistic from another language, such as R, raises its own error in place of the signal, which the flag of
+        # the recorder identifies
+        try:
+            value = self._entries(recorder)
+        except BaseException as e:
+            if isinstance(e, _Unsupported) or recorder.unsupported:
+                self._log.debug("The statistic reads %s, which the exact gradient does not support", e)
+                return None
+            raise
+
+        if recorder.unsupported or not recorder.reads:
+            return None
+
+        if any(read.dist._resolve_window() != (0.0, np.inf) for read in recorder.reads):
+            return None
+
+        return value, recorder
+
+    def _exact(self, params: Dict[str, float],
+               bounds: Dict[str, Tuple[float, float]]) -> Optional[Tuple[np.ndarray, np.ndarray]]:
+        """
+        The statistic and its exact Jacobian.
+
+        :param params: The parameters.
+        :param bounds: The bounds of the parameters.
+        :return: The entries and the Jacobian, or ``None`` where the statistic reads a quantity other than a supported
+            first moment, a moment is windowed, an entry is not finite, or the occupation times have no closed form.
+        """
+        coal = self.coal(**params)
+        record = self._record(coal)
+        if record is None:
+            return None
+
+        value, recorder = record
+        if not np.isfinite(value).all():
+            return None
+
+        n_entries = value.size
+
+        # the rewards of the moments read, weighted by the derivatives of each entry of the statistic, summed per host
+        # distribution, since a moment is linear in its reward and one backward pass serves a host
+        hosts: Dict[int, list] = {}
+        for i, read in enumerate(list(recorder.reads)):
+            host, R, positions = read.dist._mean_rewards(read.reward)
+            try:
+                D = self._moment_derivatives(recorder, i, read.value, positions)
+            except BaseException as e:
+                if isinstance(e, _Unsupported) or recorder.unsupported:
+                    self._log.debug("The statistic reads %s at a perturbed moment, which the exact gradient does not "
+                                    "support", e)
+                    return None
+                raise
+
+            entries = np.array([self._entry(read.value, pos) for pos in positions])
+            entry = hosts.setdefault(id(host), [host, np.zeros((R.shape[0], n_entries)), np.zeros(n_entries),
+                                                np.zeros(n_entries)])
+            entry[1] += R @ D.T
+            entry[2] += D @ entries
+            entry[3] += np.abs(D) @ np.abs(entries)
+
+        derivatives = []
+        for host, rewards, contraction, magnitude in hosts.values():
+            out = MeanGradient(host).compute_columns(rewards)
+            if out is None:
+                return None
+
+            # the contraction of the derivatives of the statistic with the moments, against its magnitude, which
+            # cancellation leaves far above the contraction for a statistic invariant to the scale of the moments
+            adjoint = np.array([v for v, _ in out])
+            if np.any(np.abs(adjoint - contraction) > _VALUE_RTOL * magnitude):
+                self._log.warning("The value of the backward pass differs from the moments, using finite differences.")
+                return None
+
+            g = out[0][1]
+            derivatives.append(_Host([e.index for e in g.epochs], g.pops, g.pairs, list(g.parameters),
+                                     np.array([grad.flat() for _, grad in out])))
+
+        jacobian = self._chain(params, bounds, coal, derivatives, value.shape)
+
+        return value, jacobian
+
+    def _moment_derivatives(self, recorder: _CoalescentRecorder, i: int, moment: Any,
+                            positions: List[Tuple[int, ...]]) -> np.ndarray:
+        """
+        Central differences of the entries of the statistic over the entries of a moment.
+
+        :param recorder: The recorder of the coalescent.
+        :param i: The number of the read.
+        :param moment: The moment.
+        :param positions: The positions of its entries.
+        :return: The derivatives, of shape ``(n_entries_statistic, len(positions))``.
+        :raises _Unsupported: If the statistic reads other moments at a perturbed moment.
+        """
+        n_reads = len(recorder.reads)
+
+        # an entry of zero takes its step from the largest entry
+        scale = max(abs(self._entry(moment, pos)) for pos in positions)
+        out = []
+        for pos in positions:
+            x = self._entry(moment, pos)
+            h = _MOMENT_STEP * max(abs(x), 1e-3 * scale, 1e-300)
+            values = []
+            for sign in (1, -1):
+                recorder.overrides[i] = self._with_entry(moment, pos, x + sign * h)
+                recorder.reads = []
+                values.append(self._entries(recorder).ravel())
+
+                # the numbering of the reads holds only for a statistic that reads the same moments in each evaluation
+                if len(recorder.reads) != n_reads:
+                    raise _Unsupported("a number of moments that depends on their values")
+            out.append((values[0] - values[1]) / (2 * h))
+
+        recorder.overrides.pop(i, None)
+
+        return np.array(out).T
+
+    @staticmethod
+    def _entry(moment: Any, pos: Tuple[int, ...]) -> float:
+        """
+        An entry of a moment.
+
+        :param moment: The moment, a scalar or a spectrum.
+        :param pos: The position, an empty tuple for a scalar.
+        :return: The entry.
+        """
+        return float(moment) if pos == () else float(moment.data[pos])
+
+    @staticmethod
+    def _with_entry(moment: Any, pos: Tuple[int, ...], x: float) -> Any:
+        """
+        A copy of a moment with one entry replaced.
+
+        :param moment: The moment.
+        :param pos: The position.
+        :param x: The entry.
+        :return: The copy.
+        """
+        if pos == ():
+            return x
+
+        out = copy.deepcopy(moment)
+        out.data[pos] = x
+
+        return out
+
+    def _chain(self, params: Dict[str, float], bounds: Dict[str, Tuple[float, float]], coal: Coalescent,
+               hosts: List[_Host], shape: Tuple[int, ...]) -> np.ndarray:
+        """
+        The Jacobian over the parameters from the derivatives over the quantities of the coalescent.
+
+        :param params: The parameters.
+        :param bounds: Their bounds.
+        :param coal: The coalescent at the parameters.
+        :param hosts: The derivatives over the quantities of each host.
+        :param shape: The shape of the statistic.
+        :return: The Jacobian, of shape ``shape + (len(params),)``.
+        """
+        jacobian = np.zeros((int(np.prod(shape)), len(params)))
+
+        # the quantities of the moments, located by epoch index in the coalescent the callback builds
+        q0 = [self._quantities(coal, h) for h in hosts]
+        names = sorted(set(itertools.chain.from_iterable(h.names for h in hosts)))
+
+        for i, (key, x) in enumerate(params.items()):
+            lo, hi = bounds.get(key, (-np.inf, np.inf))
+            if lo == hi:
+                continue
+
+            h = _PARAMETER_STEP * max(abs(x), 1.0)
+            up, down = min(x + h, hi), max(x - h, lo)
+            coals = [self.coal(**(params | {key: y})) for y in (up, down)]
+
+            if all(self._same_but_rates(coal, c, names) for c in coals):
+                try:
+                    q = [[self._quantities(c, host) for host in hosts] for c in coals]
+                except (IndexError, KeyError):
+                    q = None
+
+                # a perturbation that moves an epoch across an index changes the quantities by far more than the step
+                if q is not None and all(np.all(np.abs(qi[k] - q0[k]) <= 1e-3 * (np.abs(q0[k]) + 1))
+                                         for qi in q for k in range(len(hosts))):
+                    jacobian[:, i] = sum(host.flat @ (q[0][k] - q[1][k]) for k, host in enumerate(hosts)) / (up - down)
+                    continue
+
+            jacobian[:, i] = (self._entries(coals[0]).ravel() - self._entries(coals[1]).ravel()) / (up - down)
+
+        return jacobian.reshape(tuple(shape) + (len(params),))
+
+    @staticmethod
+    def _quantities(coal: Coalescent, host: _Host) -> np.ndarray:
+        """
+        The quantities of a coalescent over the epochs and parameters of a host.
+
+        :param coal: The coalescent.
+        :param host: The host.
+        :return: The quantities.
+        :raises IndexError: If the demography has fewer epochs.
+        """
+        epochs = list(itertools.islice(coal.demography.epochs, max(host.indices) + 1))
+
+        return DemographyGradient.quantities([epochs[k] for k in host.indices], host.pops, host.pairs,
+                                             _rate_parameters(coal.model, coal.locus_config), host.names)
+
+    @staticmethod
+    def _same_but_rates(a: Coalescent, b: Coalescent, names: List[str]) -> bool:
+        """
+        Whether two coalescents differ at most in their demography and in the named parameters of the coalescent
+        model and the recombination rate.
+
+        :param a: The first coalescent.
+        :param b: The second coalescent.
+        :param names: The parameters that may differ.
+        :return: Whether they do.
+        """
+        if not all(getattr(a, k) == getattr(b, k) for k in ('lineage_config', 'start_time', 'end_time')):
+            return False
+
+        if not (a.lineage_distribution == b.lineage_distribution and a.locus_distribution == b.locus_distribution):
+            return False
+
+        if (a.locus_config.n, a.locus_config.n_unlinked) != (b.locus_config.n, b.locus_config.n_unlinked):
+            return False
+
+        theta_a = _rate_parameters(a.model, a.locus_config)
+        theta_b = _rate_parameters(b.model, b.locus_config)
+
+        if any(theta_a[name] != theta_b.get(name) and name not in names for name in theta_a):
+            return False
+
+        if a.model == b.model:
+            return True
+
+        # a model that differs is described by its parameters only if it can be rebuilt from them
+        try:
+            return type(a.model) is type(b.model) and a.model._with(**b.model._parameters()) == b.model
+        except (ValueError, TypeError, ZeroDivisionError):
+            return False

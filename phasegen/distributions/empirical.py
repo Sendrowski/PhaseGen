@@ -1226,7 +1226,7 @@ class EmpiricalJointSFSDistribution(_EmpiricalAccumulating, EmpiricalSpectrumDis
 
     over all replicates, which :attr:`mean`, :attr:`var`, :attr:`m2`, :attr:`m3` and :meth:`moment` up to order three
     return. The other estimators of :class:`~phasegen.distributions.EmpiricalDistribution` apply per descendant
-    vector to the stored samples, which may be a capped subset of the replicates.
+    vector to the stored samples, which may be a subset of the replicates.
 
     The following example estimates the mean joint spectrum of two demes from 1000 sampled trajectories.
 
@@ -1266,9 +1266,9 @@ class EmpiricalJointSFSDistribution(_EmpiricalAccumulating, EmpiricalSpectrumDis
         :param moments: Raw moments per descendant vector of orders one to three, stacked along the first axis, of
             shape ``(3, n_0 + 1, ..., n_{P-1} + 1)``.
         :param samples: Optional per-replicate joint SFS branch lengths, of shape ``(N, n_0 + 1, ...)``, possibly a
-            capped subset of the replicates the moments were averaged over.
+            subset of the replicates the moments were averaged over.
         :param n_samples: The number of replicates :math:`N` the moments were averaged over. Defaults to the length
-            of ``samples``, and must be given when ``samples`` is a capped subset.
+            of ``samples``, and must be given when ``samples`` is a subset.
         :param mutation_counts: Optional per-replicate mutation counts, of shape ``(N, n_0 + 1, ...)``, from which
             :meth:`get_mutation_config` takes the configuration frequencies.
         :param lineage_config: The lineages the replicates start from, recorded by :meth:`mutation_layout`. By default,
@@ -1286,7 +1286,7 @@ class EmpiricalJointSFSDistribution(_EmpiricalAccumulating, EmpiricalSpectrumDis
         #: Raw moments per descendant vector, indexed by order minus one.
         self._moments: np.ndarray = moments
 
-        #: Number of replicates the moments were averaged over, which exceeds ``len(samples)`` for a capped subset.
+        #: Number of replicates the moments were averaged over, which exceeds ``len(samples)`` for a subset.
         self.n_samples: Optional[int] = n_samples if n_samples is not None else (
             None if samples is None else self.samples.shape[0])
 
@@ -4426,7 +4426,7 @@ class MsprimeCoalescent(AbstractCoalescent):
         #: Raw moments of the joint SFS per descendant configuration, of the orders one up to a fixed maximum order.
         self.jsfs_moments: np.ndarray | None = None
 
-        #: Per-replicate joint SFS branch lengths of a capped subset of the replicates.
+        #: Per-replicate joint SFS branch lengths of every replicate.
         self.jsfs_samples: np.ndarray | None = None
 
         #: Actual number of replicates simulated and averaged over (``num_replicates`` rounded down to a multiple of
@@ -4737,7 +4737,7 @@ class MsprimeCoalescent(AbstractCoalescent):
         # combine the joint SFS moments (summed over replicates) across threads and normalize to moments
         self.jsfs_moments = np.sum([b['jsfs'] for b in batches], axis=0) / n_total if compute_jsfs else None
 
-        # combine the (capped) per-replicate joint SFS branch lengths across threads for the joint ground truth
+        # combine the per-replicate joint SFS branch lengths across threads for the joint ground truth
         self.jsfs_samples = np.concatenate([b['jsfs_samples'] for b in batches]) if compute_jsfs else None
 
         # combine the per-replicate mutation counts by descendant vector and by deme of residence across threads

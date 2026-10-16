@@ -1,6 +1,6 @@
 """
 Exact gradients of first moments (:class:`phasegen.distributions._gradient.MeanGradient`) and of inference losses
-(:class:`phasegen._loss_gradient.LossGradient`), against Richardson-extrapolated central differences. The steps are
+(:class:`phasegen.gradient.Gradient`), against Richardson-extrapolated central differences. The steps are
 relative 1e-3: the adaptive truncation of the sparse action makes the computed moments non-smooth at about 1e-13
 relative, which smaller steps amplify.
 """
@@ -10,7 +10,7 @@ import numpy as np
 import pytest
 
 import phasegen as pg
-from phasegen._loss_gradient import LossGradient
+from phasegen.gradient import Gradient
 from phasegen.distributions._gradient import MeanGradient
 from phasegen.inference import Inference
 from phasegen.settings import Settings
@@ -199,8 +199,18 @@ def _assert_loss_gradient(coal, loss, x0, bounds, observation, rtol=1e-7):
     """The gradient of ``Inference`` against central differences of its loss."""
     inf = _inference(coal, loss, x0, bounds, observation)
     f = Inference._get_loss_function(observation, x0, None, inf.get_coal, loss)
-    out = LossGradient(inf.get_coal, loss, observation).compute(x0, bounds)
+    evaluated = []
+
+    def counted(c):
+        if isinstance(c, pg.Coalescent):
+            evaluated.append(1)
+        return loss(c, observation)
+
+    out = Gradient(inf.get_coal, counted)._exact(x0, bounds)
     assert out is not None
+
+    # every parameter is differentiated through the moments, none by a difference of the loss
+    assert not evaluated
 
     value, grad = out
     x = np.array(list(x0.values()))
@@ -242,7 +252,7 @@ def test_loss_gradient_model_parameter():
 def test_loss_gradient_unsupported_loss(loss):
     """A loss reading anything but a supported mean, or no mean at all, has no exact gradient."""
     coal = lambda N: pg.Coalescent(n=4, demography=pg.Demography(pop_sizes={'pop_0': {0: 1, 0.5: N}}))
-    assert LossGradient(coal, loss, None).compute({'N': 1.0}, {'N': (0.1, 5)}) is None
+    assert Gradient(coal, lambda c: loss(c, None))._exact({'N': 1.0}, {'N': (0.1, 5)}) is None
 
 
 def test_loss_gradient_unsupported_read_caught_by_loss():
@@ -255,7 +265,7 @@ def test_loss_gradient_unsupported_read_caught_by_loss():
             return 1e10
 
     coal = lambda N: pg.Coalescent(n=4, demography=pg.Demography(pop_sizes={'pop_0': {0: 1, 0.5: N}}))
-    assert LossGradient(coal, loss, None).compute({'N': 1.0}, {'N': (0.1, 5)}) is None
+    assert Gradient(coal, lambda c: loss(c, None))._exact({'N': 1.0}, {'N': (0.1, 5)}) is None
 
 
 def test_loss_gradient_unsupported_read_raised_as_other_error():
@@ -268,9 +278,9 @@ def test_loss_gradient_unsupported_read_raised_as_other_error():
             raise RuntimeError(f'Error in py_get_attr: {e}')
 
     coal = lambda N: pg.Coalescent(n=4, demography=pg.Demography(pop_sizes={'pop_0': {0: 1, 0.5: N}}))
-    gradient = LossGradient(coal, loss, None)
+    gradient = Gradient(coal, lambda c: loss(c, None))
 
-    assert gradient.compute({'N': 1.0}, {'N': (0.1, 5)}) is None
+    assert gradient._exact({'N': 1.0}, {'N': (0.1, 5)}) is None
     assert not gradient.supported({'N': 1.0})
 
 
@@ -286,7 +296,7 @@ def test_loss_gradient_unsupported_read_at_perturbed_mean():
             return float(c.sfs.var.data[1])
         return float(mean.data[1])
 
-    assert LossGradient(coal, loss, None).compute({'N': 1.0}, {'N': (0.1, 5)}) is None
+    assert Gradient(coal, lambda c: loss(c, None))._exact({'N': 1.0}, {'N': (0.1, 5)}) is None
 
 
 def test_loss_gradient_first_moment_of_the_sfs():
@@ -323,7 +333,7 @@ def test_loss_gradient_first_moments_of_custom_rewards():
 def test_loss_gradient_unsupported_moments(loss):
     """Moments of higher order and moments in a time window have no exact gradient."""
     coal = lambda N: pg.Coalescent(n=4, demography=pg.Demography(pop_sizes={'pop_0': {0: 1, 0.5: N}}))
-    assert LossGradient(coal, loss, None).compute({'N': 1.0}, {'N': (0.1, 5)}) is None
+    assert Gradient(coal, lambda c: loss(c, None))._exact({'N': 1.0}, {'N': (0.1, 5)}) is None
 
 
 def test_loss_gradient_value_dependent_reads_unsupported():
@@ -336,18 +346,18 @@ def test_loss_gradient_value_dependent_reads_unsupported():
         height = c.tree_height.mean
         return float(height + (c.total_branch_length.mean if height > reference else 0))
 
-    assert LossGradient(coal, loss, None).compute({'N': 1.0}, {'N': (0.1, 5)}) is None
+    assert Gradient(coal, lambda c: loss(c, None))._exact({'N': 1.0}, {'N': (0.1, 5)}) is None
 
 
 def test_loss_gradient_shared_host_one_pass(monkeypatch):
     """Means on one state space share one adjoint pass."""
     calls = []
-    compute = MeanGradient.compute
-    monkeypatch.setattr(MeanGradient, 'compute', lambda self, r: calls.append(1) or compute(self, r))
+    compute = MeanGradient.compute_columns
+    monkeypatch.setattr(MeanGradient, 'compute_columns', lambda self, R: calls.append(1) or compute(self, R))
 
     coal = lambda N: pg.Coalescent(n=5, demography=pg.Demography(pop_sizes={'pop_0': {0: 1, 0.5: N}}))
     loss = lambda c, obs: float(c.sfs.mean.data[1] * c.tree_height.mean)
-    out = LossGradient(coal, loss, None).compute({'N': 1.3}, {'N': (0.1, 5)})
+    out = Gradient(coal, lambda c: loss(c, None))._exact({'N': 1.3}, {'N': (0.1, 5)})
 
     assert len(calls) == 1
     assert out[1][0] == pytest.approx(_richardson(lambda N: loss(coal(N), None), 1.3), rel=1e-7)
@@ -371,7 +381,7 @@ def test_loss_gradient_windowed_mean_unsupported():
     """A mean accumulated from a positive start time has no exact gradient."""
     coal = lambda N: pg.Coalescent(n=4, start_time=0.2, demography=pg.Demography(pop_sizes={'pop_0': {0: 1, 0.5: N}}))
     loss = lambda c, obs: float(c.tree_height.mean)
-    assert LossGradient(coal, loss, None).compute({'N': 1.0}, {'N': (0.1, 5)}) is None
+    assert Gradient(coal, lambda c: loss(c, None))._exact({'N': 1.0}, {'N': (0.1, 5)}) is None
 
 
 def test_inference_exact_gradient_reaches_finite_difference_optimum():
@@ -411,7 +421,7 @@ def test_inference_warns_on_unsupported_loss(caplog):
 def test_inference_warns_after_repeated_gradient_failures(caplog, monkeypatch):
     """Consecutive evaluations without an exact gradient switch the optimization to finite differences, with one
     warning."""
-    monkeypatch.setattr(LossGradient, 'compute', lambda self, params, bounds: None)
+    monkeypatch.setattr(Gradient, '_exact', lambda self, params, bounds: None)
     coal = lambda N: pg.Coalescent(n=4, demography=pg.Demography(pop_sizes={'pop_0': {0: 1, 0.5: N}}))
     with caplog.at_level('WARNING'):
         inf = _inference(coal, lambda c, obs: (float(c.tree_height.mean) - 2.0) ** 2, {'N': 1.0}, {'N': (0.1, 5)},
@@ -742,7 +752,7 @@ def test_loss_gradient_model_and_recombination_parameters_without_loss_differenc
 
     _assert_loss_gradient(coal, loss, x0, bounds, None)
     calls.clear()
-    LossGradient(coal, loss, None).compute(x0, bounds)
+    Gradient(coal, lambda c: loss(c, None))._exact(x0, bounds)
 
     assert not calls
 
@@ -811,13 +821,201 @@ def test_parameter_jacobian_across_regimes(regime, closed_form, caplog):
 
     Settings.closed_form_last_epoch = closed_form
     coal, params, statistic = _REGIMES[regime]
-    gradient = pg.Gradient(coal, statistic)
+    evaluated = []
+
+    def counted(c):
+        if isinstance(c, pg.Coalescent):
+            evaluated.append(1)
+        return statistic(c)
+
+    gradient = pg.Gradient(coal, counted)
 
     with caplog.at_level(logging.INFO, logger='phasegen'):
         value, jacobian = gradient.compute(params)
 
+    # every parameter is differentiated through the moments, none by a difference of the statistic
+    assert not evaluated
     assert not any('no exact gradient' in r.getMessage() for r in caplog.records)
 
     for i, key in enumerate(params):
         numeric = _richardson(lambda x: gradient._entries(coal(**(params | {key: x}))), params[key])
         np.testing.assert_allclose(jacobian[..., i], numeric, rtol=1e-6, atol=1e-8 * np.abs(numeric).max())
+
+
+@pytest.mark.parametrize('case', ['lineage weight', 'locus weight', 'custom model'])
+def test_parameter_jacobian_of_parameters_outside_the_rates(case):
+    """A parameter that enters neither the demography nor the rate parameters, such as a weight of an initial
+    distribution or the argument of a custom model, is differentiated by a difference of the statistic. Regression:
+    such a parameter got a derivative of exactly zero."""
+    class Custom(pg.BetaCoalescent):
+        def __init__(self, a):
+            super().__init__(alpha=a)
+
+    demography = pg.Demography(pop_sizes={'pop_0': {0: 1, 0.4: 1.5}, 'pop_1': 1},
+                               migration_rates={('pop_0', 'pop_1'): 0.5, ('pop_1', 'pop_0'): 0.5})
+    coal, x = {
+        'lineage weight': (lambda w, N: pg.Coalescent(
+            n=pg.InitialDistribution([(w, {'pop_0': 2, 'pop_1': 1}), (1, {'pop_0': 1, 'pop_1': 2})]),
+            demography=pg.Demography(pop_sizes={'pop_0': {0: 1, 0.4: N}, 'pop_1': 1},
+                                     migration_rates={('pop_0', 'pop_1'): 0.5, ('pop_1', 'pop_0'): 0.5})), 0.5),
+        'locus weight': (lambda w, N: pg.Coalescent(
+            n=3, loci=pg.InitialDistribution([(w, pg.LocusConfig(n=2, recombination_rate=0.5)),
+                                              (1, pg.LocusConfig(n=2, n_unlinked=1, recombination_rate=0.5))]),
+            demography=pg.Demography(pop_sizes={'pop_0': {0: 1, 0.4: N}})), 0.5),
+        'custom model': (lambda w, N: pg.Coalescent(n=4, model=Custom(w), demography=pg.Demography(
+            pop_sizes={'pop_0': {0: 1, 0.4: N}})), 1.5),
+    }[case]
+    gradient = pg.Gradient(coal, lambda c: c.tree_height.mean)
+    params = dict(w=x, N=1.5)
+    _, jacobian = gradient.compute(params)
+
+    for i, key in enumerate(params):
+        numeric = _richardson(lambda y: float(coal(**(params | {key: y})).tree_height.mean), params[key])
+        assert jacobian[i] == pytest.approx(numeric, rel=1e-5, abs=1e-9)
+    assert abs(jacobian[0]) > 1e-3
+
+
+def test_parameter_jacobian_of_a_fixed_parameter_is_zero():
+    """A parameter whose bounds coincide has a derivative of zero, exact and by differences. Regression: the exact
+    gradient divided by its zero step and gave NaN."""
+    gradient = pg.Gradient(lambda t, N: pg.Coalescent(n=4, demography=pg.Demography(pop_sizes={'pop_0': {0: 1, t: N}})),
+                           lambda c: c.tree_height.mean)
+    bounds = dict(t=(0.3, 0.3), N=(0.1, 10))
+
+    for exact in (True, False):
+        _, jacobian = gradient.compute(dict(t=0.3, N=1.5), bounds, exact=exact)
+        assert jacobian[0] == 0
+        assert np.isfinite(jacobian[1]) and jacobian[1] != 0
+
+
+def test_gradient_by_beta_alpha_close_to_two():
+    """The derivative by alpha just below 2, where the generator varies on the scale of 2 - alpha, against a local
+    central difference. Regression: the step of the difference of the generator was fixed, about 70% off at
+    2 - alpha = 1e-6."""
+    def mean(alpha):
+        return pg.Coalescent(n=4, model=pg.BetaCoalescent(alpha=alpha), demography=pg.Demography(
+            pop_sizes={'pop_0': {0: 1, 0.5: 2}})).tree_height.mean
+
+    for distance in (1e-4, 1e-6):
+        alpha = 2 - distance
+        h = distance / 100
+        th = pg.Coalescent(n=4, model=pg.BetaCoalescent(alpha=alpha), demography=pg.Demography(
+            pop_sizes={'pop_0': {0: 1, 0.5: 2}})).tree_height
+        assert th.gradient().parameters['alpha'] == pytest.approx((mean(alpha + h) - mean(alpha - h)) / (2 * h),
+                                                                  rel=1e-5)
+
+
+def test_gradient_returns_a_copy_and_accepts_a_list_of_rewards():
+    """The cached gradient is returned as a copy, so that changing the result leaves later calls intact, and the
+    rewards may be a list. Regression: the cached object itself was returned, and a list raised a TypeError."""
+    coal = pg.Coalescent(n=4, demography=pg.Demography(pop_sizes={'pop_0': {0: 1, 0.5: 2}}))
+    first = coal.tree_height.gradient()
+    first.pop_sizes += 1
+
+    np.testing.assert_array_equal(coal.tree_height.gradient().pop_sizes, first.pop_sizes - 1)
+
+    by_list = coal.gradient(1, rewards=[pg.TotalBranchLengthReward()])
+    by_list.pop_sizes += 1
+    np.testing.assert_array_equal(coal.gradient(1, rewards=[pg.TotalBranchLengthReward()]).pop_sizes,
+                                  by_list.pop_sizes - 1)
+
+
+def test_parameter_jacobian_value_mismatch_falls_back(monkeypatch, caplog):
+    """A backward pass whose value disagrees with the moments gives no exact Jacobian, with a warning."""
+    import logging
+
+    columns = MeanGradient.compute_columns
+
+    def shifted(self, R):
+        return [(v * 1.01, g) for v, g in columns(self, R)]
+
+    monkeypatch.setattr(MeanGradient, 'compute_columns', shifted)
+    gradient = pg.Gradient(lambda N: pg.Coalescent(n=4, demography=pg.Demography(pop_sizes={'pop_0': {0: 1, 0.5: N}})),
+                           lambda c: c.tree_height.mean)
+
+    with caplog.at_level(logging.WARNING, logger='phasegen'):
+        assert gradient._exact(dict(N=1.5), {}) is None
+    assert any('backward pass differs' in r.getMessage() for r in caplog.records)
+
+
+def test_parameter_jacobian_of_a_non_finite_statistic_is_not_exact():
+    """A statistic that is not finite has no exact Jacobian."""
+    gradient = pg.Gradient(lambda N: pg.Coalescent(n=4, demography=pg.Demography(pop_sizes={'pop_0': {0: 1, 0.5: N}})),
+                           lambda c: np.log(c.tree_height.mean - 1e6))
+
+    assert gradient._exact(dict(N=1.5), {}) is None
+
+
+def test_support_is_assumed_where_the_callback_raises():
+    """Where the model cannot be evaluated, support is left open in favour of the exact Jacobian."""
+    def coal(N):
+        raise pg.ModelError('invalid')
+
+    assert pg.Gradient(coal, lambda c: c.tree_height.mean).supported(dict(N=1.0))
+
+
+def test_parameter_jacobian_by_differences_stays_within_the_bounds():
+    """At a parameter on its lower bound, the differences are one-sided and evaluate the callback inside the bounds."""
+    seen = []
+
+    def coal(N):
+        seen.append(N)
+        return pg.Coalescent(n=4, demography=pg.Demography(pop_sizes={'pop_0': {0: 1, 0.5: N}}))
+
+    gradient = pg.Gradient(coal, lambda c: c.tree_height.var)
+    _, jacobian = gradient.compute(dict(N=0.1), dict(N=(0.1, 10)))
+
+    assert min(seen) >= 0.1
+    h = 1e-4
+    one_sided = (-3 * coal(0.1).tree_height.var + 4 * coal(0.1 + h).tree_height.var
+                 - coal(0.1 + 2 * h).tree_height.var) / (2 * h)
+    assert jacobian[0] == pytest.approx(one_sided, rel=1e-4)
+
+
+def test_inference_failure_counter_resets_after_an_exact_gradient(caplog, monkeypatch):
+    """Failures of the exact gradient interrupted by a success do not switch the optimization to finite differences;
+    a raising or non-finite exact gradient counts as a failure."""
+    import logging
+
+    exact = Gradient._exact
+    sequence = iter(['none', 'raise', 'ok', 'nan', 'none'] + ['ok'] * 1000)
+
+    def flaky(self, params, bounds):
+        kind = next(sequence)
+        if kind == 'raise':
+            raise RuntimeError('unavailable')
+        out = exact(self, params, bounds)
+        if kind == 'none':
+            return None
+        if kind == 'nan':
+            return out[0], np.full_like(out[1], np.nan)
+        return out
+
+    monkeypatch.setattr(Gradient, '_exact', flaky)
+    coal = lambda N: pg.Coalescent(n=4, demography=pg.Demography(pop_sizes={'pop_0': {0: 1, 0.5: N}}))
+
+    with caplog.at_level(logging.WARNING, logger='phasegen'):
+        inf = _inference(coal, lambda c, obs: (float(c.tree_height.mean) - 2.0) ** 2, {'N': 1.0}, {'N': (0.1, 5)},
+                         None)
+        inf.run()
+
+    assert not [r for r in caplog.records if 'consecutive evaluations' in r.getMessage()]
+    assert inf.loss_inferred == pytest.approx(0, abs=1e-8)
+
+
+def test_inference_with_a_fixed_parameter_converges():
+    """A parameter whose bounds coincide does not stop an optimization with the exact gradient. Regression: its
+    gradient was NaN and L-BFGS-B returned the start point."""
+    observation = pg.SFS(np.round(1000 * pg.Coalescent(n=6, demography=pg.Demography(
+        pop_sizes={'pop_0': {0: 2, 0.3: 1}})).sfs.mean.normalize().data))
+    coal = lambda N, t: pg.Coalescent(n=6, demography=pg.Demography(pop_sizes={'pop_0': {0: N, t: 1}}))
+
+    results = []
+    for gradient in ('exact', 'finite_differences'):
+        inf = _inference(coal, _sfs_loss, {'N': 1.0, 't': 0.3}, {'N': (0.1, 10), 't': (0.3, 0.3)}, observation,
+                         gradient=gradient)
+        inf.run()
+        results.append(inf.params_inferred['N'])
+
+    assert results[0] == pytest.approx(results[1], rel=1e-3)
+    assert results[0] != 1.0

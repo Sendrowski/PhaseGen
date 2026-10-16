@@ -14,12 +14,13 @@ The absorption-rate vector is :math:`\mathbf{q} = -\mathbf{T}\mathbf{e}_T` for t
 :math:`\mathbf{T}`. The positive rates are supplied by the :class:`~phasegen.coalescent_models.CoalescentModel`.
 """
 
+import copy
 import logging
 import time
 from abc import ABC, abstractmethod
 from .caching import cached_property
 from itertools import product
-from typing import List, Tuple, Dict, Callable, cast
+from typing import Any, List, Tuple, Dict, Callable, cast
 
 import numpy as np
 from .errors import ModelError
@@ -91,6 +92,9 @@ class StateSpace(ABC):
 
     #: Rate matrix of the epoch left last, keyed by that epoch, restored by :meth:`update_epoch` on returning to it
     _previous_S: Dict[Epoch, np.ndarray] = {}
+
+    #: The basis of the generator kept for the exact gradients of moments, or the error of a space without one.
+    _generator_basis: Any = None
 
     def __init__(
             self,
@@ -480,6 +484,28 @@ class StateSpace(ABC):
             del self.S
         except AttributeError:
             pass
+
+    def _with(self, model: CoalescentModel = None, locus_config: LocusConfig = None) -> 'StateSpace':
+        """
+        A copy of the state space with another coalescent model or locus configuration, sharing the states, whose rate
+        matrices are built anew.
+
+        :param model: The coalescent model, by default that of this space.
+        :param locus_config: The locus configuration, by default that of this space.
+        :return: The copy.
+        """
+        clone = copy.copy(self)
+        clone.__dict__.pop('transition', None)
+        clone._generator_basis = None
+
+        if model is not None:
+            clone.model = model
+        if locus_config is not None:
+            clone.locus_config = locus_config
+
+        clone.drop_cache()
+
+        return clone
 
     def drop_cache(self) -> None:
         """

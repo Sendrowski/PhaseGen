@@ -1499,3 +1499,92 @@ def test_fisher_information_requires_a_run():
     """The information is taken at the estimate, so it needs a run."""
     with pytest.raises(RuntimeError, match='run'):
         _linear_poisson_inference('exact').fisher_information()
+
+
+def test_fisher_information_takes_the_exact_gradient():
+    """With the exact gradient, the information differences the gradient of Gradient.compute without differencing the
+    loss, and with finite differences it never asks for the exact gradient."""
+    from phasegen.gradient import Gradient
+
+    for gradient, expected in [('exact', True), ('finite_differences', False)]:
+        inf = _linear_poisson_inference(gradient)
+        inf.run()
+        calls = []
+        exact = Gradient._exact
+
+        with mock.patch.object(Gradient, '_exact', lambda self, *a: calls.append(1) or exact(self, *a)):
+            inf.fisher_information()
+
+        assert bool(calls) == expected
+
+
+def test_standard_error_of_a_parameter_the_loss_ignores_is_nan(caplog):
+    """A parameter the loss does not depend on has an undefined standard error, with a warning, while the others keep
+    theirs. Regression: the pseudo-inverse reported about zero."""
+    import logging
+
+    inf = pg.Inference(
+        bounds=dict(Ne=(0.1, 10), z=(0, 1)),
+        x0=dict(Ne=1, z=0.5),
+        coal=lambda Ne, z: pg.Coalescent(n=5, demography=pg.Demography(pop_sizes={'pop_0': Ne})),
+        loss=lambda coal, obs: pg.PoissonLikelihood().compute(
+            observed=obs.polymorphic, modelled=100 * coal.sfs.mean.polymorphic
+        ),
+        observation=pg.SFS([0, 180, 95, 70, 52, 0]),
+        n_runs=1,
+        pbar=False
+    )
+    inf.run()
+
+    with caplog.at_level(logging.WARNING, logger='phasegen'):
+        se = inf.standard_errors()
+
+    assert np.isnan(se['z'])
+    assert np.isfinite(se['Ne']) and se['Ne'] > 0
+    assert any('not positive definite' in r.getMessage() for r in caplog.records)
+
+
+def test_fisher_information_follows_a_changed_observation():
+    """The cached information is recomputed when the observation changes. Regression: it was keyed on the estimate
+    only, so doubling the counts left it unchanged."""
+    inf = _linear_poisson_inference('exact')
+    inf.run()
+    before = inf.fisher_information().loc['Ne', 'Ne']
+
+    inf.observation = pg.SFS([0, 360, 190, 140, 104, 0])
+
+    assert inf.fisher_information().loc['Ne', 'Ne'] == pytest.approx(2 * before, rel=1e-5)
+
+
+def test_plot_bootstraps_bins_each_parameter_over_its_own_range():
+    """Each histogram is binned over the range of its own parameter, and a colour can be passed. Regression: one set
+    of bins spanned all parameters, and a colour raised a TypeError."""
+    import matplotlib.pyplot as plt
+
+    inf = InferenceTestCase.get_basic_inference(InferenceTestCase())
+    inf.run()
+    rng = np.random.default_rng(1)
+    inf.bootstraps = pd.DataFrame({'t': rng.uniform(0, 0.001, 30), 'Ne': rng.uniform(0, 1, 30)})
+
+    axes = inf.plot_bootstraps(show=False, kwargs=dict(bins=10, color='k'))
+    widths = [max(p.get_width() for p in ax.patches) for ax in axes]
+
+    assert widths[0] == pytest.approx(np.ptp(inf.bootstraps['t']) / 10, rel=1e-6)
+    assert widths[1] == pytest.approx(np.ptp(inf.bootstraps['Ne']) / 10, rel=1e-6)
+    plt.close('all')
+
+
+def test_inference_payload_without_a_gradient_mode_uses_the_exact_gradient():
+    """An inference serialized before the gradient option existed restores with the exact gradient, the class default,
+    and without a cached Fisher information."""
+    import jsonpickle
+
+    inf = _linear_poisson_inference('finite_differences')
+    payload = jsonpickle.decode(jsonpickle.encode(inf, keys=True), keys=True)
+    payload.__dict__.pop('gradient', None)
+    payload.__dict__.pop('_fisher_information', None)
+    restored = jsonpickle.decode(jsonpickle.encode(payload, keys=True), keys=True)
+
+    assert restored.gradient == 'exact'
+    assert restored._fisher_information is None
+

@@ -4,6 +4,7 @@ summary statistics, and a :class:`~phasegen.distributions.Coalescent` distributi
 """
 
 import copy
+import hashlib
 import logging
 from collections import defaultdict
 from .caching import cached_property
@@ -13,12 +14,11 @@ import dill
 import numpy as np
 import pandas as pd
 import scipy.optimize as opt
-from scipy.optimize._numdiff import approx_derivative
 from scipy.optimize import OptimizeResult
 from tqdm import tqdm
 
 from .demography import Demography
-from ._loss_gradient import LossGradient
+from .gradient import Gradient, _DISTRIBUTIONS
 from .distributions import Coalescent
 from .errors import ModelError
 from .serialization import Serializable
@@ -44,123 +44,13 @@ _GRADIENT_METHODS = ('l-bfgs-b', 'tnc', 'slsqp', 'trust-constr')
 #: Consecutive evaluations of an optimization without an exact gradient after which it takes finite differences only.
 _MAX_GRADIENT_FAILURES = 3
 
-#: Step of the central differences of the Fisher information, relative to the magnitude of each parameter (at least 1).
-_FISHER_REL_STEP = 1e-4
+#: Eigenvalues of the Fisher information below this fraction of the largest count as no curvature.
+_CURVATURE_RTOL = 1e-10
 
-#: Step of the central differences of :class:`Gradient` for a statistic without an exact gradient, relative to the
-#: magnitude of each parameter (at least 1).
-_DIFFERENCE_STEP = 1e-5
+#: Step of the central differences of the gradient that give the Fisher information, relative to the magnitude of
+#: each parameter, large against the error of the gradient.
+_HESSIAN_STEP = 1e-4
 
-
-class Gradient:
-    r"""
-    Exact Jacobian of a statistic of a parametrized coalescent with respect to its parameters,
-
-    .. math::
-        J_{j i} = \frac{\partial s_j\big(\mathrm{coal}(\theta)\big)}{\partial \theta_i},
-
-    where :math:`\theta` are the parameters, :math:`\mathrm{coal}(\theta)` the coalescent returned by the ``coal``
-    callback and :math:`s_j` the entries of the statistic. The statistic may be any function of the first moments of
-    the coalescent that :class:`Inference` differentiates exactly (see its ``gradient`` parameter), such as a normalized
-    SFS, at the cost of a few moment evaluations per entry, whatever the number of parameters. Any other statistic is
-    differentiated by central differences.
-
-    ::
-
-        gradient = pg.Gradient(
-            coal=lambda t, Ne: pg.Coalescent(n=10, demography=pg.Demography(pop_sizes={'pop_0': {0: 1, t: Ne}})),
-            statistic=lambda coal: coal.sfs.mean.normalize().polymorphic
-        )
-
-        value, jacobian = gradient.compute(dict(t=0.3, Ne=0.5))
-    """
-
-    def __init__(self, coal: Callable[..., Coalescent], statistic: Callable[[Coalescent], Any]) -> None:
-        """
-        Configure the Jacobian.
-
-        :param coal: Callback returning the coalescent for keyword parameters.
-        :param statistic: Function of the coalescent returning a number, an array or a spectrum.
-        """
-        #: Callback returning the coalescent for keyword parameters.
-        self.coal: Callable[..., Coalescent] = coal
-
-        #: Function of the coalescent returning the statistic.
-        self.statistic: Callable[[Coalescent], Any] = statistic
-
-    def _entries(self, coal: Coalescent) -> np.ndarray:
-        """
-        The entries of the statistic.
-
-        :param coal: The coalescent.
-        :return: The entries, the data of a spectrum.
-        """
-        value = self.statistic(coal)
-
-        return np.asarray(getattr(value, 'data', value), dtype=float)
-
-    @property
-    def _log(self) -> logging.Logger:
-        """
-        The logger.
-        """
-        return logging.getLogger(f"phasegen.{type(self).__name__}")
-
-    def compute(
-            self,
-            params: Dict[str, float],
-            bounds: Dict[str, Tuple[float, float]] = None
-    ) -> Tuple[np.ndarray, np.ndarray]:
-        """
-        The statistic and its Jacobian at given parameters. A statistic without an exact gradient is differentiated by
-        central differences, as noted in the log.
-
-        :param params: The parameters.
-        :param bounds: Bounds of the parameters, which the differences taken through the callback respect. By default,
-            the parameters are unbounded.
-        :return: The entries of the statistic, and the Jacobian of shape ``entries.shape + (len(params),)``, with the
-            parameters in the order of ``params``.
-        """
-        bounds = bounds or {}
-        value = self._entries(self.coal(**params))
-        jacobian = np.zeros(value.shape + (len(params),))
-
-        for idx in np.ndindex(value.shape):
-            out = LossGradient(self.coal, lambda c, _, idx=idx: float(self._entries(c)[idx]), None).compute(
-                params, bounds
-            )
-            if out is None:
-                self._log.info('The statistic has no exact gradient, using finite differences.')
-                return value, self._differences(params, bounds, value.shape)
-
-            jacobian[idx] = out[1]
-
-        return value, jacobian
-
-    def _differences(
-            self,
-            params: Dict[str, float],
-            bounds: Dict[str, Tuple[float, float]],
-            shape: Tuple[int, ...]
-    ) -> np.ndarray:
-        """
-        The Jacobian by central differences through the callback, one-sided at a bound.
-
-        :param params: The parameters.
-        :param bounds: Their bounds.
-        :param shape: The shape of the statistic.
-        :return: The Jacobian.
-        """
-        jacobian = np.zeros(tuple(shape) + (len(params),))
-
-        for i, (key, x) in enumerate(params.items()):
-            lo, hi = bounds.get(key, (-np.inf, np.inf))
-            h = _DIFFERENCE_STEP * max(abs(x), 1.0)
-            up, down = min(x + h, hi), max(x - h, lo)
-            entries = [self._entries(self.coal(**(params | {key: y}))) for y in (up, down)]
-            jacobian[..., i] = (entries[0] - entries[1]) / (up - down)
-
-        return jacobian
 
 
 class Inference(Serializable):
@@ -208,9 +98,9 @@ class Inference(Serializable):
     #: attribute.
     gradient: Literal['exact', 'finite_differences'] = 'exact'
 
-    #: The parameters at which the Fisher information was last computed, and the information. Static for backward
+    #: The key of the inputs the Fisher information was last computed from, and the information. Static for backward
     #: compatibility with serialized objects that lack the attribute.
-    _fisher_information: Tuple[Tuple[float, ...], pd.DataFrame] | None = None
+    _fisher_information: Tuple[Tuple, pd.DataFrame] | None = None
 
     def __init__(
             self,
@@ -275,15 +165,11 @@ class Inference(Serializable):
         :param method_mle: Method to use for optimization, a method of `scipy.optimize.minimize` that honours bounds
             without an analytic Jacobian: Nelder-Mead, Powell, L-BFGS-B, TNC, SLSQP, COBYLA, COBYQA or trust-constr.
         :param gradient: How the gradient-based methods (L-BFGS-B, TNC, SLSQP, trust-constr) obtain the gradient of the
-            loss. With ``'exact'``, a loss that reads only first moments is differentiated by the adjoint of the moment
-            recursion: the means and first moments of :attr:`Coalescent.sfs <phasegen.distributions.Coalescent.sfs>`,
-            :attr:`Coalescent.fsfs <phasegen.distributions.Coalescent.fsfs>`, :attr:`Coalescent.jsfs
-            <phasegen.distributions.Coalescent.jsfs>`, :attr:`Coalescent.tree_height
-            <phasegen.distributions.Coalescent.tree_height>` and :attr:`Coalescent.total_branch_length
-            <phasegen.distributions.Coalescent.total_branch_length>`, and :meth:`Coalescent.moment()
-            <phasegen.distributions.Coalescent.moment>` of order one, each with at most one reward and no time window.
-            This costs a few loss evaluations whatever the number of parameters, which may enter the demography, the
-            parameters of the coalescent model or the recombination rate. Any other loss is differentiated by finite
+            loss. With ``'exact'``, a loss that reads only the first moments listed at
+            :class:`~phasegen.gradient.Gradient` is differentiated exactly, as described in
+            :meth:`PhaseTypeDistribution.gradient() <phasegen.distributions.PhaseTypeDistribution.gradient>`, at a cost
+            of about one evaluation of the moments whatever the number of parameters, which may enter the demography,
+            the parameters of the coalescent model or the recombination rate. Any other loss is differentiated by finite
             differences. With ``'finite_differences'``, every gradient is a finite difference of the loss.
         :raises ValueError: If a lower bound exceeds its upper bound, ``x0`` lies outside the bounds or does not specify
             exactly the parameters in ``bounds``, ``method_mle`` is not one of the supported methods, ``gradient`` is not
@@ -597,12 +483,12 @@ class Inference(Serializable):
         if self.gradient != 'exact' or self.method_mle.lower() not in _GRADIENT_METHODS:
             return
 
-        if LossGradient(self.get_coal, self.loss, observation).supported(x0):
+        if Gradient(self.get_coal, lambda coal: self.loss(coal, observation)).supported(x0):
             self._logger.info('Using the exact gradient of the loss.')
         else:
             self._logger.warning(
-                'The loss reads more than the means of sfs, fsfs, jsfs, tree_height and total_branch_length, or a mean '
-                'with an accumulation window. Using finite differences for its gradient.'
+                'The loss reads more than first moments of %s or Coalescent.moment, each with at most one reward and '
+                'no time window. Using finite differences for its gradient.', ', '.join(_DISTRIBUTIONS)
             )
 
     @staticmethod
@@ -617,8 +503,8 @@ class Inference(Serializable):
             logger: logging.Logger = logger
     ) -> Callable[[np.ndarray], Tuple[float, np.ndarray]]:
         """
-        The loss with its gradient, exact where :class:`~phasegen._loss_gradient.LossGradient` supports the loss and
-        otherwise a forward difference of ``loss`` within the bounds, as the optimizers take by default.
+        The loss with its gradient, exact where :class:`~phasegen.gradient.Gradient` supports the loss and otherwise a
+        central difference of ``loss`` within the bounds.
 
         :param loss: The loss function of :meth:`_get_loss_function`.
         :param x0: Initial parameters, for their names.
@@ -630,35 +516,35 @@ class Inference(Serializable):
         :param logger: Logger.
         :return: Function returning the loss and its gradient.
         """
-        gradient = LossGradient(get_dist, get_loss, observation)
-        lower, upper = np.array([bounds[k] for k in x0.keys()], dtype=float).T
+        gradient = Gradient(get_dist, lambda coal: get_loss(coal, observation))
+        bounds_list = [bounds[k] for k in x0.keys()]
 
         # consecutive evaluations without an exact gradient, after which the remaining ones skip the attempt
-        failures = [0]
+        failures = 0
 
         def loss_and_gradient(params: np.ndarray) -> Tuple[float, np.ndarray]:
+            nonlocal failures
             params_dict = dict(zip(x0.keys(), params))
             out = None
-            if failures[0] < _MAX_GRADIENT_FAILURES:
+            if failures < _MAX_GRADIENT_FAILURES:
                 try:
-                    out = gradient.compute(params_dict, bounds)
+                    out = gradient._exact(params_dict, bounds)
                 except Exception as e:
                     logger.debug('Exact gradient unavailable at %s (%s), using finite differences', params_dict, e)
 
             if out is not None and np.isfinite(out[1]).all():
-                failures[0] = 0
-                Inference._report(params_dict, out[0], pbar, logger)
-                return out
+                failures = 0
+                Inference._report(params_dict, float(out[0]), pbar, logger)
+                return float(out[0]), out[1]
 
-            failures[0] += 1
-            if failures[0] == _MAX_GRADIENT_FAILURES:
+            failures += 1
+            if failures == _MAX_GRADIENT_FAILURES:
                 logger.warning(
                     'The exact gradient was unavailable at %d consecutive evaluations, the last at %s. Using finite '
-                    'differences for the rest of this optimization.', failures[0], params_dict
+                    'differences for the rest of this optimization.', failures, params_dict
                 )
 
-            value = loss(params)
-            return value, approx_derivative(loss, params, method='2-point', f0=value, bounds=(lower, upper))
+            return loss(params), Gradient._differences(loss, params, bounds_list)
 
         return loss_and_gradient
 
@@ -711,7 +597,7 @@ class Inference(Serializable):
         # optimizer
         jac = None
         if (gradient == 'exact' and method_mle.lower() in _GRADIENT_METHODS and
-                LossGradient(get_dist, get_loss, observation).supported(x0)):
+                Gradient(get_dist, lambda coal: get_loss(coal, observation)).supported(x0)):
             loss = Inference._get_loss_and_gradient(loss, x0, bounds_dict, pbar, get_dist, get_loss, observation, logger)
             jac = True
 
@@ -1020,8 +906,9 @@ class Inference(Serializable):
         the parameters :math:`\theta`, :math:`y` the observation and :math:`\hat{\theta}` the estimate
         :attr:`Inference.params_inferred <phasegen.inference.Inference.params_inferred>`. Where :math:`L` is a negative
         log-likelihood, :math:`I` is the observed Fisher information. The Hessian is a central difference of the
-        gradient of the loss, which is exact where :attr:`Inference.gradient <phasegen.inference.Inference.gradient>`
-        asks for it and the loss supports it, and a finite difference otherwise. The differences stay within the bounds.
+        gradient of :meth:`Gradient.compute() <phasegen.gradient.Gradient.compute>`, which is exact where
+        :attr:`Inference.gradient <phasegen.inference.Inference.gradient>` asks for it and the loss supports it. The
+        differences stay within the bounds, and a parameter whose bounds coincide has no curvature.
 
         :return: The information, with the parameter names as index and columns.
         :raises RuntimeError: If :meth:`Inference.run() <phasegen.inference.Inference.run>` has not been called.
@@ -1031,39 +918,42 @@ class Inference(Serializable):
 
         names = self.param_names
         x = np.array([self.params_inferred[name] for name in names], dtype=float)
+        key = (tuple(x), self._observation_key(), id(self.loss), id(self.coal), tuple(self.bounds[n] for n in names),
+               self.gradient)
 
-        if self._fisher_information is not None and self._fisher_information[0] == tuple(x):
+        if self._fisher_information is not None and self._fisher_information[0] == key:
             return self._fisher_information[1]
 
-        bounds = (np.array([self.bounds[name] for name in names], dtype=float).T)
-        exact = LossGradient(self.get_coal, self.loss, self.observation) if self.gradient == 'exact' else None
+        bounds = [self.bounds[name] for name in names]
+        gradient = Gradient(self.get_coal, lambda coal: self.loss(coal, self.observation))
 
-        def loss(params: np.ndarray) -> float:
-            return self.loss(self.get_coal(**dict(zip(names, params))), self.observation)
+        def grad(params: np.ndarray) -> np.ndarray:
+            return gradient.compute(dict(zip(names, params)), self.bounds, exact=self.gradient == 'exact')[1]
 
-        def gradient(params: np.ndarray) -> np.ndarray:
-            if exact is not None:
-                try:
-                    out = exact.compute(dict(zip(names, params)), self.bounds)
-                except Exception:
-                    out = None
-
-                if out is not None and np.isfinite(out[1]).all():
-                    return out[1]
-
-            return approx_derivative(loss, params, method='3-point', rel_step=_FISHER_REL_STEP, bounds=bounds)
-
-        hessian = approx_derivative(gradient, x, method='3-point', rel_step=_FISHER_REL_STEP, bounds=bounds)
+        hessian = Gradient._differences(grad, x, bounds, rel_step=_HESSIAN_STEP)
         info = pd.DataFrame((hessian + hessian.T) / 2, index=names, columns=names)
-        self._fisher_information = (tuple(x), info)
+        self._fisher_information = (key, info)
 
         return info
 
+    def _observation_key(self) -> Any:
+        """
+        A key of the observation that changes when its data do, or its identity where it has no numeric data.
+        """
+        try:
+            return hashlib.sha1(np.ascontiguousarray(
+                np.asarray(getattr(self.observation, 'data', self.observation), dtype=float)
+            ).tobytes()).hexdigest()
+        except (TypeError, ValueError):
+            return id(self.observation)
+
     def covariance(self) -> pd.DataFrame:
         r"""
-        The asymptotic covariance of the estimate, :math:`I^{-1}`, the inverse of the observed information :math:`I` of
-        :meth:`Inference.fisher_information() <phasegen.inference.Inference.fisher_information>`. It describes the
-        curvature of the loss at the estimate only, so it neither reflects other optima nor the uncertainty of
+        The asymptotic covariance of the estimate, the inverse :math:`I^{-1}` of the observed information :math:`I` of
+        :meth:`Inference.fisher_information() <phasegen.inference.Inference.fisher_information>`, taken over the
+        directions in which :math:`I` is positive. A parameter that loads on a direction of zero or negative curvature,
+        such as one the loss does not depend on, has an undefined variance, reported as NaN. The covariance describes
+        the curvature of the loss at the estimate only, so it neither reflects other optima nor the uncertainty of
         parameters on a bound, both of which a parametric bootstrap captures. A warning is logged where :math:`I` is
         not positive definite or a parameter lies on a bound.
 
@@ -1071,8 +961,10 @@ class Inference(Serializable):
         :raises RuntimeError: If :meth:`Inference.run() <phasegen.inference.Inference.run>` has not been called.
         """
         info = self.fisher_information()
+        w, V = np.linalg.eigh(info.to_numpy())
+        positive = w > _CURVATURE_RTOL * max(np.abs(w).max(), 1e-300)
 
-        if np.linalg.eigvalsh(info.to_numpy()).min() <= 0:
+        if not positive.all():
             self._logger.warning('The Fisher information is not positive definite, so the estimate is not a strict '
                                  'local minimum of the loss or some parameters are not identifiable.')
 
@@ -1081,13 +973,17 @@ class Inference(Serializable):
             self._logger.warning('The parameters %s lie on a bound, where the inverse Fisher information does not '
                                  'describe their uncertainty.', ', '.join(on_bound))
 
-        return pd.DataFrame(np.linalg.pinv(info.to_numpy(), hermitian=True), index=info.index, columns=info.columns)
+        cov = (V[:, positive] / w[positive]) @ V[:, positive].T
+        undefined = (V[:, ~positive] ** 2).sum(axis=1) > _CURVATURE_RTOL
+        cov[undefined, :] = np.nan
+        cov[:, undefined] = np.nan
+
+        return pd.DataFrame(cov, index=info.index, columns=info.columns)
 
     def standard_errors(self) -> pd.Series:
         r"""
         The asymptotic standard errors of the estimate, :math:`\sqrt{(I^{-1})_{ii}}`, the square roots of the diagonal
-        of :meth:`Inference.covariance() <phasegen.inference.Inference.covariance>`, and NaN where that diagonal is
-        negative.
+        of :meth:`Inference.covariance() <phasegen.inference.Inference.covariance>`, NaN where it is undefined.
 
         ::
 
@@ -1097,9 +993,7 @@ class Inference(Serializable):
         :return: The standard errors, indexed by parameter name.
         :raises RuntimeError: If :meth:`Inference.run() <phasegen.inference.Inference.run>` has not been called.
         """
-        variance = np.diag(self.covariance().to_numpy())
-
-        return pd.Series(np.sqrt(np.where(variance >= 0, variance, np.nan)), index=self.param_names)
+        return pd.Series(np.sqrt(np.diag(self.covariance().to_numpy())), index=self.param_names)
 
     def _plot_demography_data(
             self,
@@ -1187,7 +1081,8 @@ class Inference(Serializable):
             colors = plt.rcParams['axes.prop_cycle'].by_key()['color']
 
             for i, name in enumerate(self.param_names):
-                self.bootstraps[name].plot(ax=ax[i], kind=kind, color=colors[i % len(colors)], legend=True, **kwargs)
+                self.bootstraps[name].plot(ax=ax[i], kind=kind, legend=True,
+                                           **({'color': colors[i % len(colors)]} | kwargs))
 
                 if isinstance(title, list):
                     ax[i].set_title(title[i])

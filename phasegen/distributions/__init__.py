@@ -22,6 +22,7 @@ from .base import (
     ConditionalQuantileFunction,
 )
 from .phase_type import (
+    DemographyGradient,
     PhaseTypeDistribution,
     TreeHeightDistribution,
     TotalBranchLengthDistribution,
@@ -44,7 +45,6 @@ from .spectra import (
     JointSFSCDF,
     JointSFSQuantileFunction,
 )
-from ._gradient import DemographyGradient
 from .mutation_configs import (
     MutationConfig,
     MutationLayout,

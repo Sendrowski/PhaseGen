@@ -1,11 +1,12 @@
 """Phase-type distribution (moment engine) and the tree-height distribution."""
 
+import copy
 import itertools
 import logging
 import math
 import warnings
 from ..caching import cached_property, cache
-from typing import List, Tuple, Iterable, Sequence, Union, TYPE_CHECKING
+from typing import Dict, List, Tuple, Iterable, Sequence, Union, TYPE_CHECKING
 import numpy as np
 import scipy.linalg as sla
 import scipy.sparse as sp
@@ -27,13 +28,114 @@ from ._moments import MomentEvaluator, _MAX_RATE_SPREAD
 
 if TYPE_CHECKING:
     from matplotlib import pyplot as plt
-    from ._gradient import DemographyGradient
     from .reward import RewardDistribution, JointRewardDistribution
     from .empirical import EmpiricalPhaseTypeDistribution
     from ..visualization import _CurveData
 
 expm = Backend.expm
 logger = logging.getLogger('phasegen')
+
+
+class DemographyGradient:
+    r"""
+    Derivatives of a first moment :math:`\mu` with respect to the population sizes :math:`N_{d,e}` of the demes
+    :math:`d`, the migration rates :math:`m_{ab,e}` from deme :math:`a` to deme :math:`b` and the start times
+    :math:`t_e` of the epochs :math:`e` the moment was evaluated over, and the continuous parameters of the coalescent
+    model and the recombination rate of two loci (:attr:`parameters`), as returned by
+    :meth:`PhaseTypeDistribution.gradient() <phasegen.distributions.PhaseTypeDistribution.gradient>`. For a spectrum,
+    each array carries the shape of the spectrum as leading axes, one derivative per bin.
+    """
+
+    def __init__(self, epochs: Sequence[Epoch], pops: Sequence[str], pairs: Sequence[Tuple[str, str]],
+                 shape: Tuple[int, ...] = (), parameters: Sequence[str] = ()) -> None:
+        """
+        Initialize a zero gradient.
+
+        :param epochs: The epochs.
+        :param pops: The demes.
+        :param pairs: The ordered pairs of demes.
+        :param shape: The shape of the moment, empty for a scalar.
+        :param parameters: The parameters of the coalescent model and the recombination rate differentiated by.
+        """
+        #: The epochs, the last of which extends until absorption.
+        self.epochs: List[Epoch] = list(epochs)
+
+        #: The demes.
+        self.pops: List[str] = list(pops)
+
+        #: The ordered pairs of demes.
+        self.pairs: List[Tuple[str, str]] = list(pairs)
+
+        #: Derivative :math:`\partial \mu / \partial N_{d,e}`, of shape ``shape + (n_epochs, n_demes)``.
+        self.pop_sizes: np.ndarray = np.zeros(tuple(shape) + (len(self.epochs), len(self.pops)))
+
+        #: Derivative :math:`\partial \mu / \partial m_{ab,e}`, of shape ``shape + (n_epochs, n_pairs)``, in the
+        #: order of :attr:`pairs`.
+        self.migration_rates: np.ndarray = np.zeros(tuple(shape) + (len(self.epochs), len(self.pairs)))
+
+        #: Derivative :math:`\partial \mu / \partial t_e`, of shape ``shape + (n_epochs,)``. The first epoch starts at
+        #: zero, so its entry is zero.
+        self.start_times: np.ndarray = np.zeros(tuple(shape) + (len(self.epochs),))
+
+        #: Derivatives by the continuous parameters of the coalescent model, such as ``alpha`` of a Beta coalescent or
+        #: ``psi`` and ``c`` of a Dirac coalescent, and by the ``recombination_rate`` of two loci, each of shape
+        #: ``shape``, a number for a scalar moment.
+        self.parameters: Dict[str, float | np.ndarray] = {
+            name: np.zeros(tuple(shape)) if shape else 0.0 for name in parameters
+        }
+
+    @classmethod
+    def _stack(cls, gradients: Sequence['DemographyGradient'], positions: Sequence[Tuple[int, ...]],
+               shape: Tuple[int, ...]) -> 'DemographyGradient':
+        """
+        The gradient of a spectrum from the gradients of its entries.
+
+        :param gradients: The gradients of the entries, over the same epochs.
+        :param positions: The positions of the entries in the spectrum.
+        :param shape: The shape of the spectrum.
+        :return: The gradient, zero at the other positions.
+        """
+        first = gradients[0]
+        out = cls(first.epochs, first.pops, first.pairs, shape, list(first.parameters))
+        for g, pos in zip(gradients, positions):
+            out.pop_sizes[pos] = g.pop_sizes
+            out.migration_rates[pos] = g.migration_rates
+            out.start_times[pos] = g.start_times
+            for name, value in g.parameters.items():
+                out.parameters[name][pos] = value
+
+        return out
+
+    @staticmethod
+    def quantities(epochs: Sequence[Epoch], pops: Sequence[str], pairs: Sequence[Tuple[str, str]],
+                   parameters: Dict[str, float], names: Sequence[str]) -> np.ndarray:
+        """
+        The population sizes, migration rates and start times of epochs and the named parameters, in the layout of
+        :meth:`flat`.
+
+        :param epochs: The epochs.
+        :param pops: The demes.
+        :param pairs: The ordered pairs of demes.
+        :param parameters: The parameters of the coalescent model and the recombination rate.
+        :param names: The parameters to include, in order.
+        :return: The quantities.
+        """
+        return np.concatenate([
+            [e.pop_sizes[p] for e in epochs for p in pops],
+            [e.migration_rates.get(pair, 0.0) for e in epochs for pair in pairs],
+            [e.start_time for e in epochs],
+            [parameters[name] for name in names]
+        ])
+
+    def flat(self) -> np.ndarray:
+        """
+        The derivatives of a scalar moment as one vector, in the layout of :meth:`quantities` over the parameters of
+        :attr:`parameters`.
+        """
+        return np.concatenate([
+            self.pop_sizes.ravel(), self.migration_rates.ravel(), self.start_times,
+            [self.parameters[name] for name in self.parameters]
+        ])
 
 
 class PhaseTypeDistribution(CallableDistributionFunctions, MomentEvaluator, MomentAwareDistribution):
@@ -155,22 +257,34 @@ class PhaseTypeDistribution(CallableDistributionFunctions, MomentEvaluator, Mome
 
         return self, np.asarray(reward._get(self.state_space), dtype=float)[:, None], [()]
 
-    @cache
     def gradient(self, k: int = 1, rewards: Sequence[Reward] = None) -> 'DemographyGradient':
         r"""
         Exact derivatives of the first moment :math:`\mu` of :meth:`moment`, of every bin for a spectrum, with respect
-        to the quantities of the demography,
+        to the population sizes :math:`N_{d,e}` of deme :math:`d` in epoch :math:`e`, the migration rates
+        :math:`m_{ab,e}` from deme :math:`a` to deme :math:`b`, the start times :math:`t_e` of the epochs, the
+        continuous parameters of the coalescent model (``alpha`` of :class:`~phasegen.coalescent_models.BetaCoalescent`,
+        ``psi`` and ``c`` of :class:`~phasegen.coalescent_models.DiracCoalescent`) and the recombination rate between
+        two loci, collected in a :class:`~phasegen.distributions.DemographyGradient`.
+
+        The first moment is the expected occupation time :math:`\mathbf{m}` of the transient states contracted with the
+        reward vector :math:`\mathbf{r}`, :math:`\mu = \mathbf{m}\, \mathbf{r}`. In the last epoch :math:`E`, which
+        lasts until absorption, :math:`\mathbf{m}_E = \mathbf{p}_E (-\mathbf{T}_E)^{-1}`, where :math:`\mathbf{p}_E` is
+        the state distribution at its start and :math:`\mathbf{T}_E` its transient generator, so that a quantity
+        :math:`\theta` of that epoch enters as
 
         .. math::
-            \frac{\partial \mu}{\partial N_{d,e}}, \quad \frac{\partial \mu}{\partial m_{ab,e}}, \quad
-            \frac{\partial \mu}{\partial t_e},
+            \frac{\partial \mu}{\partial \theta} = \mathbf{p}_E (-\mathbf{T}_E)^{-1}
+            \frac{\partial \mathbf{T}_E}{\partial \theta} (-\mathbf{T}_E)^{-1} \mathbf{r}.
 
-        where :math:`N_{d,e}` is the population size of deme :math:`d` in epoch :math:`e`, :math:`m_{ab,e}` the
-        migration rate from deme :math:`a` to deme :math:`b` in epoch :math:`e` and :math:`t_e` the start time of
-        epoch :math:`e`, and by the continuous parameters of the coalescent model and the recombination rate (see
-        :attr:`DemographyGradient.parameters <phasegen.distributions.DemographyGradient.parameters>`). The derivatives
-        are those of the occupation-time recursion of the moment, computed backwards through the epochs at the cost of
-        a few moment evaluations per entry, whatever the number of epochs.
+        The finite epochs before it carry :math:`\mathbf{p}` and :math:`\mathbf{m}` forward through the exponential of
+        an augmented generator, and their derivatives follow by passing the vector :math:`(-\mathbf{T}_E)^{-1}
+        \mathbf{r}` backwards through the epochs, by the Fréchet derivative of the exponential for dense rate matrices
+        and by reversing the truncated Taylor action for sparse ones. The generator is affine in the inverse coalescent
+        time scales and the migration rates, so that :math:`\partial \mathbf{T} / \partial \theta` is a fixed matrix
+        for these quantities, and a central difference of the generator for the model parameters and the
+        recombination rate. The cost is a few moment evaluations per entry, whatever the number of quantities, and the
+        result is cached as moments are, and a copy returned. :class:`~phasegen.inference.Inference` differentiates losses with these
+        derivatives, and :class:`~phasegen.gradient.Gradient` chains them through a coalescent callback.
 
         ::
 
@@ -187,9 +301,20 @@ class PhaseTypeDistribution(CallableDistributionFunctions, MomentEvaluator, Mome
         :raises ValueError: If ``rewards`` does not hold one reward, or the occupation times have no closed form, as
             without certain absorption in the last epoch.
         """
-        from ._gradient import DemographyGradient, MeanGradient
+        return copy.deepcopy(self._gradient(_validate_order(k), None if rewards is None else tuple(rewards)))
 
-        if _validate_order(k) != 1:
+    @cache
+    def _gradient(self, k: int, rewards: Tuple[Reward, ...] | None) -> 'DemographyGradient':
+        """
+        The derivatives of :meth:`gradient`, cached.
+
+        :param k: The order of the moment.
+        :param rewards: The rewards.
+        :return: The derivatives.
+        """
+        from ._gradient import MeanGradient
+
+        if k != 1:
             raise NotImplementedError('Gradients are available for first moments only.')
 
         if rewards is not None and len(rewards) != 1:

@@ -1423,8 +1423,7 @@ class JointSFSDistribution(SpectrumDistribution):
         """
         Build an empirical joint spectrum from ``n_samples`` samples of
         :meth:`JointSFSDistribution.sample() <phasegen.distributions.JointSFSDistribution.sample>`, holding the raw
-        moments described at :class:`~phasegen.distributions.EmpiricalJointSFSDistribution` and a capped subset of the
-        samples.
+        moments described at :class:`~phasegen.distributions.EmpiricalJointSFSDistribution` and every sample.
 
         :param n_samples: Number of trajectories.
         :param seed: Integer seed of a :class:`numpy.random.Generator`, or the generator itself. ``None`` draws fresh

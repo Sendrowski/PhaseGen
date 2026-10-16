@@ -127,8 +127,9 @@ def parallelize(
     the child deadlocks. ``spawn`` starts a fresh interpreter and sidesteps the inherited locks. The
     platform default is kept elsewhere (``fork`` on Linux), where it is safe and avoids the per-worker
     re-import cost of ``spawn``. Because ``spawn`` re-imports the caller's module, on macOS callers must be
-    import-safe (guard top-level code with ``if __name__ == '__main__':``) and ``func``/``data`` must be
-    picklable (handled here by ``dill`` via ``multiprocess``).
+    import-safe (guard top-level code with ``if __name__ == '__main__':``), and ``data`` must be picklable. ``func``
+    is serialized by ``dill`` together with the globals it references, so that a function defined in a script or
+    notebook runs in a ``spawn`` worker.
 
     :param func: Function to parallelize
     :param data: Data to parallelize over
