@@ -1402,7 +1402,7 @@ plot_bootstraps <- function(x, kind, bins, title) {
   }
 
   p +
-    ggplot2::facet_wrap(ggplot2::vars(.data$parameter), ncol = 1, scales = "free") +
+    ggplot2::facet_wrap(ggplot2::vars(.data$parameter), ncol = if (length(names) <= 4) 1 else 3, scales = "free") +
     ggplot2::scale_fill_manual(values = series_colours(length(names)), guide = "none") +
     ggplot2::scale_colour_manual(values = darken(series_colours(length(names))), guide = "none") +
     ggplot2::scale_y_continuous(expand = ggplot2::expansion(mult = c(0, 0.05))) +

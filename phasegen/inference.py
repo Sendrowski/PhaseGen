@@ -44,6 +44,9 @@ _GRADIENT_METHODS = ('l-bfgs-b', 'tnc', 'slsqp', 'trust-constr')
 #: Consecutive evaluations of an optimization without an exact gradient after which it takes finite differences only.
 _MAX_GRADIENT_FAILURES = 3
 
+#: Most parameters whose bootstrap distributions are drawn in a single column.
+_BOOTSTRAP_COLUMN_MAX = 4
+
 #: Step of the central differences of a trajectory over a parameter, relative to its magnitude (at least 1).
 _TRAJECTORY_STEP = 1e-6
 
@@ -1239,16 +1242,26 @@ class Inference(Serializable):
         if subplots:
             import matplotlib.pyplot as plt
 
-            # one axis per parameter, so that each histogram is binned over the range of its own parameter
-            ax = np.ravel(plt.subplots(len(self.param_names), 1)[1] if ax is None else ax)
+            # one axis per parameter, so that each histogram is binned over the range of its own parameter, in one
+            # column for a few parameters and in three otherwise
+            n = len(self.param_names)
+            if ax is None:
+                ncols = 1 if n <= _BOOTSTRAP_COLUMN_MAX else 3
+                fig, ax = plt.subplots(int(np.ceil(n / ncols)), ncols, squeeze=False)
+                for extra in ax.ravel()[n:]:
+                    extra.set_visible(False)
+            ax = np.ravel(ax)
             colors = plt.rcParams['axes.prop_cycle'].by_key()['color']
 
             for i, name in enumerate(self.param_names):
                 self.bootstraps[name].plot(ax=ax[i], kind=kind, legend=True,
                                            **({'color': colors[i % len(colors)]} | kwargs))
+                ax[i].set_ylabel('')
 
                 if isinstance(title, list):
                     ax[i].set_title(title[i])
+
+            ax[0].figure.supylabel('frequency' if kind == 'hist' else 'density')
 
             if not isinstance(title, list):
                 ax[0].figure.suptitle('Marginal distributions' if title is None else title)
