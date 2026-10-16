@@ -211,8 +211,9 @@ ax = inf.plot_pop_sizes(t=t, interval='fisher', show=False)
 # the true trajectories, dashed in the colour of each deme
 for line, pop in zip(list(ax.lines), ['A', 'B']):
     ax.plot(t, [true.get_epoch(u).pop_sizes[pop] for u in t], drawstyle='steps-post', linestyle='--',
-            color=line.get_color())
+            color=line.get_color(), label=f'{pop} (true)')
 
+ax.legend()
 ax.set_ylim(0, 5);
 ```
 
@@ -225,7 +226,8 @@ truth <- do.call(rbind, lapply(c("A", "B"), function(pop) data.frame(
 )))
 
 plot(inf, which = "pop_sizes", t = t, interval = "fisher") +
-    geom_step(data = truth, aes(x, y, colour = series, group = series), linetype = "dashed", inherit.aes = FALSE) +
+    geom_step(data = truth, aes(x, y, colour = series, group = series, linetype = "true"), inherit.aes = FALSE) +
+    scale_linetype_manual(values = c(true = "dashed"), name = NULL) +
     coord_cartesian(ylim = c(0, 5))
 ```
 
