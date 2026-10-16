@@ -47,6 +47,10 @@ _MAX_GRADIENT_FAILURES = 3
 #: Step of the central differences of the Fisher information, relative to the magnitude of each parameter (at least 1).
 _FISHER_REL_STEP = 1e-4
 
+#: Step of the central differences of :class:`Gradient` for a statistic without an exact gradient, relative to the
+#: magnitude of each parameter (at least 1).
+_DIFFERENCE_STEP = 1e-5
+
 
 class Gradient:
     r"""
@@ -58,7 +62,8 @@ class Gradient:
     where :math:`\theta` are the parameters, :math:`\mathrm{coal}(\theta)` the coalescent returned by the ``coal``
     callback and :math:`s_j` the entries of the statistic. The statistic may be any function of the first moments of
     the coalescent that :class:`Inference` differentiates exactly (see its ``gradient`` parameter), such as a normalized
-    SFS. Each entry costs a few moment evaluations, whatever the number of parameters.
+    SFS, at the cost of a few moment evaluations per entry, whatever the number of parameters. Any other statistic is
+    differentiated by central differences.
 
     ::
 
@@ -94,21 +99,27 @@ class Gradient:
 
         return np.asarray(getattr(value, 'data', value), dtype=float)
 
+    @property
+    def _log(self) -> logging.Logger:
+        """
+        The logger.
+        """
+        return logging.getLogger(f"phasegen.{type(self).__name__}")
+
     def compute(
             self,
             params: Dict[str, float],
             bounds: Dict[str, Tuple[float, float]] = None
     ) -> Tuple[np.ndarray, np.ndarray]:
         """
-        The statistic and its Jacobian at given parameters.
+        The statistic and its Jacobian at given parameters. A statistic without an exact gradient is differentiated by
+        central differences, as noted in the log.
 
         :param params: The parameters.
         :param bounds: Bounds of the parameters, which the differences taken through the callback respect. By default,
             the parameters are unbounded.
         :return: The entries of the statistic, and the Jacobian of shape ``entries.shape + (len(params),)``, with the
             parameters in the order of ``params``.
-        :raises ValueError: If the statistic reads a quantity other than a supported first moment, or the occupation
-            times have no closed form.
         """
         bounds = bounds or {}
         value = self._entries(self.coal(**params))
@@ -119,11 +130,37 @@ class Gradient:
                 params, bounds
             )
             if out is None:
-                raise ValueError('The statistic has no exact gradient: it reads a quantity other than a supported '
-                                 'first moment, or the occupation times have no closed form.')
+                self._log.info('The statistic has no exact gradient, using finite differences.')
+                return value, self._differences(params, bounds, value.shape)
+
             jacobian[idx] = out[1]
 
         return value, jacobian
+
+    def _differences(
+            self,
+            params: Dict[str, float],
+            bounds: Dict[str, Tuple[float, float]],
+            shape: Tuple[int, ...]
+    ) -> np.ndarray:
+        """
+        The Jacobian by central differences through the callback, one-sided at a bound.
+
+        :param params: The parameters.
+        :param bounds: Their bounds.
+        :param shape: The shape of the statistic.
+        :return: The Jacobian.
+        """
+        jacobian = np.zeros(tuple(shape) + (len(params),))
+
+        for i, (key, x) in enumerate(params.items()):
+            lo, hi = bounds.get(key, (-np.inf, np.inf))
+            h = _DIFFERENCE_STEP * max(abs(x), 1.0)
+            up, down = min(x + h, hi), max(x - h, lo)
+            entries = [self._entries(self.coal(**(params | {key: y}))) for y in (up, down)]
+            jacobian[..., i] = (entries[0] - entries[1]) / (up - down)
+
+        return jacobian
 
 
 class Inference(Serializable):

@@ -666,13 +666,22 @@ def test_parameter_jacobian_matches_central_differences():
     assert value.shape == (7,)
 
 
-def test_parameter_jacobian_of_an_unsupported_statistic_raises():
-    """A statistic reading a variance has no exact Jacobian."""
-    gradient = pg.Gradient(coal=lambda N: pg.Coalescent(n=4, demography=pg.Demography(pop_sizes={'pop_0': N})),
-                           statistic=lambda coal: coal.tree_height.var)
+def test_parameter_jacobian_of_an_unsupported_statistic_uses_differences(caplog):
+    """A statistic reading a variance is differentiated by central differences, as noted in the log."""
+    import logging
 
-    with pytest.raises(ValueError, match='no exact gradient'):
-        gradient.compute(dict(N=1.0))
+    gradient = pg.Gradient(
+        coal=lambda N: pg.Coalescent(n=4, demography=pg.Demography(pop_sizes={'pop_0': {0: 1, 0.5: N}})),
+        statistic=lambda coal: coal.tree_height.var
+    )
+
+    with caplog.at_level(logging.INFO, logger='phasegen'):
+        value, jacobian = gradient.compute(dict(N=1.3))
+
+    numeric = _richardson(lambda N: float(gradient.coal(N=N).tree_height.var), 1.3)
+    assert jacobian[0] == pytest.approx(numeric, rel=1e-6)
+    assert any('no exact gradient' in r.getMessage() for r in caplog.records)
+
 
 @pytest.mark.parametrize('model, name, x', [
     (lambda x: pg.BetaCoalescent(alpha=x), 'alpha', 1.5),
