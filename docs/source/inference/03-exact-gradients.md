@@ -30,7 +30,7 @@ The exact gradient is available for losses that read only first moments, as all 
 
 +++
 ### Derivatives of moments
-The derivatives of first moments are also available directly. {meth}`PhaseTypeDistribution.gradient() <phasegen.distributions.PhaseTypeDistribution.gradient>` returns those with respect to the population sizes, migration rates and start times of the epochs, the parameters of the coalescent model and the recombination rate between two loci, as a {class}`~phasegen.distributions.DemographyGradient`. Below we differentiate the expected tree height of a Beta coalescent in two demes.
+The derivatives the exact gradient is built from are also available directly. For a distribution of a coalescent, such as the tree height, the total branch length or a spectrum, {meth}`PhaseTypeDistribution.gradient() <phasegen.distributions.PhaseTypeDistribution.gradient>` returns the derivatives of its expected value, or of the expected value of each bin of a spectrum, with respect to the quantities that define the coalescent: the population size of each deme in each epoch, the migration rate between each ordered pair of demes in each epoch, the start time of each epoch, the parameters of the coalescent model and the recombination rate between two loci. They are collected in a {class}`~phasegen.distributions.DemographyGradient`, whose arrays hold one derivative per epoch and deme, or per epoch and pair of demes. Below we take the derivatives of the expected tree height of a Beta coalescent in two demes with respect to the population sizes of both demes in both epochs and with respect to ``alpha``.
 
 ```{code-cell} python
 coal = pg.Coalescent(
@@ -77,7 +77,7 @@ grad$parameters
 ```
 
 +++
-For a spectrum, every array of the gradient carries the bins as leading axes, and {meth}`Coalescent.gradient() <phasegen.distributions.Coalescent.gradient>` differentiates the first moment of any reward. Derivatives with respect to the parameters of a model are obtained with {class}`~phasegen.gradient.Gradient`, which chains these derivatives through a coalescent callback, as {class}`~phasegen.inference.Inference` does, for any statistic built from first moments. Here we take the Jacobian of the normalized SFS of a two-epoch demography with respect to the time of the size change and the population size.
+For a spectrum, every array of the gradient carries the bins as leading axes, and {meth}`Coalescent.gradient() <phasegen.distributions.Coalescent.gradient>` returns the same derivatives for the expected value of any reward. The parameters of a model, such as those of an inference, usually define these quantities only indirectly, for instance through the time of a size change. {class}`~phasegen.gradient.Gradient` returns the derivatives of a statistic built from first moments, such as a normalized SFS, with respect to the parameters of a coalescent callback, by chaining the derivatives above through the callback, as {class}`~phasegen.inference.Inference` does for its loss. Here we take the derivatives of each bin of the normalized SFS of a two-epoch demography with respect to the time of the size change and the population size after it.
 
 ```{code-cell} python
 gradient = pg.Gradient(
