@@ -797,6 +797,7 @@ class Coalescent(AbstractCoalescent, Serializable):
             permute=permute
         )
 
+    @cache
     def gradient(self, k: int = 1, rewards: Sequence[Reward] = None) -> 'DemographyGradient':
         """
         Exact derivatives of the first moment of the accumulated reward with respect to the population sizes,

@@ -4,7 +4,7 @@ import itertools
 import logging
 import math
 import warnings
-from ..caching import cached_property
+from ..caching import cached_property, cache
 from typing import List, Tuple, Iterable, Sequence, Union, TYPE_CHECKING
 import numpy as np
 import scipy.linalg as sla
@@ -155,6 +155,7 @@ class PhaseTypeDistribution(CallableDistributionFunctions, MomentEvaluator, Mome
 
         return self, np.asarray(reward._get(self.state_space), dtype=float)[:, None], [()]
 
+    @cache
     def gradient(self, k: int = 1, rewards: Sequence[Reward] = None) -> 'DemographyGradient':
         r"""
         Exact derivatives of the first moment :math:`\mu` of :meth:`moment`, of every bin for a spectrum, with respect
