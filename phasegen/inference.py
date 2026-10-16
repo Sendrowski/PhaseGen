@@ -98,6 +98,10 @@ class Inference(Serializable):
     #: attribute.
     gradient: Literal['exact', 'finite_differences'] = 'exact'
 
+    #: The parameters optimized on a logarithmic scale. Static for backward compatibility with serialized objects that
+    #: lack the attribute.
+    log_scale: Tuple[str, ...] = ()
+
     #: The key of the inputs the Fisher information was last computed from, and the information. Static for backward
     #: compatibility with serialized objects that lack the attribute.
     _fisher_information: Tuple[Tuple, pd.DataFrame] | None = None
@@ -119,7 +123,8 @@ class Inference(Serializable):
             cache: bool = True,
             opts: Dict = None,
             method_mle: str = 'L-BFGS-B',
-            gradient: Literal['exact', 'finite_differences'] = 'exact'
+            gradient: Literal['exact', 'finite_differences'] = 'exact',
+            log_scale: bool | Iterable[str] = False
     ) -> None:
         """
         Configure the inference.
@@ -171,9 +176,13 @@ class Inference(Serializable):
             of about one evaluation of the moments whatever the number of parameters, which may enter the demography,
             the parameters of the coalescent model or the recombination rate. Any other loss is differentiated by finite
             differences. With ``'finite_differences'``, every gradient is a finite difference of the loss.
+        :param log_scale: The parameters optimized as their logarithms, ``True`` for all of them, which suits
+            population sizes and rates spanning orders of magnitude and often reduces the number of iterations
+            considerably. The estimates, bounds and bootstraps stay on the original scale.
         :raises ValueError: If a lower bound exceeds its upper bound, ``x0`` lies outside the bounds or does not specify
             exactly the parameters in ``bounds``, ``method_mle`` is not one of the supported methods, ``gradient`` is not
-            one of the supported values, or ``n_runs`` or ``n_bootstraps`` is less than 1.
+            one of the supported values, ``n_runs`` or ``n_bootstraps`` is less than 1, or a parameter on a logarithmic
+            scale is unknown or has a lower bound that is not positive.
         """
         if do_bootstrap and (observation is None or resample is None):
             raise ValueError('Observation and resample arguments must be provided for automatic bootstrapping.')
@@ -192,6 +201,12 @@ class Inference(Serializable):
 
         if gradient not in ('exact', 'finite_differences'):
             raise ValueError(f"gradient must be 'exact' or 'finite_differences', got {gradient!r}.")
+
+        log_names = tuple(bounds) if log_scale is True else tuple(log_scale or ())
+        invalid = [name for name in log_names if name not in bounds or not bounds[name][0] > 0]
+        if invalid:
+            raise ValueError(f'Parameters on a logarithmic scale must be in bounds with a positive lower bound, got '
+                             f'{invalid}.')
 
         if method_mle.lower() not in _BOUNDED_METHODS:
             raise ValueError(
@@ -255,6 +270,9 @@ class Inference(Serializable):
 
         #: How the gradient of the loss is obtained.
         self.gradient: Literal['exact', 'finite_differences'] = gradient
+
+        #: The parameters optimized on a logarithmic scale.
+        self.log_scale: Tuple[str, ...] = log_names
 
         #: Optimization result
         self.result: OptimizeResult | None = None
@@ -559,7 +577,8 @@ class Inference(Serializable):
             opts: dict = None,
             method_mle: str = 'L-BFGS-B',
             logger: logging.Logger = logger,
-            gradient: Literal['exact', 'finite_differences'] = 'exact'
+            gradient: Literal['exact', 'finite_differences'] = 'exact',
+            log_scale: Iterable[str] = ()
     ) -> OptimizeResult:
         """
         Perform the optimization.
@@ -574,7 +593,8 @@ class Inference(Serializable):
         :param method_mle: Method of `scipy.optimize.minimize` used for the optimization.
         :param logger: Logger.
         :param gradient: How the gradient of the loss is obtained, see :class:`Inference`.
-        :return: Result of the optimization procedure.
+        :param log_scale: The parameters optimized as their logarithms.
+        :return: Result of the optimization procedure, on the original scale.
         """
         bounds_dict = {key: bounds[key] for key in x0.keys()}
 
@@ -601,15 +621,29 @@ class Inference(Serializable):
             loss = Inference._get_loss_and_gradient(loss, x0, bounds_dict, pbar, get_dist, get_loss, observation, logger)
             jac = True
 
+        # the optimizer sees y = log(x) for the parameters on a logarithmic scale, and dL/dy = x dL/dx
+        log = np.array([key in log_scale for key in x0.keys()])
+
+        def to_x(y: np.ndarray) -> np.ndarray:
+            return np.where(log, np.exp(np.where(log, y, 0)), y)
+
+        def fun(y: np.ndarray) -> Any:
+            out = loss(to_x(y))
+            return (out[0], out[1] * np.where(log, to_x(y), 1)) if jac else out
+
+        def to_y(x: np.ndarray) -> np.ndarray:
+            return np.where(log, np.log(np.where(log, x, 1)), x)
+
         # perform the optimization
         result: OptimizeResult = opt.minimize(
-            fun=loss,
-            x0=np.array(list(x0.values())),
+            fun=fun,
+            x0=to_y(np.array(list(x0.values()), dtype=float)),
             method=method_mle,
-            bounds=bounds,
+            bounds=[(np.log(lo), np.log(hi)) if is_log else (lo, hi) for (lo, hi), is_log in zip(bounds, log)],
             jac=jac,
             options=opts
         )
+        result.x = to_x(result.x)
 
         if show_pbar:
             pbar.close()
@@ -629,6 +663,7 @@ class Inference(Serializable):
         opts = self.opts
         method_mle = self.method_mle
         gradient = self.gradient
+        log_scale = self.log_scale
         logger = self._logger
 
         self._announce_gradient(self.x0, observation)
@@ -656,7 +691,8 @@ class Inference(Serializable):
                     opts=opts,
                     method_mle=method_mle,
                     logger=logger,
-                    gradient=gradient
+                    gradient=gradient,
+                    log_scale=log_scale
                 )
             except Exception as e:
                 logger.warning(f'Optimization run from x0={x0} failed and was skipped: {e}')
@@ -785,6 +821,7 @@ class Inference(Serializable):
         opts = self.opts
         method_mle = self.method_mle
         gradient = self.gradient
+        log_scale = self.log_scale
         logger = self._logger
 
         self._announce_gradient(x0, self.observation)
@@ -807,7 +844,8 @@ class Inference(Serializable):
                     opts=opts,
                     method_mle=method_mle,
                     logger=logger,
-                    gradient=gradient
+                    gradient=gradient,
+                    log_scale=log_scale
                 )
             except Exception as e:
                 logger.warning('Bootstrap replicate failed and its parameters are NaN: %s', e)

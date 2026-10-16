@@ -1588,3 +1588,51 @@ def test_inference_payload_without_a_gradient_mode_uses_the_exact_gradient():
     assert restored.gradient == 'exact'
     assert restored._fisher_information is None
 
+
+def test_log_scale_reaches_the_same_optimum_on_the_original_scale():
+    """Optimizing parameters as their logarithms, with exact and with finite-difference gradients, reaches the optimum
+    of the original scale and reports it there."""
+    results = {}
+    for log_scale in (False, True, ['Ne']):
+        for gradient in ('exact', 'finite_differences'):
+            inf = InferenceTestCase.get_basic_inference(
+                InferenceTestCase(), dict(bounds=dict(t=(0.01, 4), Ne=(0.1, 1)), log_scale=log_scale, gradient=gradient)
+            )
+            inf.run()
+            results[(str(log_scale), gradient)] = (inf.loss_inferred, inf.params_inferred)
+            assert all(inf.bounds[k][0] <= v <= inf.bounds[k][1] for k, v in inf.params_inferred.items())
+
+    best = min(loss for loss, _ in results.values())
+    for loss, params in results.values():
+        assert loss == pytest.approx(best, rel=1e-6)
+
+
+def test_log_scale_needs_a_positive_lower_bound():
+    """A parameter whose lower bound is not positive cannot be optimized on a logarithmic scale."""
+    with pytest.raises(ValueError, match='logarithmic scale'):
+        InferenceTestCase.get_basic_inference(InferenceTestCase(), dict(log_scale=True))
+
+
+def test_log_scale_gradient_is_that_of_the_logarithms():
+    """The gradient the optimizer receives on a logarithmic scale is the derivative by the logarithms of the
+    parameters, against central differences of the function it minimizes."""
+    import scipy.optimize as opt
+
+    captured = []
+    minimize = opt.minimize
+
+    def capture(fun, x0, **kwargs):
+        captured.append((fun, np.array(x0)))
+        return minimize(fun, x0, **kwargs)
+
+    inf = InferenceTestCase.get_basic_inference(InferenceTestCase(), dict(bounds=dict(t=(0.01, 4), Ne=(0.1, 1)),
+                                                                          x0=dict(t=0.5, Ne=0.5), log_scale=['Ne']))
+    with mock.patch('phasegen.inference.opt.minimize', capture):
+        inf.run()
+
+    fun, y = captured[0]
+    _, g = fun(y)
+    h = 1e-5
+    numeric = [(fun(y + h * e)[0] - fun(y - h * e)[0]) / (2 * h) for e in np.eye(len(y))]
+
+    np.testing.assert_allclose(g, numeric, rtol=1e-5, atol=1e-8 * np.abs(numeric).max())

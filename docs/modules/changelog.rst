@@ -7,6 +7,7 @@ Changelog
 ^^^^^^^^^^^^
 - Differentiate inference losses exactly with respect to the parameters of the demography, the coalescent model and the recombination rate, at a cost independent of the number of parameters (:attr:`Inference.gradient <phasegen.inference.Inference.gradient>`), and expose the derivatives of first moments through :meth:`PhaseTypeDistribution.gradient() <phasegen.distributions.PhaseTypeDistribution.gradient>`, :meth:`Coalescent.gradient() <phasegen.distributions.Coalescent.gradient>` and :class:`~phasegen.gradient.Gradient`.
 - Add standard errors from the observed Fisher information with :meth:`Inference.fisher_information() <phasegen.inference.Inference.fisher_information>`, :meth:`Inference.covariance() <phasegen.inference.Inference.covariance>` and :meth:`Inference.standard_errors() <phasegen.inference.Inference.standard_errors>`.
+- Optimize parameters as their logarithms with :attr:`Inference.log_scale <phasegen.inference.Inference.log_scale>`.
 - Bin each parameter of :meth:`Inference.plot_bootstraps() <phasegen.inference.Inference.plot_bootstraps>` over its own range.
 - Run functions defined in scripts and notebooks in parallel workers started by ``spawn``, as on macOS, and keep every sample of the empirical joint SFS.
 
