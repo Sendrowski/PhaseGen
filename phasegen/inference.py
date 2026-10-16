@@ -44,6 +44,9 @@ _GRADIENT_METHODS = ('l-bfgs-b', 'tnc', 'slsqp', 'trust-constr')
 #: Consecutive evaluations of an optimization without an exact gradient after which it takes finite differences only.
 _MAX_GRADIENT_FAILURES = 3
 
+#: Step of the central differences of the Fisher information, relative to the magnitude of each parameter (at least 1).
+_FISHER_REL_STEP = 1e-4
+
 
 class Inference(Serializable):
     r"""
@@ -89,6 +92,10 @@ class Inference(Serializable):
     #: How the gradient of the loss is obtained. Static for backward compatibility with serialized objects that lack the
     #: attribute.
     gradient: Literal['exact', 'finite_differences'] = 'exact'
+
+    #: The parameters at which the Fisher information was last computed, and the information. Static for backward
+    #: compatibility with serialized objects that lack the attribute.
+    _fisher_information: Tuple[Tuple[float, ...], pd.DataFrame] | None = None
 
     def __init__(
             self,
@@ -882,6 +889,99 @@ class Inference(Serializable):
             self.get_coal(**dict(zip(self.param_names, row))).demography
             for row in self._bootstrap_values if not np.isnan(row).any()
         ]
+
+    def fisher_information(self) -> pd.DataFrame:
+        r"""
+        The observed information at the estimate, the Hessian of the loss,
+
+        .. math::
+            I_{ij} = \frac{\partial^2 L\big(\mathrm{coal}(\theta),\, y\big)}{\partial \theta_i \, \partial \theta_j}
+            \bigg|_{\theta = \hat{\theta}},
+
+        where :math:`L` is the loss, :math:`\mathrm{coal}(\theta)` the coalescent returned by the ``coal`` callback at
+        the parameters :math:`\theta`, :math:`y` the observation and :math:`\hat{\theta}` the estimate
+        :attr:`Inference.params_inferred <phasegen.inference.Inference.params_inferred>`. Where :math:`L` is a negative
+        log-likelihood, :math:`I` is the observed Fisher information. The Hessian is a central difference of the
+        gradient of the loss, which is exact where :attr:`Inference.gradient <phasegen.inference.Inference.gradient>`
+        asks for it and the loss supports it, and a finite difference otherwise. The differences stay within the bounds.
+
+        :return: The information, with the parameter names as index and columns.
+        :raises RuntimeError: If :meth:`Inference.run() <phasegen.inference.Inference.run>` has not been called.
+        """
+        if not self.params_inferred:
+            raise RuntimeError('The main optimization must be run first (call run()).')
+
+        names = self.param_names
+        x = np.array([self.params_inferred[name] for name in names], dtype=float)
+
+        if self._fisher_information is not None and self._fisher_information[0] == tuple(x):
+            return self._fisher_information[1]
+
+        bounds = (np.array([self.bounds[name] for name in names], dtype=float).T)
+        exact = LossGradient(self.get_coal, self.loss, self.observation) if self.gradient == 'exact' else None
+
+        def loss(params: np.ndarray) -> float:
+            return self.loss(self.get_coal(**dict(zip(names, params))), self.observation)
+
+        def gradient(params: np.ndarray) -> np.ndarray:
+            if exact is not None:
+                try:
+                    out = exact.compute(dict(zip(names, params)), self.bounds)
+                except Exception:
+                    out = None
+
+                if out is not None and np.isfinite(out[1]).all():
+                    return out[1]
+
+            return approx_derivative(loss, params, method='3-point', rel_step=_FISHER_REL_STEP, bounds=bounds)
+
+        hessian = approx_derivative(gradient, x, method='3-point', rel_step=_FISHER_REL_STEP, bounds=bounds)
+        info = pd.DataFrame((hessian + hessian.T) / 2, index=names, columns=names)
+        self._fisher_information = (tuple(x), info)
+
+        return info
+
+    def covariance(self) -> pd.DataFrame:
+        r"""
+        The asymptotic covariance of the estimate, :math:`I^{-1}`, the inverse of the observed information :math:`I` of
+        :meth:`Inference.fisher_information() <phasegen.inference.Inference.fisher_information>`. It describes the
+        curvature of the loss at the estimate only, so it neither reflects other optima nor the uncertainty of
+        parameters on a bound, both of which a parametric bootstrap captures. A warning is logged where :math:`I` is
+        not positive definite or a parameter lies on a bound.
+
+        :return: The covariance, with the parameter names as index and columns.
+        :raises RuntimeError: If :meth:`Inference.run() <phasegen.inference.Inference.run>` has not been called.
+        """
+        info = self.fisher_information()
+
+        if np.linalg.eigvalsh(info.to_numpy()).min() <= 0:
+            self._logger.warning('The Fisher information is not positive definite, so the estimate is not a strict '
+                                 'local minimum of the loss or some parameters are not identifiable.')
+
+        on_bound = [name for name in self.param_names if self.params_inferred[name] in self.bounds[name]]
+        if on_bound:
+            self._logger.warning('The parameters %s lie on a bound, where the inverse Fisher information does not '
+                                 'describe their uncertainty.', ', '.join(on_bound))
+
+        return pd.DataFrame(np.linalg.pinv(info.to_numpy(), hermitian=True), index=info.index, columns=info.columns)
+
+    def standard_errors(self) -> pd.Series:
+        r"""
+        The asymptotic standard errors of the estimate, :math:`\sqrt{(I^{-1})_{ii}}`, the square roots of the diagonal
+        of :meth:`Inference.covariance() <phasegen.inference.Inference.covariance>`, and NaN where that diagonal is
+        negative.
+
+        ::
+
+            inf.run()
+            pd.DataFrame({'estimate': inf.params_inferred, 'standard error': inf.standard_errors()})
+
+        :return: The standard errors, indexed by parameter name.
+        :raises RuntimeError: If :meth:`Inference.run() <phasegen.inference.Inference.run>` has not been called.
+        """
+        variance = np.diag(self.covariance().to_numpy())
+
+        return pd.Series(np.sqrt(np.where(variance >= 0, variance, np.nan)), index=self.param_names)
 
     def _plot_demography_data(
             self,

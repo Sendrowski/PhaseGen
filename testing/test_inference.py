@@ -1424,3 +1424,78 @@ def test_indexed_runs_are_reproducible_without_stored_entropy():
     old.__dict__.pop('_entropy')
 
     assert old.create_run(index=3).x0 == old.create_run(index=3).x0 == make().create_run(index=3).x0
+
+
+def _linear_poisson_inference(gradient: str) -> pg.Inference:
+    """
+    Inference of a constant population size ``Ne`` from an SFS whose expected counts are proportional to ``Ne``, so
+    that the Hessian of the Poisson negative log-likelihood is :math:`\\sum_i k_i / Ne^2` for observed counts
+    :math:`k_i`.
+    """
+    return pg.Inference(
+        bounds=dict(Ne=(0.1, 10)),
+        x0=dict(Ne=1),
+        coal=lambda Ne: pg.Coalescent(n=5, demography=pg.Demography(pop_sizes={'pop_0': Ne})),
+        loss=lambda coal, obs: pg.PoissonLikelihood().compute(
+            observed=obs.polymorphic, modelled=100 * coal.sfs.mean.polymorphic
+        ),
+        observation=pg.SFS([0, 180, 95, 70, 52, 0]),
+        n_runs=1,
+        gradient=gradient,
+        pbar=False
+    )
+
+
+@pytest.mark.parametrize('gradient', ['exact', 'finite_differences'])
+def test_fisher_information_is_the_hessian_of_the_negative_log_likelihood(gradient):
+    """The observed information of a Poisson model with means proportional to Ne equals sum(k) / Ne^2, from the exact
+    gradient and from finite differences alike, and the standard error is its inverse square root."""
+    inf = _linear_poisson_inference(gradient)
+    inf.run()
+
+    ne = inf.params_inferred['Ne']
+    expected = (180 + 95 + 70 + 52) / ne ** 2
+
+    np.testing.assert_allclose(inf.fisher_information().loc['Ne', 'Ne'], expected, rtol=1e-5)
+    np.testing.assert_allclose(inf.standard_errors()['Ne'], expected ** -0.5, rtol=1e-5)
+
+
+def test_fisher_information_of_a_two_parameter_model_matches_central_differences_of_the_loss():
+    """The information of a two-epoch model matches a central second difference of the loss in each entry."""
+    inf = InferenceTestCase.get_basic_inference(InferenceTestCase(), dict(gradient='exact'))
+    inf.run()
+
+    x = inf.params_inferred
+    h = 1e-3
+
+    def f(**shift):
+        return inf.loss(inf.get_coal(**{k: v + shift.get(k, 0) for k, v in x.items()}), inf.observation)
+
+    t_t = (f(t=h) - 2 * f() + f(t=-h)) / h ** 2
+    t_ne = (f(t=h, Ne=h) - f(t=h, Ne=-h) - f(t=-h, Ne=h) + f(t=-h, Ne=-h)) / (4 * h ** 2)
+
+    info = inf.fisher_information()
+
+    np.testing.assert_allclose(info.loc['t', 't'], t_t, rtol=1e-3)
+    np.testing.assert_allclose(info.loc['t', 'Ne'], t_ne, rtol=1e-3)
+    np.testing.assert_allclose(info.loc['Ne', 't'], t_ne, rtol=1e-3)
+
+
+def test_covariance_warns_about_a_parameter_on_its_bound(caplog):
+    """A parameter estimated on its bound is named in a warning, since the inverse information does not describe its
+    uncertainty there."""
+    inf = _linear_poisson_inference('exact')
+    inf.bounds = dict(Ne=(0.1, 0.5))
+    inf.run()
+
+    assert inf.params_inferred['Ne'] == 0.5
+
+    inf.covariance()
+
+    assert any('lie on a bound' in r.getMessage() and 'Ne' in r.getMessage() for r in caplog.records)
+
+
+def test_fisher_information_requires_a_run():
+    """The information is taken at the estimate, so it needs a run."""
+    with pytest.raises(RuntimeError, match='run'):
+        _linear_poisson_inference('exact').fisher_information()
