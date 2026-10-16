@@ -27,6 +27,7 @@ from ._moments import MomentEvaluator, _MAX_RATE_SPREAD
 
 if TYPE_CHECKING:
     from matplotlib import pyplot as plt
+    from ._gradient import DemographyGradient
     from .reward import RewardDistribution, JointRewardDistribution
     from .empirical import EmpiricalPhaseTypeDistribution
     from ..visualization import _CurveData
@@ -153,6 +154,59 @@ class PhaseTypeDistribution(CallableDistributionFunctions, MomentEvaluator, Mome
         reward = self.reward if reward is None else reward
 
         return self, np.asarray(reward._get(self.state_space), dtype=float)[:, None], [()]
+
+    def gradient(self, k: int = 1, rewards: Sequence[Reward] = None) -> 'DemographyGradient':
+        r"""
+        Exact derivatives of the first moment :math:`\mu` of :meth:`moment`, of every bin for a spectrum, with respect
+        to the quantities of the demography,
+
+        .. math::
+            \frac{\partial \mu}{\partial N_{d,e}}, \quad \frac{\partial \mu}{\partial m_{ab,e}}, \quad
+            \frac{\partial \mu}{\partial t_e},
+
+        where :math:`N_{d,e}` is the population size of deme :math:`d` in epoch :math:`e`, :math:`m_{ab,e}` the
+        migration rate from deme :math:`a` to deme :math:`b` in epoch :math:`e` and :math:`t_e` the start time of
+        epoch :math:`e`. The derivatives are those of the occupation-time recursion of the moment, computed backwards
+        through the epochs at the cost of a few moment evaluations per entry, whatever the number of epochs.
+
+        ::
+
+            th = pg.Coalescent(n=5, demography=pg.Demography(pop_sizes={'pop_0': {0: 1, 0.5: 2}})).tree_height
+
+            grad = th.gradient()
+            grad.pop_sizes  # by epoch and deme
+
+        :param k: The order of the moment, which must be one.
+        :param rewards: One reward, multiplied with the bin rewards for a spectrum. By default, the reward of the
+            distribution.
+        :return: The derivatives.
+        :raises NotImplementedError: If ``k`` is not one, or the moment is accumulated over a time window.
+        :raises ValueError: If ``rewards`` does not hold one reward, or the occupation times have no closed form, as
+            without certain absorption in the last epoch.
+        """
+        from ._gradient import DemographyGradient, MeanGradient
+
+        if _validate_order(k) != 1:
+            raise NotImplementedError('Gradients are available for first moments only.')
+
+        if rewards is not None and len(rewards) != 1:
+            raise ValueError(f'A first moment takes one reward, got {len(rewards)}.')
+
+        if self._resolve_window() != (0.0, np.inf):
+            raise NotImplementedError('Gradients are available for moments accumulated until absorption only.')
+
+        host, R, positions = self._mean_rewards(None if rewards is None else rewards[0])
+        gradients = []
+        for j in range(R.shape[1]):
+            out = MeanGradient(host).compute(R[:, j])
+            if out is None:
+                raise ValueError('The occupation times have no closed form, so the moment has no exact gradient.')
+            gradients.append(out[1])
+
+        if positions == [()]:
+            return gradients[0]
+
+        return DemographyGradient._stack(gradients, positions, np.shape(self.mean.data))
 
     @cached_property
     def var(self) -> float | SFS:

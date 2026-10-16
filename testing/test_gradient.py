@@ -602,3 +602,75 @@ def test_generator_basis_pattern_holds_migration_at_rate_zero():
         entries = set(zip(*[a.tolist() for a in X.nonzero()]))
         assert entries <= pattern
         assert entries - without
+
+
+@pytest.mark.parametrize('stat', ['tree_height', 'total_branch_length', 'sfs', 'fsfs'])
+def test_distribution_gradient_matches_central_differences(stat):
+    """The public gradient of a distribution, of every bin for a spectrum, against central differences of the mean by
+    the population size of the second epoch."""
+    def dist(N):
+        return getattr(pg.Coalescent(n=5, demography=pg.Demography(pop_sizes={'pop_0': {0: 1, 0.5: N}})), stat)
+
+    grad = dist(1.7).gradient()
+    numeric = _richardson(lambda N: np.asarray(getattr(dist(N).mean, 'data', dist(N).mean), dtype=float), 1.7)
+
+    np.testing.assert_allclose(grad.pop_sizes[..., 1, 0], numeric, rtol=1e-7, atol=1e-10)
+
+
+def test_joint_sfs_gradient_by_migration_rate():
+    """The gradient of every joint SFS bin by a migration rate, against central differences."""
+    def jsfs(m):
+        return pg.Coalescent(n={'a': 2, 'b': 2}, demography=pg.Demography(
+            pop_sizes={'a': 1, 'b': 1.5}, migration_rates={('a', 'b'): m, ('b', 'a'): 0.4})).jsfs
+
+    grad = jsfs(0.6).gradient()
+    numeric = _richardson(lambda m: np.asarray(jsfs(m).mean.data, dtype=float), 0.6)
+
+    assert grad.migration_rates.shape == (3, 3, 1, 2)
+    np.testing.assert_allclose(grad.migration_rates[..., 0, grad.pairs.index(('a', 'b'))], numeric,
+                               rtol=1e-7, atol=1e-10)
+
+
+def test_coalescent_gradient_of_a_reward():
+    """The gradient of Coalescent.moment of order one for a reward equals that of the distribution of the reward."""
+    coal = pg.Coalescent(n=5, demography=pg.Demography(pop_sizes={'pop_0': {0: 1, 0.5: 2}}))
+
+    np.testing.assert_allclose(coal.gradient(1, rewards=(pg.TotalBranchLengthReward(),)).pop_sizes,
+                               coal.total_branch_length.gradient().pop_sizes, rtol=1e-12)
+
+
+def test_gradient_of_higher_moments_and_windows_raises():
+    """Gradients are available for first moments accumulated until absorption only."""
+    coal = pg.Coalescent(n=4, demography=pg.Demography(pop_sizes={'pop_0': {0: 1, 0.5: 2}}))
+
+    with pytest.raises(NotImplementedError, match='first moments'):
+        coal.tree_height.gradient(2)
+    with pytest.raises(NotImplementedError, match='first moments'):
+        coal.gradient(2)
+    with pytest.raises(NotImplementedError, match='until absorption'):
+        pg.Coalescent(n=4, end_time=1.0).tree_height.gradient()
+
+
+def test_parameter_jacobian_matches_central_differences():
+    """The Jacobian of a normalized SFS by the parameters of a callback, against central differences."""
+    gradient = pg.Gradient(
+        coal=lambda t, Ne: pg.Coalescent(n=8, demography=pg.Demography(pop_sizes={'pop_0': {0: 1, t: Ne}})),
+        statistic=lambda coal: coal.sfs.mean.normalize().polymorphic
+    )
+    params = dict(t=0.4, Ne=0.6)
+    value, jacobian = gradient.compute(params)
+
+    for i, key in enumerate(params):
+        numeric = _richardson(lambda x: gradient._entries(gradient.coal(**(params | {key: x}))), params[key])
+        np.testing.assert_allclose(jacobian[:, i], numeric, rtol=1e-6, atol=1e-9)
+
+    assert value.shape == (7,)
+
+
+def test_parameter_jacobian_of_an_unsupported_statistic_raises():
+    """A statistic reading a variance has no exact Jacobian."""
+    gradient = pg.Gradient(coal=lambda N: pg.Coalescent(n=4, demography=pg.Demography(pop_sizes={'pop_0': N})),
+                           statistic=lambda coal: coal.tree_height.var)
+
+    with pytest.raises(ValueError, match='no exact gradient'):
+        gradient.compute(dict(N=1.0))

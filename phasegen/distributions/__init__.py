@@ -44,6 +44,7 @@ from .spectra import (
     JointSFSCDF,
     JointSFSQuantileFunction,
 )
+from ._gradient import DemographyGradient
 from .mutation_configs import (
     MutationConfig,
     MutationLayout,
@@ -66,6 +67,7 @@ from .empirical import (
 )
 
 __all__ = [
+    "DemographyGradient",
     "ProbabilityDistribution",
     "MomentAwareDistribution",
     "MarginalDistributions",

@@ -48,6 +48,84 @@ _MAX_GRADIENT_FAILURES = 3
 _FISHER_REL_STEP = 1e-4
 
 
+class Gradient:
+    r"""
+    Exact Jacobian of a statistic of a parametrized coalescent with respect to its parameters,
+
+    .. math::
+        J_{j i} = \frac{\partial s_j\big(\mathrm{coal}(\theta)\big)}{\partial \theta_i},
+
+    where :math:`\theta` are the parameters, :math:`\mathrm{coal}(\theta)` the coalescent returned by the ``coal``
+    callback and :math:`s_j` the entries of the statistic. The statistic may be any function of the first moments of
+    the coalescent that :class:`Inference` differentiates exactly (see its ``gradient`` parameter), such as a normalized
+    SFS. Each entry costs a few moment evaluations, whatever the number of parameters.
+
+    ::
+
+        gradient = pg.Gradient(
+            coal=lambda t, Ne: pg.Coalescent(n=10, demography=pg.Demography(pop_sizes={'pop_0': {0: 1, t: Ne}})),
+            statistic=lambda coal: coal.sfs.mean.normalize().polymorphic
+        )
+
+        value, jacobian = gradient.compute(dict(t=0.3, Ne=0.5))
+    """
+
+    def __init__(self, coal: Callable[..., Coalescent], statistic: Callable[[Coalescent], Any]) -> None:
+        """
+        Configure the Jacobian.
+
+        :param coal: Callback returning the coalescent for keyword parameters.
+        :param statistic: Function of the coalescent returning a number, an array or a spectrum.
+        """
+        #: Callback returning the coalescent for keyword parameters.
+        self.coal: Callable[..., Coalescent] = coal
+
+        #: Function of the coalescent returning the statistic.
+        self.statistic: Callable[[Coalescent], Any] = statistic
+
+    def _entries(self, coal: Coalescent) -> np.ndarray:
+        """
+        The entries of the statistic.
+
+        :param coal: The coalescent.
+        :return: The entries, the data of a spectrum.
+        """
+        value = self.statistic(coal)
+
+        return np.asarray(getattr(value, 'data', value), dtype=float)
+
+    def compute(
+            self,
+            params: Dict[str, float],
+            bounds: Dict[str, Tuple[float, float]] = None
+    ) -> Tuple[np.ndarray, np.ndarray]:
+        """
+        The statistic and its Jacobian at given parameters.
+
+        :param params: The parameters.
+        :param bounds: Bounds of the parameters, which the differences taken through the callback respect. By default,
+            the parameters are unbounded.
+        :return: The entries of the statistic, and the Jacobian of shape ``entries.shape + (len(params),)``, with the
+            parameters in the order of ``params``.
+        :raises ValueError: If the statistic reads a quantity other than a supported first moment, or the occupation
+            times have no closed form.
+        """
+        bounds = bounds or {}
+        value = self._entries(self.coal(**params))
+        jacobian = np.zeros(value.shape + (len(params),))
+
+        for idx in np.ndindex(value.shape):
+            out = LossGradient(self.coal, lambda c, _, idx=idx: float(self._entries(c)[idx]), None).compute(
+                params, bounds
+            )
+            if out is None:
+                raise ValueError('The statistic has no exact gradient: it reads a quantity other than a supported '
+                                 'first moment, or the occupation times have no closed form.')
+            jacobian[idx] = out[1]
+
+        return value, jacobian
+
+
 class Inference(Serializable):
     r"""
     Gradient-based parameter inference with respect to a specified loss function,

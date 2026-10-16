@@ -27,7 +27,7 @@ TWO_DEMES = pg.Demography(pop_sizes={'a': 1, 'b': 1.5}, migration_rates={('a', '
 EXACT_ONLY = {
     'distribution', 'sample', 'sample_per_locus', 'to_empirical', 'lst', 'lst_batch', 'lst_taylor',
     'check_conditional_grid_moments', 'check_conditional_moments', 'check_total_expectation',
-    'check_total_probability', 't_max', 'p_absorption', 'max_iter'
+    'check_total_probability', 't_max', 'p_absorption', 'max_iter', 'gradient'
 }
 
 #: Further exact-only members per pair, with the reason.

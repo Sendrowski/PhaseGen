@@ -305,19 +305,24 @@ class _GeneratorBasis:
 
 class DemographyGradient:
     r"""
-    Gradient of a scalar with respect to the population sizes :math:`N_{d,e}`, the migration rates :math:`m_{ab,e}` and
-    the start times :math:`t_e` of the epochs :math:`e` a moment was evaluated over.
+    Derivatives of a first moment :math:`\mu` with respect to the population sizes :math:`N_{d,e}` of the demes
+    :math:`d`, the migration rates :math:`m_{ab,e}` from deme :math:`a` to deme :math:`b` and the start times
+    :math:`t_e` of the epochs :math:`e` the moment was evaluated over, as returned by
+    :meth:`PhaseTypeDistribution.gradient() <phasegen.distributions.PhaseTypeDistribution.gradient>`. For a spectrum,
+    each array carries the shape of the spectrum as leading axes, one derivative per bin.
     """
 
-    def __init__(self, epochs: Sequence[Epoch], pops: Sequence[str], pairs: Sequence[Tuple[str, str]]) -> None:
+    def __init__(self, epochs: Sequence[Epoch], pops: Sequence[str], pairs: Sequence[Tuple[str, str]],
+                 shape: Tuple[int, ...] = ()) -> None:
         """
         Initialize a zero gradient.
 
         :param epochs: The epochs.
         :param pops: The demes.
         :param pairs: The ordered pairs of demes.
+        :param shape: The shape of the moment, empty for a scalar.
         """
-        #: The epochs.
+        #: The epochs, the last of which extends until absorption.
         self.epochs: List[Epoch] = list(epochs)
 
         #: The demes.
@@ -326,14 +331,36 @@ class DemographyGradient:
         #: The ordered pairs of demes.
         self.pairs: List[Tuple[str, str]] = list(pairs)
 
-        #: Derivative with respect to :math:`N_{d,e}`, by epoch and deme.
-        self.pop_sizes: np.ndarray = np.zeros((len(self.epochs), len(self.pops)))
+        #: Derivative :math:`\partial \mu / \partial N_{d,e}`, of shape ``shape + (n_epochs, n_demes)``.
+        self.pop_sizes: np.ndarray = np.zeros(tuple(shape) + (len(self.epochs), len(self.pops)))
 
-        #: Derivative with respect to :math:`m_{ab,e}`, by epoch and ordered pair.
-        self.migration_rates: np.ndarray = np.zeros((len(self.epochs), len(self.pairs)))
+        #: Derivative :math:`\partial \mu / \partial m_{ab,e}`, of shape ``shape + (n_epochs, n_pairs)``, in the
+        #: order of :attr:`pairs`.
+        self.migration_rates: np.ndarray = np.zeros(tuple(shape) + (len(self.epochs), len(self.pairs)))
 
-        #: Derivative with respect to :math:`t_e`, by epoch. The first epoch starts at zero.
-        self.start_times: np.ndarray = np.zeros(len(self.epochs))
+        #: Derivative :math:`\partial \mu / \partial t_e`, of shape ``shape + (n_epochs,)``. The first epoch starts at
+        #: zero, so its entry is zero.
+        self.start_times: np.ndarray = np.zeros(tuple(shape) + (len(self.epochs),))
+
+    @classmethod
+    def _stack(cls, gradients: Sequence['DemographyGradient'], positions: Sequence[Tuple[int, ...]],
+               shape: Tuple[int, ...]) -> 'DemographyGradient':
+        """
+        The gradient of a spectrum from the gradients of its entries.
+
+        :param gradients: The gradients of the entries, over the same epochs.
+        :param positions: The positions of the entries in the spectrum.
+        :param shape: The shape of the spectrum.
+        :return: The gradient, zero at the other positions.
+        """
+        first = gradients[0]
+        out = cls(first.epochs, first.pops, first.pairs, shape)
+        for g, pos in zip(gradients, positions):
+            out.pop_sizes[pos] = g.pop_sizes
+            out.migration_rates[pos] = g.migration_rates
+            out.start_times[pos] = g.start_times
+
+        return out
 
     def __iadd__(self, other: 'DemographyGradient') -> 'DemographyGradient':
         """

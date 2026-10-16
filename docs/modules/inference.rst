@@ -11,6 +11,7 @@ Gradient-based parameter inference. An :class:`~phasegen.inference.Inference` ob
    :nosignatures:
 
    ~phasegen.inference.Inference
+   ~phasegen.inference.Gradient
    ~phasegen.inference.WeightedLoss
    ~phasegen.norms.Norm
    ~phasegen.norms.LNorm
@@ -23,6 +24,8 @@ Gradient-based parameter inference. An :class:`~phasegen.inference.Inference` ob
    ~phasegen.errors.ModelError
 
 .. autoclass:: phasegen.inference.Inference
+
+.. autoclass:: phasegen.inference.Gradient
 
 .. autoclass:: phasegen.inference.WeightedLoss
 

@@ -22,6 +22,7 @@ from .spectra import FoldedSFSDistribution, JointSFSDistribution, TwoLocusSFSDis
 
 if TYPE_CHECKING:
     from .reward import RewardDistribution, JointRewardDistribution
+    from ._gradient import DemographyGradient
     from matplotlib import pyplot as plt
     from .empirical import MsprimeCoalescent, SampledCoalescent
 
@@ -795,6 +796,30 @@ class Coalescent(AbstractCoalescent, Serializable):
             center=center,
             permute=permute
         )
+
+    def gradient(self, k: int = 1, rewards: Sequence[Reward] = None) -> 'DemographyGradient':
+        """
+        Exact derivatives of the first moment of the accumulated reward with respect to the population sizes,
+        migration rates and epoch start times of the demography, evaluated on the smallest state space supporting the
+        reward as described in :meth:`PhaseTypeDistribution.gradient()
+        <phasegen.distributions.PhaseTypeDistribution.gradient>`.
+
+        ::
+
+            coal = pg.Coalescent(n=5, demography=pg.Demography(pop_sizes={'pop_0': {0: 1, 0.5: 2}}))
+
+            grad = coal.gradient(1, rewards=(pg.TotalBranchLengthReward(),))
+
+        :param k: The order of the moment, which must be one.
+        :param rewards: One reward. By default, the tree-height reward.
+        :return: The derivatives.
+        :raises NotImplementedError: If ``k`` is not one.
+        :raises ValueError: If ``rewards`` does not hold one reward, or the occupation times have no closed form.
+        """
+        if _validate_order(k) != 1:
+            raise NotImplementedError('Gradients are available for first moments only.')
+
+        return self._get_dist(1, rewards).gradient(1, rewards)
 
     def accumulate(
             self,

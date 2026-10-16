@@ -215,7 +215,7 @@ from .spectrum import (
 )
 
 from .errors import ModelError
-from .inference import Inference
+from .inference import Inference, Gradient
 
 from .lineage import LineageConfig
 
@@ -278,6 +278,7 @@ __all__ = [
     'TwoLocusSFS',
     'Spectra',
     'Inference',
+    'Gradient',
     'ModelError',
     'LNorm',
     'L1Norm',
