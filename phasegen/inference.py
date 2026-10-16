@@ -1061,13 +1061,28 @@ class Inference(Serializable):
         if kind == 'hist':
             kwargs = {'bins': 20} | kwargs
 
-        ax = self.bootstraps[self.param_names].plot(
-            ax=ax,
-            kind=kind,
-            title='Marginal distributions' if title is None else title,
-            subplots=subplots,
-            **kwargs
-        )
+        if subplots:
+            import matplotlib.pyplot as plt
+
+            # one axis per parameter, so that each histogram is binned over the range of its own parameter
+            ax = np.ravel(plt.subplots(len(self.param_names), 1)[1] if ax is None else ax)
+            colors = plt.rcParams['axes.prop_cycle'].by_key()['color']
+
+            for i, name in enumerate(self.param_names):
+                self.bootstraps[name].plot(ax=ax[i], kind=kind, color=colors[i % len(colors)], legend=True, **kwargs)
+
+                if isinstance(title, list):
+                    ax[i].set_title(title[i])
+
+            if not isinstance(title, list):
+                ax[0].figure.suptitle('Marginal distributions' if title is None else title)
+        else:
+            ax = self.bootstraps[self.param_names].plot(
+                ax=ax,
+                kind=kind,
+                title='Marginal distributions' if title is None else title,
+                **kwargs
+            )
 
         # make layout tight
         np.ravel(ax)[0].figure.tight_layout()
