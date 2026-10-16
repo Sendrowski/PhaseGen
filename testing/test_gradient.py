@@ -290,6 +290,56 @@ def test_loss_gradient_unsupported_read_at_perturbed_mean():
     assert LossGradient(coal, loss, None).compute({'N': 1.0}, {'N': (0.1, 5)}) is None
 
 
+def test_loss_gradient_first_moment_of_the_sfs():
+    """A loss reading the SFS through moment(1) has the gradient of the same loss through the mean."""
+    x0 = {'a0': 1.2, 'a1': 0.6, 'a2': 1.5, 'b0': 0.8, 'b1': 1.1, 'b2': 2.0, 'm': 0.4}
+    observation = pg.SFS(np.round(1000 * _two_deme(**{k: v * 0.8 for k, v in x0.items()}).sfs.mean.normalize().data))
+
+    def loss(coal, obs):
+        mean = coal.sfs.moment(1)
+        return pg.PoissonLikelihood().compute(obs.polymorphic,
+                                              mean.polymorphic * obs.n_polymorphic / mean.n_polymorphic)
+
+    _assert_loss_gradient(_two_deme, loss, x0, {k: (0.05, 5) for k in x0}, observation)
+
+
+def test_loss_gradient_first_moments_of_custom_rewards():
+    """First moments of rewards other than those of the distributions, read through Coalescent.moment and the moment
+    of a distribution, with reward objects created anew in each evaluation of the loss."""
+    x0 = {'a0': 1.2, 'a1': 0.6, 'a2': 1.5, 'b0': 0.8, 'b1': 1.1, 'b2': 2.0, 'm': 0.4}
+
+    def loss(coal, obs):
+        length = coal.moment(1, rewards=(pg.TotalBranchLengthReward(),))
+        height = coal.tree_height.moment(1, rewards=(pg.TreeHeightReward(),))
+        return float((length - 4) ** 2 + np.log(height) + coal.jsfs.moment(1).data[1, 0])
+
+    _assert_loss_gradient(_two_deme, loss, x0, {k: (0.05, 5) for k in x0}, None)
+
+
+@pytest.mark.parametrize('loss', [
+    lambda coal, obs: float(coal.tree_height.moment(2)),
+    lambda coal, obs: float(coal.moment(1, end_time=1.0)),
+    lambda coal, obs: float(coal.moment(2, rewards=(pg.TreeHeightReward(), pg.TotalBranchLengthReward()))),
+])
+def test_loss_gradient_unsupported_moments(loss):
+    """Moments of higher order and moments in a time window have no exact gradient."""
+    coal = lambda N: pg.Coalescent(n=4, demography=pg.Demography(pop_sizes={'pop_0': {0: 1, 0.5: N}}))
+    assert LossGradient(coal, loss, None).compute({'N': 1.0}, {'N': (0.1, 5)}) is None
+
+
+def test_loss_gradient_value_dependent_reads_unsupported():
+    """A loss that reads a further moment depending on the value of another has no exact gradient, since its reads
+    cannot be matched across evaluations."""
+    coal = lambda N: pg.Coalescent(n=4, demography=pg.Demography(pop_sizes={'pop_0': {0: 1, 0.5: N}}))
+    reference = float(coal(1.0).tree_height.mean)
+
+    def loss(c, obs):
+        height = c.tree_height.mean
+        return float(height + (c.total_branch_length.mean if height > reference else 0))
+
+    assert LossGradient(coal, loss, None).compute({'N': 1.0}, {'N': (0.1, 5)}) is None
+
+
 def test_loss_gradient_shared_host_one_pass(monkeypatch):
     """Means on one state space share one adjoint pass."""
     calls = []
@@ -376,3 +426,4 @@ def test_inference_warns_after_repeated_gradient_failures(caplog, monkeypatch):
 def test_inference_rejects_unknown_gradient():
     with pytest.raises(ValueError, match='gradient'):
         _inference(lambda N: pg.Coalescent(n=3), _sfs_loss, {'N': 1}, {'N': (0.1, 2)}, None, gradient='adjoint')
+

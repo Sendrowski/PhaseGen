@@ -138,15 +138,21 @@ class PhaseTypeDistribution(CallableDistributionFunctions, MomentEvaluator, Mome
         """
         return self.moment(k=1)
 
-    def _mean_rewards(self) -> Tuple['PhaseTypeDistribution', np.ndarray, List[Tuple[int, ...]]]:
+    def _mean_rewards(
+            self,
+            reward: Reward = None
+    ) -> Tuple['PhaseTypeDistribution', np.ndarray, List[Tuple[int, ...]]]:
         """
-        The reward vectors whose accumulation until absorption gives the entries of :attr:`mean`, as the distribution
-        whose state space carries them, a matrix with one column per entry, and the positions of the entries in the
-        data of the mean, an empty tuple for a scalar.
+        The reward vectors whose accumulation until absorption gives the entries of the first moment, as the
+        distribution whose state space carries them, a matrix with one column per entry, and the positions of the
+        entries in the data of the moment, an empty tuple for a scalar.
 
+        :param reward: The reward of the first moment, by default that of :attr:`mean`.
         :return: The distribution, the reward matrix and the positions.
         """
-        return self, np.asarray(self.reward._get(self.state_space), dtype=float)[:, None], [()]
+        reward = self.reward if reward is None else reward
+
+        return self, np.asarray(reward._get(self.state_space), dtype=float)[:, None], [()]
 
     @cached_property
     def var(self) -> float | SFS:

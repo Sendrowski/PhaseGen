@@ -160,12 +160,14 @@ class Inference(Serializable):
         :param method_mle: Method to use for optimization, a method of `scipy.optimize.minimize` that honours bounds
             without an analytic Jacobian: Nelder-Mead, Powell, L-BFGS-B, TNC, SLSQP, COBYLA, COBYQA or trust-constr.
         :param gradient: How the gradient-based methods (L-BFGS-B, TNC, SLSQP, trust-constr) obtain the gradient of the
-            loss. With ``'exact'``, a loss that reads only the means of :attr:`Coalescent.sfs
-            <phasegen.distributions.Coalescent.sfs>`, :attr:`Coalescent.fsfs <phasegen.distributions.Coalescent.fsfs>`,
-            :attr:`Coalescent.jsfs <phasegen.distributions.Coalescent.jsfs>`, :attr:`Coalescent.tree_height
+            loss. With ``'exact'``, a loss that reads only first moments is differentiated by the adjoint of the moment
+            recursion: the means and first moments of :attr:`Coalescent.sfs <phasegen.distributions.Coalescent.sfs>`,
+            :attr:`Coalescent.fsfs <phasegen.distributions.Coalescent.fsfs>`, :attr:`Coalescent.jsfs
+            <phasegen.distributions.Coalescent.jsfs>`, :attr:`Coalescent.tree_height
             <phasegen.distributions.Coalescent.tree_height>` and :attr:`Coalescent.total_branch_length
-            <phasegen.distributions.Coalescent.total_branch_length>` is differentiated by the adjoint of the moment
-            recursion, at a cost of a few loss evaluations whatever the number of parameters, and any other loss by
+            <phasegen.distributions.Coalescent.total_branch_length>`, and :meth:`Coalescent.moment()
+            <phasegen.distributions.Coalescent.moment>` of order one, each with at most one reward and no time window.
+            This costs a few loss evaluations whatever the number of parameters. Any other loss is differentiated by
             finite differences. With ``'finite_differences'``, every gradient is a finite difference of the loss.
         :raises ValueError: If a lower bound exceeds its upper bound, ``x0`` lies outside the bounds or does not specify
             exactly the parameters in ``bounds``, ``method_mle`` is not one of the supported methods, ``gradient`` is not

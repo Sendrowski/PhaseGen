@@ -13,7 +13,7 @@ import numpy as np
 from .distributions import Coalescent
 from .distributions._gradient import DemographyGradient, MeanGradient
 
-#: The distributions of a :class:`~phasegen.distributions.Coalescent` whose mean the gradient supports.
+#: The distributions of a :class:`~phasegen.distributions.Coalescent` whose first moments the gradient supports.
 _DISTRIBUTIONS = ('sfs', 'fsfs', 'jsfs', 'tree_height', 'total_branch_length')
 
 #: Relative step of the Richardson-extrapolated central differences of the loss over the entries of a mean, whose
@@ -35,10 +35,26 @@ class _Unsupported(BaseException):
     pass
 
 
+class _Read:
+    """
+    A first moment the loss reads: the distribution whose state space carries it, the reward multiplied with the
+    rewards of its entries (``None`` for the reward of the distribution), and its value.
+    """
+
+    def __init__(self, dist: Any, reward: Any, value: Any) -> None:
+        """
+        Record a read.
+
+        :param dist: The distribution.
+        :param reward: The reward, or ``None``.
+        :param value: The value of the moment.
+        """
+        self.dist, self.reward, self.value = dist, reward, value
+
+
 class _DistributionRecorder:
     """
-    Stand-in for a distribution of a coalescent that records whether its mean is read, and serves an overridden
-    mean.
+    Stand-in for a distribution of a coalescent that serves its mean and its first moments, recording each read.
     """
 
     def __init__(self, distribution: Any, recorder: '_CoalescentRecorder', name: str) -> None:
@@ -53,25 +69,45 @@ class _DistributionRecorder:
 
     def __getattr__(self, attr: str) -> Any:
         """
-        Record the attribute read.
+        Serve the mean.
 
         :param attr: The attribute.
         :return: The mean, possibly overridden.
         :raises _Unsupported: For any attribute other than the mean.
         """
-        if attr != 'mean':
-            self._recorder.unsupported = True
-            raise _Unsupported(f"{self._name}.{attr}")
+        dist = self._distribution
 
-        self._recorder.reads.add(self._name)
+        if attr == 'mean':
+            return self._recorder.serve(lambda: (dist, None, dist.mean))
 
-        return self._recorder.overrides.get(self._name, self._distribution.mean)
+        self._recorder.unsupported = True
+        raise _Unsupported(f"{self._name}.{attr}")
+
+    def moment(self, k: int = 1, rewards: Any = None, start_time: float = None, end_time: float = None,
+               center: bool = True, permute: bool = True) -> Any:
+        """
+        Serve a first moment.
+
+        :param k: The order, which must be one.
+        :param rewards: One reward or ``None``.
+        :param start_time: Must be ``None``.
+        :param end_time: Must be ``None``.
+        :param center: Ignored, a first moment being its own mean.
+        :param permute: Ignored.
+        :return: The moment, possibly overridden.
+        :raises _Unsupported: For another order or a time window.
+        """
+        reward = self._recorder.reward(k, rewards, start_time, end_time, f"{self._name}.moment")
+        dist = self._distribution
+
+        return self._recorder.serve(lambda: (dist, reward, dist.moment(1, rewards=rewards)))
 
 
 class _CoalescentRecorder:
     """
-    Stand-in for a :class:`~phasegen.distributions.Coalescent` passed to a loss, admitting only the means of
-    :data:`_DISTRIBUTIONS`.
+    Stand-in for a :class:`~phasegen.distributions.Coalescent` passed to a loss, admitting only first moments: the
+    means and first moments of :data:`_DISTRIBUTIONS` and :meth:`Coalescent.moment` of order one. The reads of one
+    evaluation are numbered in order, so that a moment can be overridden in the next evaluation.
     """
 
     def __init__(self, coal: Coalescent) -> None:
@@ -82,14 +118,71 @@ class _CoalescentRecorder:
         """
         self._coal = coal
 
-        #: The distributions whose mean was read.
-        self.reads: Set[str] = set()
+        #: The reads of the current evaluation, in order.
+        self.reads: List[_Read] = []
 
-        #: Means served in place of the computed ones.
-        self.overrides: Dict[str, Any] = {}
+        #: The reads of the first evaluation, by number.
+        self._first: Dict[int, _Read] = {}
+
+        #: Moments served in place of the computed ones, by the number of the read.
+        self.overrides: Dict[int, Any] = {}
 
         #: Whether the loss read an unsupported quantity.
         self.unsupported: bool = False
+
+    def serve(self, make: Callable[[], Tuple[Any, Any, Any]]) -> Any:
+        """
+        Record a read and serve its moment.
+
+        :param make: Returns the distribution, the reward and the value of the moment, called at the first evaluation
+            only.
+        :return: The moment, possibly overridden.
+        """
+        i = len(self.reads)
+        if i not in self._first:
+            self._first[i] = _Read(*make())
+
+        self.reads.append(self._first[i])
+
+        return self.overrides.get(i, self._first[i].value)
+
+    def reward(self, k: Any, rewards: Any, start_time: float, end_time: float, name: str) -> Any:
+        """
+        The reward of a first moment, validating its arguments.
+
+        :param k: The order.
+        :param rewards: One reward or ``None``.
+        :param start_time: The start time.
+        :param end_time: The end time.
+        :param name: The quantity, for the signal.
+        :return: The reward, or ``None`` for that of the distribution.
+        :raises _Unsupported: For another order, more rewards or a time window.
+        """
+        if k != 1 or (rewards is not None and len(rewards) != 1) or start_time is not None or end_time is not None:
+            self.unsupported = True
+            raise _Unsupported(f"{name} with k={k}, a time window or several rewards")
+
+        return None if rewards is None else rewards[0]
+
+    def moment(self, k: int = 1, rewards: Any = None, start_time: float = None, end_time: float = None,
+               center: bool = True, permute: bool = True) -> Any:
+        """
+        Serve a first moment of :meth:`Coalescent.moment`.
+
+        :param k: The order, which must be one.
+        :param rewards: One reward or ``None``.
+        :param start_time: Must be ``None``.
+        :param end_time: Must be ``None``.
+        :param center: Ignored, a first moment being its own mean.
+        :param permute: Ignored.
+        :return: The moment, possibly overridden.
+        :raises _Unsupported: For another order or a time window.
+        """
+        self.reward(k, rewards, start_time, end_time, 'moment')
+        coal = self._coal
+
+        # the distribution carries the reward of the moment as its own
+        return self.serve(lambda: (coal._get_dist(1, rewards), None, coal.moment(1, rewards=rewards)))
 
     def __getattr__(self, attr: str) -> Any:
         """
@@ -109,8 +202,8 @@ class _CoalescentRecorder:
 class LossGradient:
     r"""
     Value and gradient of a loss :math:`L(\boldsymbol{\mu}(\theta), y)` over the parameters :math:`\theta` of a
-    coalescent callback, for a loss that reads only the entries :math:`\mu_j` of means of the coalescent (see
-    :data:`_DISTRIBUTIONS`) and the observation :math:`y`. By the chain rule,
+    coalescent callback, for a loss that reads only the entries :math:`\mu_j` of first moments of the coalescent (see
+    :class:`_CoalescentRecorder`) and the observation :math:`y`. By the chain rule,
 
     .. math::
         \frac{\partial L}{\partial \theta_i} = \sum_j \frac{\partial L}{\partial \mu_j}
@@ -178,7 +271,7 @@ class LossGradient:
         if recorder.unsupported or not recorder.reads:
             return None
 
-        if any(getattr(coal, name)._resolve_window() != (0.0, np.inf) for name in recorder.reads):
+        if any(read.dist._resolve_window() != (0.0, np.inf) for read in recorder.reads):
             return None
 
         return value, recorder
@@ -203,21 +296,20 @@ class LossGradient:
         if not np.isfinite(value):
             return None
 
-        # the reward of every mean read, weighted by the derivatives of the loss, summed per host distribution, since
-        # the mean is linear in the reward and one adjoint pass serves every distribution on a host
+        # the reward of every moment read, weighted by the derivatives of the loss, summed per host distribution,
+        # since the moment is linear in the reward and one adjoint pass serves every distribution on a host
         hosts: Dict[int, list] = {}
-        for name in sorted(recorder.reads):
-            dist = getattr(coal, name)
-            host, R, positions = dist._mean_rewards()
+        for i, read in enumerate(list(recorder.reads)):
+            host, R, positions = read.dist._mean_rewards(read.reward)
             try:
-                dmu = self._loss_derivatives(recorder, name, dist.mean, positions)
+                dmu = self._loss_derivatives(recorder, i, read.value, positions)
             except BaseException as e:
                 if isinstance(e, _Unsupported) or recorder.unsupported:
-                    self._log.debug("Loss reads %s at a perturbed mean, which the exact gradient does not support", e)
+                    self._log.debug("Loss reads %s at a perturbed moment, which the exact gradient does not support", e)
                     return None
                 raise
 
-            terms = np.array([d * self._entry(dist.mean, pos) for d, pos in zip(dmu, positions)])
+            terms = np.array([d * self._entry(read.value, pos) for d, pos in zip(dmu, positions)])
             entry = hosts.setdefault(id(host), [host, 0.0, np.zeros(0)])
             entry[1] = entry[1] + R @ dmu
             entry[2] = np.concatenate([entry[2], terms])
@@ -243,17 +335,19 @@ class LossGradient:
 
         return value, self._chain(params, bounds, coal, grad_q)
 
-    def _loss_derivatives(self, recorder: _CoalescentRecorder, name: str, mean: Any,
+    def _loss_derivatives(self, recorder: _CoalescentRecorder, i: int, mean: Any,
                           positions: List[Tuple[int, ...]]) -> np.ndarray:
         """
-        Richardson-extrapolated central differences of the loss over the entries of a mean.
+        Richardson-extrapolated central differences of the loss over the entries of a moment.
 
         :param recorder: The recorder of the coalescent.
-        :param name: The distribution.
-        :param mean: Its mean.
+        :param i: The number of the read.
+        :param mean: The moment.
         :param positions: The positions of the entries.
         :return: The derivatives.
+        :raises _Unsupported: If the loss reads other moments at a perturbed moment.
         """
+        n_reads = len(recorder.reads)
         # an entry of zero takes its step from the largest entry
         scale = max(abs(self._entry(mean, pos)) for pos in positions)
         out = np.zeros(len(positions))
@@ -264,12 +358,17 @@ class LossGradient:
             for step in (h, h / 2):
                 values = []
                 for sign in (1, -1):
-                    recorder.overrides[name] = self._with_entry(mean, pos, x + sign * step)
+                    recorder.overrides[i] = self._with_entry(mean, pos, x + sign * step)
+                    recorder.reads = []
                     values.append(float(self.loss(recorder, self.observation)))
+
+                    # the numbering of the reads holds only for a loss that reads the same moments in each evaluation
+                    if len(recorder.reads) != n_reads:
+                        raise _Unsupported("a number of moments that depends on their values")
                 diff.append((values[0] - values[1]) / (2 * step))
             out[j] = (4 * diff[1] - diff[0]) / 3
 
-        recorder.overrides.pop(name, None)
+        recorder.overrides.pop(i, None)
 
         return out
 

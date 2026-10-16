@@ -408,15 +408,20 @@ class SFSDistribution(SpectrumDistribution, ABC):
 
         return SFS([pad] + list(moments) + [pad] * (self.lineage_config.n - len(moments)))
 
-    def _mean_rewards(self) -> Tuple['PhaseTypeDistribution', np.ndarray, List[Tuple[int, ...]]]:
+    def _mean_rewards(
+            self,
+            reward: Reward = None
+    ) -> Tuple['PhaseTypeDistribution', np.ndarray, List[Tuple[int, ...]]]:
         """
-        The bin rewards of :attr:`mean`, see :meth:`PhaseTypeDistribution._mean_rewards`. Where flattening applies, they
-        are the flattened weights on the lineage-counting state space of the tree height.
+        The bin rewards of the first moment, see :meth:`PhaseTypeDistribution._mean_rewards`. Where flattening applies,
+        they are the flattened weights on the lineage-counting state space of the tree height.
 
+        :param reward: The reward multiplied with the bin rewards, by default that of :attr:`mean`.
         :return: The distribution, the reward matrix and the positions.
         """
+        reward = self.reward if reward is None else reward
         flatten = self._flattening_applies(1)
-        bin_rewards = [CombinedReward([self.reward, self._get_sfs_reward(i)]) for i in self._get_indices()]
+        bin_rewards = [CombinedReward([reward, self._get_sfs_reward(i)]) for i in self._get_indices()]
         R = np.column_stack([
             (self._flattened_weights(r) if flatten else np.asarray(r._get(self.state_space), dtype=float))
             for r in bin_rewards
@@ -1687,15 +1692,20 @@ class JointSFSDistribution(SpectrumDistribution):
 
         return out
 
-    def _mean_rewards(self) -> Tuple['PhaseTypeDistribution', np.ndarray, List[Tuple[int, ...]]]:
+    def _mean_rewards(
+            self,
+            reward: Reward = None
+    ) -> Tuple['PhaseTypeDistribution', np.ndarray, List[Tuple[int, ...]]]:
         """
-        The bin rewards of :attr:`mean`, see :meth:`PhaseTypeDistribution._mean_rewards`.
+        The bin rewards of the first moment, see :meth:`PhaseTypeDistribution._mean_rewards`.
 
+        :param reward: The reward multiplied with the bin rewards, by default that of :attr:`mean`.
         :return: The distribution, the reward matrix and the positions.
         """
+        reward = self.reward if reward is None else reward
         configs = self._get_configs()
         R = np.column_stack([
-            np.asarray(CombinedReward([self.reward, JointSFSReward(config)])._get(self.state_space), dtype=float)
+            np.asarray(CombinedReward([reward, JointSFSReward(config)])._get(self.state_space), dtype=float)
             for config in configs
         ])
 
