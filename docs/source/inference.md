@@ -238,7 +238,7 @@ name: phasegen
 channels:
   - defaults
 dependencies:
-  - python>=3.10,<3.14
+  - python>=3.11,<3.14
   - pip
   - pip:
       - phasegen

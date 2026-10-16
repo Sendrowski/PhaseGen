@@ -3,6 +3,10 @@
 Changelog
 =========
 
+[Unreleased]
+^^^^^^^^^^^^
+- Require Python 3.11 or newer.
+
 [2.1.0] - 2026-10-12
 ^^^^^^^^^^^^^^^^^^^^
 - Create demographies from :class:`msprime.Demography` and :class:`demes.Graph` objects with :meth:`Demography.from_msprime() <phasegen.demography.Demography.from_msprime>` and :meth:`Demography.from_demes() <phasegen.demography.Demography.from_demes>`, and convert to a :class:`demes.Graph` with :meth:`Demography.to_demes() <phasegen.demography.Demography.to_demes>`.
