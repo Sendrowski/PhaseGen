@@ -225,9 +225,8 @@ def test_loss_gradient_epoch_time():
     _assert_loss_gradient(coal, _sfs_loss, {'t': 0.7, 'Ne': 0.5}, {'t': (0.01, 4), 'Ne': (0.05, 5)}, observation)
 
 
-def test_loss_gradient_model_parameter_by_differences():
-    """A parameter of the coalescent model is differentiated by central differences of the loss, the others by the
-    adjoint."""
+def test_loss_gradient_model_parameter():
+    """A parameter of the coalescent model is differentiated through the generator, with the demographic ones."""
     coal = lambda alpha, N: pg.Coalescent(n=6, model=pg.BetaCoalescent(alpha=alpha),
                                           demography=pg.Demography(pop_sizes={'pop_0': {0: 1, 0.5: N}}))
     observation = pg.SFS(np.round(1000 * coal(1.5, 2).sfs.mean.normalize().data))
@@ -674,3 +673,67 @@ def test_parameter_jacobian_of_an_unsupported_statistic_raises():
 
     with pytest.raises(ValueError, match='no exact gradient'):
         gradient.compute(dict(N=1.0))
+
+@pytest.mark.parametrize('model, name, x', [
+    (lambda x: pg.BetaCoalescent(alpha=x), 'alpha', 1.5),
+    (lambda x: pg.DiracCoalescent(psi=x, c=2), 'psi', 0.5),
+    (lambda x: pg.DiracCoalescent(psi=0.5, c=x), 'c', 2.0),
+])
+@pytest.mark.parametrize('stat', ['tree_height', 'sfs'])
+def test_gradient_by_model_parameter(model, name, x, stat):
+    """The derivative of a mean, of every bin for a spectrum, by a parameter of the coalescent model, against central
+    differences, over two epochs."""
+    def dist(y):
+        return getattr(pg.Coalescent(n=5, model=model(y), demography=pg.Demography(
+            pop_sizes={'pop_0': {0: 1, 0.5: 2}})), stat)
+
+    numeric = _richardson(lambda y: np.asarray(getattr(dist(y).mean, 'data', dist(y).mean), dtype=float), x)
+    np.testing.assert_allclose(dist(x).gradient().parameters[name], numeric, rtol=1e-7, atol=1e-10)
+
+
+def test_gradient_by_model_parameter_near_a_bound():
+    """Just below psi = 1, which a Dirac coalescent excludes, the derivative is one-sided."""
+    def mean(psi):
+        return pg.Coalescent(n=4, model=pg.DiracCoalescent(psi=psi, c=2)).tree_height.mean
+
+    x = 1 - 1e-7
+    h = 1e-4
+    one_sided = (3 * mean(x) - 4 * mean(x - h) + mean(x - 2 * h)) / (2 * h)
+    th = pg.Coalescent(n=4, model=pg.DiracCoalescent(psi=x, c=2)).tree_height
+
+    assert th.gradient().parameters['psi'] == pytest.approx(one_sided, rel=1e-6)
+
+
+def test_gradient_by_recombination_rate():
+    """The derivative of the two-locus tree height by the recombination rate, against central differences."""
+    def mean(r):
+        return pg.Coalescent(n=3, loci=2, recombination_rate=r, demography=pg.Demography(
+            pop_sizes={'pop_0': {0: 1, 0.4: 1.7}})).tree_height.mean
+
+    th = pg.Coalescent(n=3, loci=2, recombination_rate=0.7,
+                       demography=pg.Demography(pop_sizes={'pop_0': {0: 1, 0.4: 1.7}})).tree_height
+
+    assert th.gradient().parameters['recombination_rate'] == pytest.approx(_richardson(mean, 0.7), rel=1e-7)
+
+
+def test_loss_gradient_model_and_recombination_parameters_without_loss_differences():
+    """A loss over a Beta coalescent parameter, a recombination rate and a population size is differentiated exactly,
+    without evaluating the loss at perturbed parameters."""
+    calls = []
+
+    def loss(coal, obs):
+        if isinstance(coal, pg.Coalescent):
+            calls.append(1)
+        return float(np.log(coal.tree_height.mean))
+
+    coal = lambda alpha, r, N: pg.Coalescent(n=3, loci=2, recombination_rate=r, model=pg.BetaCoalescent(alpha=alpha),
+                                             demography=pg.Demography(pop_sizes={'pop_0': {0: 1, 0.5: N}}))
+    x0 = {'alpha': 1.6, 'r': 0.5, 'N': 1.4}
+    bounds = {'alpha': (1.01, 1.99), 'r': (0, 5), 'N': (0.1, 5)}
+
+    _assert_loss_gradient(coal, loss, x0, bounds, None)
+    calls.clear()
+    LossGradient(coal, loss, None).compute(x0, bounds)
+
+    assert not calls
+

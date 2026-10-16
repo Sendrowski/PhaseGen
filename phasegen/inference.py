@@ -245,8 +245,9 @@ class Inference(Serializable):
             <phasegen.distributions.Coalescent.tree_height>` and :attr:`Coalescent.total_branch_length
             <phasegen.distributions.Coalescent.total_branch_length>`, and :meth:`Coalescent.moment()
             <phasegen.distributions.Coalescent.moment>` of order one, each with at most one reward and no time window.
-            This costs a few loss evaluations whatever the number of parameters. Any other loss is differentiated by
-            finite differences. With ``'finite_differences'``, every gradient is a finite difference of the loss.
+            This costs a few loss evaluations whatever the number of parameters, which may enter the demography, the
+            parameters of the coalescent model or the recombination rate. Any other loss is differentiated by finite
+            differences. With ``'finite_differences'``, every gradient is a finite difference of the loss.
         :raises ValueError: If a lower bound exceeds its upper bound, ``x0`` lies outside the bounds or does not specify
             exactly the parameters in ``bounds``, ``method_mle`` is not one of the supported methods, ``gradient`` is not
             one of the supported values, or ``n_runs`` or ``n_bootstraps`` is less than 1.

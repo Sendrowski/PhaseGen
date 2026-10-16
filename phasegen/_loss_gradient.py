@@ -11,7 +11,7 @@ from typing import Any, Callable, Dict, List, Optional, Set, Tuple
 import numpy as np
 
 from .distributions import Coalescent
-from .distributions._gradient import DemographyGradient, MeanGradient
+from .distributions._gradient import DemographyGradient, MeanGradient, _GeneratorBasis
 
 #: The distributions of a :class:`~phasegen.distributions.Coalescent` whose first moments the gradient supports.
 _DISTRIBUTIONS = ('sfs', 'fsfs', 'jsfs', 'tree_height', 'total_branch_length')
@@ -213,8 +213,9 @@ class LossGradient:
     :math:`\partial L / \partial \mu_j` is a central difference of the loss, which needs no model evaluation, the
     contraction :math:`\sum_j (\partial L / \partial \mu_j)\, \partial \mu_j / \partial q_k` is one adjoint pass of
     :class:`~phasegen.distributions._gradient.MeanGradient` per distribution carrying the occupation times, and
-    :math:`\partial q_k / \partial \theta_i` is a central difference of the demography the callback builds. A parameter
-    that changes the coalescent beyond its demography is differentiated by a central difference of the loss.
+    :math:`\partial q_k / \partial \theta_i` is a central difference of the demography the callback builds. The
+    quantities :math:`q_k` include the parameters of the coalescent model and the recombination rate. A parameter that
+    changes the coalescent otherwise is differentiated by a central difference of the loss.
     """
 
     def __init__(self, get_dist: Callable[..., Coalescent], loss: Callable[[Coalescent, Any], float],
@@ -426,7 +427,7 @@ class LossGradient:
             up, down = min(x + h, hi), max(x - h, lo)
 
             coals = [self.get_dist(**(params | {key: y})) for y in (up, down)]
-            if aligned and all(self._same_but_demography(coal, c) for c in coals):
+            if aligned and all(self._same_but_rates(coal, c, grad_q) for c in coals):
                 try:
                     q = [self._quantities(c, indices, grad_q) for c in coals]
                 except (IndexError, KeyError):
@@ -434,7 +435,9 @@ class LossGradient:
 
                 # a perturbation that moves an epoch across an index changes the quantities by far more than the step
                 if q is not None and all(np.all(np.abs(qi - q0) <= 1e-3 * (np.abs(q0) + 1)) for qi in q):
-                    out[i] = float(flat @ (q[0] - q[1])) / (up - down)
+                    theta = [_GeneratorBasis.parameters(c.model, c.locus_config) for c in coals]
+                    rates = sum(float(g) * (theta[0][name] - theta[1][name]) for name, g in grad_q.parameters.items())
+                    out[i] = (float(flat @ (q[0] - q[1])) + rates) / (up - down)
                     continue
 
             losses = [float(self.loss(c, self.observation)) for c in coals]
@@ -457,13 +460,27 @@ class LossGradient:
         return DemographyGradient.quantities([epochs[k] for k in indices], grad_q.pops, grad_q.pairs)
 
     @staticmethod
-    def _same_but_demography(a: Coalescent, b: Coalescent) -> bool:
+    def _same_but_rates(a: Coalescent, b: Coalescent, grad_q: DemographyGradient) -> bool:
         """
-        Whether two coalescents differ at most in their demography.
+        Whether two coalescents differ at most in their demography and in the parameters of the coalescent model and
+        the recombination rate that a gradient holds.
 
         :param a: The first coalescent.
         :param b: The second coalescent.
+        :param grad_q: The gradient.
         :return: Whether they do.
         """
-        return all(getattr(a, k) == getattr(b, k)
-                   for k in ('lineage_config', 'locus_config', 'model', 'start_time', 'end_time'))
+        if not all(getattr(a, k) == getattr(b, k) for k in ('lineage_config', 'start_time', 'end_time')):
+            return False
+
+        if type(a.model) is not type(b.model) or getattr(a.model, 'scale_time', None) != getattr(
+                b.model, 'scale_time', None):
+            return False
+
+        if (a.locus_config.n, a.locus_config.n_unlinked) != (b.locus_config.n, b.locus_config.n_unlinked):
+            return False
+
+        theta_a = _GeneratorBasis.parameters(a.model, a.locus_config)
+        theta_b = _GeneratorBasis.parameters(b.model, b.locus_config)
+
+        return all(theta_a[name] == theta_b[name] or name in grad_q.parameters for name in theta_a)

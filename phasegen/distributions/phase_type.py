@@ -166,8 +166,10 @@ class PhaseTypeDistribution(CallableDistributionFunctions, MomentEvaluator, Mome
 
         where :math:`N_{d,e}` is the population size of deme :math:`d` in epoch :math:`e`, :math:`m_{ab,e}` the
         migration rate from deme :math:`a` to deme :math:`b` in epoch :math:`e` and :math:`t_e` the start time of
-        epoch :math:`e`. The derivatives are those of the occupation-time recursion of the moment, computed backwards
-        through the epochs at the cost of a few moment evaluations per entry, whatever the number of epochs.
+        epoch :math:`e`, and by the continuous parameters of the coalescent model and the recombination rate (see
+        :attr:`DemographyGradient.parameters <phasegen.distributions.DemographyGradient.parameters>`). The derivatives
+        are those of the occupation-time recursion of the moment, computed backwards through the epochs at the cost of
+        a few moment evaluations per entry, whatever the number of epochs.
 
         ::
 
