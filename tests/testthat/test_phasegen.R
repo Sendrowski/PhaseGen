@@ -117,12 +117,12 @@ test_that("persp() draws a joint SFS whose facet heights agree to round-off", {
   expect_error(plot(coal$jsfs$mean, pops = c("pop_0", "pop_3")), "Population names")
 })
 
-test_that("the declared Python version constraints admit Python 3.10 to 3.13", {
+test_that("the declared Python version constraints admit Python 3.11 to 3.13", {
   checkers <- utils::getFromNamespace("as_version_constraint_checkers", "reticulate")(
     reticulate::py_require()$python_version
   )
 
-  for (version in c("3.10.4", "3.11.0", "3.12.1", "3.13.2")) {
+  for (version in c("3.11.0", "3.12.1", "3.13.2")) {
     expect_true(all(vapply(checkers, function(check) check(version), logical(1))), label = version)
   }
 })
