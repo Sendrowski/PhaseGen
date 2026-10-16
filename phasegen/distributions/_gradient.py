@@ -12,6 +12,7 @@ import scipy.linalg as sla
 import scipy.sparse as sp
 from scipy.sparse.linalg._expm_multiply import LazyOperatorNormInfo, _exact_1_norm, _exact_inf_norm, _fragment_3_1
 
+from .._blas import BlasThreadLimit
 from ..demography import Epoch
 
 if TYPE_CHECKING:
@@ -453,6 +454,7 @@ class MeanGradient:
         """
         return logging.getLogger(f"phasegen.{type(self).__name__}")
 
+    @BlasThreadLimit()
     def compute(self, reward: np.ndarray) -> Optional[Tuple[float, 'DemographyGradient']]:
         """
         The mean and its gradient.
@@ -465,6 +467,7 @@ class MeanGradient:
 
         return None if out is None else out[0]
 
+    @BlasThreadLimit()
     def compute_columns(self, rewards: np.ndarray) -> Optional[List[Tuple[float, 'DemographyGradient']]]:
         """
         The means and gradients of several rewards, sharing the forward pass, the factorization of the last epoch and

@@ -24,6 +24,7 @@ sfsutils-popgen = [
     { version = "^0.1.0b2", python = "<3.11" },
 ]
 numba = ">=0.59"
+threadpoolctl = ">=3.5"
 
 # problems installing msprime with poetry
 [tool.poetry.group.dev.dependencies]

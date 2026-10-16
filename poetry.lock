@@ -3653,6 +3653,18 @@ files = [
 widechars = ["wcwidth"]
 
 [[package]]
+name = "threadpoolctl"
+version = "3.7.0"
+description = "threadpoolctl"
+optional = false
+python-versions = ">=3.9"
+groups = ["main"]
+files = [
+    {file = "threadpoolctl-3.7.0-py3-none-any.whl", hash = "sha256:cd8b60b5641b45c67bbf73c64c843235fc2d8a480c87389f52f5dbee893b86be"},
+    {file = "threadpoolctl-3.7.0.tar.gz", hash = "sha256:61348cfb77d53b9242e0017029244b559b810c142ced65b4e21eeca1843959a7"},
+]
+
+[[package]]
 name = "tomli"
 version = "2.4.1"
 description = "A lil' TOML parser"
@@ -3844,4 +3856,4 @@ type = ["pytest-mypy (>=1.0.1) ; platform_python_implementation != \"PyPy\""]
 [metadata]
 lock-version = "2.1"
 python-versions = ">=3.10,<3.14"
-content-hash = "15ab4a707c7c4caa04fac4cc1f46d6e34879fbbff0443f71778340418c5710b0"
+content-hash = "ea3c919a245a598658160da3d78b6e4c0ed98aab96168a02e1313c6c248ae92c"

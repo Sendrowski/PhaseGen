@@ -18,6 +18,7 @@ from scipy.optimize import OptimizeResult
 from tqdm import tqdm
 
 from .demography import Demography
+from ._blas import BlasThreadLimit
 from .gradient import Gradient, _DISTRIBUTIONS
 from .distributions import Coalescent
 from .errors import ModelError
@@ -640,15 +641,16 @@ class Inference(Serializable):
         def to_y(x: np.ndarray) -> np.ndarray:
             return np.where(log, np.log(np.where(log, x, 1)), x)
 
-        # perform the optimization
-        result: OptimizeResult = opt.minimize(
-            fun=fun,
-            x0=to_y(np.array(list(x0.values()), dtype=float)),
-            method=method_mle,
-            bounds=[(np.log(lo), np.log(hi)) if is_log else (lo, hi) for (lo, hi), is_log in zip(bounds, log)],
-            jac=jac,
-            options=opts
-        )
+        # perform the optimization, whose BLAS calls are limited like those of the moments
+        with BlasThreadLimit():
+            result: OptimizeResult = opt.minimize(
+                fun=fun,
+                x0=to_y(np.array(list(x0.values()), dtype=float)),
+                method=method_mle,
+                bounds=[(np.log(lo), np.log(hi)) if is_log else (lo, hi) for (lo, hi), is_log in zip(bounds, log)],
+                jac=jac,
+                options=opts
+            )
         result.x = to_x(result.x)
 
         if show_pbar:

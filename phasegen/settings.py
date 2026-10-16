@@ -70,6 +70,12 @@ class Settings(metaclass=_SettingsMeta):
     #: transforms of reward distributions. The result is unchanged. Set to 0 or very large to force either path.
     expm_action_min_dim: int = 1500
 
+    #: Number of threads of the BLAS libraries while moments and their gradients are evaluated and while an inference
+    #: optimizes, restored afterwards, or ``None`` to leave them unchanged. The matrices of a moment are small enough that several threads gain little,
+    #: and where NumPy and SciPy each load their own OpenBLAS, as their wheels do, several threads in both stall the
+    #: evaluation by up to several hundred times.
+    blas_threads: Optional[int] = 1
+
     #: Whether to evaluate moments until absorption with the Green's matrix of the unbounded last epoch, see
     #: :meth:`PhaseTypeDistribution.moment() <phasegen.distributions.PhaseTypeDistribution.moment>`. Set to ``False``
     #: to use the matrix exponential up to the estimated absorption time.

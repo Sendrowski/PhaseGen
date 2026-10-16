@@ -3,6 +3,10 @@ channels:
   - conda-forge
 dependencies:
   - python=3.12
+  # from conda-forge rather than the pip wheels, which bundle two OpenBLAS libraries that stall each other when
+  # multi-threaded; the versions match the requirements files, which pip then finds satisfied
+  - numpy=2.4.6
+  - scipy=1.17.1
   - dadi
   - numba
   - graphviz

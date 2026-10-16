@@ -9,7 +9,7 @@ Changelog
 - Add standard errors from the observed Fisher information with :meth:`Inference.fisher_information() <phasegen.inference.Inference.fisher_information>`, :meth:`Inference.covariance() <phasegen.inference.Inference.covariance>` and :meth:`Inference.standard_errors() <phasegen.inference.Inference.standard_errors>`, and propagate them to the population size and migration rate trajectories with :meth:`Inference.trajectory_intervals() <phasegen.inference.Inference.trajectory_intervals>` and ``interval='fisher'`` in the trajectory plots.
 - Optimize parameters as their logarithms with :attr:`Inference.log_scale <phasegen.inference.Inference.log_scale>`.
 - Bin each parameter of :meth:`Inference.plot_bootstraps() <phasegen.inference.Inference.plot_bootstraps>` over its own range.
-- Run functions defined in scripts and notebooks in parallel workers started by ``spawn``, as on macOS, keep every sample of the empirical joint SFS, and warn about a large state space once per type and size.
+- Run functions defined in scripts and notebooks in parallel workers started by ``spawn``, as on macOS, keep every sample of the empirical joint SFS, warn about a large state space once per type and size, and limit the BLAS threads while moments, their gradients and inferences are evaluated (:attr:`Settings.blas_threads <phasegen.settings.Settings.blas_threads>`), since the NumPy and SciPy wheels each load an OpenBLAS whose thread pools stall each other.
 
 [2.1.0] - 2026-10-12
 ^^^^^^^^^^^^^^^^^^^^

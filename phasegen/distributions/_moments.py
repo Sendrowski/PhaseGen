@@ -17,6 +17,7 @@ import scipy.sparse.csgraph as csg
 from ..coalescent_models import StandardCoalescent
 from ..demography import Epoch
 from ..errors import ModelError
+from .._blas import BlasThreadLimit
 from ..expm import Backend
 from ..rewards import Reward, CustomReward, UnfoldedSFSReward, FoldedSFSReward, UnitReward, CombinedReward
 from ..settings import Settings
@@ -667,6 +668,7 @@ class MomentEvaluator:
                 epoch, rates.min(), rates.max()
             )
 
+    @BlasThreadLimit()
     def accumulate(
             self,
             k: int,
