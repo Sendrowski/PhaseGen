@@ -5,7 +5,7 @@ Changelog
 
 [Unreleased]
 ^^^^^^^^^^^^
-- Require Python 3.11 or newer.
+- Require Python 3.11 or newer and support Python 3.14.
 
 [2.1.0] - 2026-10-12
 ^^^^^^^^^^^^^^^^^^^^

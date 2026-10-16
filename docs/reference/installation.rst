@@ -18,7 +18,7 @@ Installation
 
          pip install phasegen
 
-      ``phasegen`` is compatible with Python 3.11 through 3.13.
+      ``phasegen`` is compatible with Python 3.11 through 3.14.
 
       The ``msprime``-backed distributions (:meth:`Coalescent.to_msprime() <phasegen.distributions.Coalescent.to_msprime>`, :class:`~phasegen.distributions.MsprimeCoalescent`) require ``msprime``, which is installed separately:
 
@@ -79,7 +79,7 @@ Installation
 
          pg <- load_phasegen()
 
-      ``phasegen`` is compatible with Python 3.11 through 3.13.
+      ``phasegen`` is compatible with Python 3.11 through 3.14.
 
       An existing Python installation can be used instead by installing ``phasegen`` as described under the Python tab and selecting its environment before loading the module:
 
