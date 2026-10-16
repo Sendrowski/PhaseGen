@@ -427,3 +427,178 @@ def test_inference_rejects_unknown_gradient():
     with pytest.raises(ValueError, match='gradient'):
         _inference(lambda N: pg.Coalescent(n=3), _sfs_loss, {'N': 1}, {'N': (0.1, 2)}, None, gradient='adjoint')
 
+
+def _generator(scale: float) -> 'sp.csr_matrix':
+    """The rate matrix of the block-counting state space of a sample of 12, scaled."""
+    import scipy.sparse as sp
+    return sp.csr_matrix(pg.Coalescent(n=12).sfs.state_space.S * scale)
+
+
+@pytest.mark.parametrize('scale, shift, steps', [
+    (0.01, 0, 1),  # a single step
+    (0.1, 0, 2),  # Taylor series truncated early
+    (20, 0, 100),  # many steps
+    (1, -50, 8),  # large diagonal shift
+])
+def test_taped_action_matches_scipy_expm_multiply(scale, shift, steps):
+    """The taped action equals scipy's expm_multiply, whose parameters it takes, from a single step to many."""
+    import scipy.sparse as sp
+    from scipy.sparse.linalg import expm_multiply
+    from phasegen.distributions._gradient import _TapedAction
+
+    M = (_generator(scale) + shift * sp.identity(77)).tocsr()
+    x = np.random.default_rng(1).uniform(0, 1, 77)
+    action = _TapedAction(M)
+    y, checkpoints = action.apply(x)
+
+    assert action.steps >= steps
+    np.testing.assert_allclose(y, expm_multiply(M, x), rtol=1e-12, atol=1e-14 * np.abs(y).max())
+
+    if scale == 0.1:
+        assert any(n_terms < action.degree + 1 for _, n_terms in checkpoints)
+
+
+@pytest.mark.parametrize('scale, shift', [(0.01, 0), (0.1, 0), (5, 0), (1, -50)])
+def test_taped_action_reverse_is_the_frechet_derivative(scale, shift):
+    """The reverse pass gives the adjoint of the input, the transposed action, and the derivative by every entry of
+    the matrix, the Frechet derivative of the exponential, both for a contraction with a vector."""
+    import scipy.sparse as sp
+    from scipy.linalg import expm, expm_frechet
+    from phasegen.distributions._gradient import _TapedAction
+
+    M = (_generator(scale) + shift * sp.identity(77)).tocsr()
+    rng = np.random.default_rng(2)
+    x, lam = rng.uniform(0, 1, 77), rng.uniform(-1, 1, 77)
+    coo = M.tocoo()
+    pick = rng.choice(len(coo.row), 25, replace=False)
+    rows, cols = coo.row[pick], coo.col[pick]
+
+    action = _TapedAction(M)
+    _, checkpoints = action.apply(x)
+    dx, dM = action.reverse(lam, checkpoints, rows, cols)
+
+    dense = M.toarray()
+    np.testing.assert_allclose(dx, expm(dense).T @ lam, rtol=1e-10, atol=1e-12 * np.abs(dx).max())
+
+    frechet = []
+    for r, c in zip(rows, cols):
+        E = np.zeros_like(dense)
+        E[r, c] = 1
+        frechet.append(lam @ expm_frechet(dense, E, compute_expm=False) @ x)
+    frechet = np.array(frechet)
+    np.testing.assert_allclose(dM, frechet, rtol=1e-9, atol=1e-11 * np.abs(frechet).max())
+
+
+def test_taped_action_of_a_multiple_of_the_identity():
+    """A multiple of the identity, whose shifted matrix vanishes, is exponentiated without Taylor terms."""
+    import scipy.sparse as sp
+    from phasegen.distributions._gradient import _TapedAction
+
+    action = _TapedAction(sp.identity(5, format='csr') * -0.7)
+    x = np.arange(1.0, 6.0)
+    y, checkpoints = action.apply(x)
+    dx, dM = action.reverse(np.ones(5), checkpoints, np.arange(5), np.arange(5))
+
+    assert action.degree == 0
+    np.testing.assert_allclose(y, np.exp(-0.7) * x, rtol=1e-15)
+    np.testing.assert_allclose(dx, np.exp(-0.7) * np.ones(5), rtol=1e-15)
+
+
+def _state_spaces():
+    """State spaces of every type, under each coalescent model where it applies."""
+    two_demes = dict(pop_sizes={'a': 1, 'b': 1}, migration_rates={('a', 'b'): 0.5, ('b', 'a'): 0.5})
+    out = []
+    for name, model in [('kingman', None), ('beta', pg.BetaCoalescent(alpha=1.5)),
+                        ('dirac', pg.DiracCoalescent(psi=0.5, c=2))]:
+        kw = {} if model is None else dict(model=model)
+        out += [
+            pytest.param(lambda kw=kw: pg.Coalescent(n=6, **kw).tree_height.state_space, id=f'{name}-lineages'),
+            pytest.param(lambda kw=kw: pg.Coalescent(n=6, **kw).sfs.state_space, id=f'{name}-blocks'),
+            pytest.param(lambda kw=kw: pg.Coalescent(n={'a': 2, 'b': 2}, demography=pg.Demography(**two_demes),
+                                                     **kw).jsfs.state_space, id=f'{name}-joint'),
+        ]
+
+    out.append(pytest.param(
+        lambda: pg.Coalescent(n=4, loci=2, recombination_rate=0.7).tree_height.state_space, id='kingman-two-loci'))
+
+    return out
+
+
+@pytest.mark.parametrize('get_state_space', _state_spaces())
+def test_generator_basis_reproduces_the_generator(get_state_space):
+    """The affine basis rebuilds the generator at random population sizes and migration rates, for every coalescent
+    model and state space, and returns the state space to its epoch."""
+    from phasegen.demography import Epoch
+    from phasegen.distributions._gradient import _GeneratorBasis
+
+    ss = get_state_space()
+    epoch = ss.epoch
+    basis = _GeneratorBasis(ss)
+    model = ss.model
+    rng = np.random.default_rng(3)
+
+    assert ss.epoch == epoch
+
+    try:
+        for _ in range(5):
+            sizes = {p: float(np.exp(rng.normal(0, 1))) for p in basis.pops}
+            rates = {pair: float(np.exp(rng.normal(-1, 1))) for pair in basis.pairs}
+            ss.update_epoch(Epoch(pop_sizes=sizes, migration_rates=rates))
+            S = np.asarray(ss.S.todense() if hasattr(ss.S, 'todense') else ss.S)
+
+            rebuilt = basis.K.toarray()
+            for p in basis.pops:
+                rebuilt = rebuilt + basis.C[p].toarray() / model._get_timescale(sizes[p])
+            for pair in basis.pairs:
+                rebuilt = rebuilt + rates[pair] * basis.M[pair].toarray()
+
+            np.testing.assert_allclose(rebuilt, S, rtol=0, atol=1e-12 * np.abs(S).max())
+    finally:
+        ss.update_epoch(epoch)
+
+
+@pytest.mark.parametrize('model', [None, pg.BetaCoalescent(alpha=1.5), pg.DiracCoalescent(psi=0.5, c=2)],
+                         ids=['kingman', 'beta', 'dirac'])
+def test_generator_basis_size_derivative(model):
+    """The derivative of the generator by a population size, the coefficient times the coalescence part, against
+    central differences of the generator."""
+    from phasegen.demography import Epoch
+    from phasegen.distributions._gradient import _GeneratorBasis
+
+    ss = pg.Coalescent(n=5, **({} if model is None else dict(model=model))).sfs.state_space
+    epoch = ss.epoch
+    basis = _GeneratorBasis(ss)
+
+    def S(N):
+        ss.update_epoch(Epoch(pop_sizes={'pop_0': N}))
+        return np.asarray(ss.S, dtype=float).copy()
+
+    try:
+        N = 1.7
+        numeric = np.vectorize(lambda i, j: _richardson(lambda n: S(n)[i, j], N))(*np.indices(S(N).shape))
+        exact = basis.coefficients(Epoch(pop_sizes={'pop_0': N}))['pop_0'] * basis.C['pop_0'].toarray()
+    finally:
+        ss.update_epoch(epoch)
+
+    np.testing.assert_allclose(exact, numeric, rtol=0, atol=1e-8 * np.abs(numeric).max())
+
+
+def test_generator_basis_pattern_holds_migration_at_rate_zero():
+    """The union pattern of the transient parts holds the migration entries, which a generator at a migration rate of
+    zero lacks."""
+    from phasegen.demography import Epoch
+    from phasegen.distributions._gradient import _GeneratorBasis
+
+    ss = pg.Coalescent(n={'a': 2, 'b': 2}, demography=pg.Demography(pop_sizes={'a': 1, 'b': 1})).tree_height.state_space
+    basis = _GeneratorBasis(ss)
+    idx_t = np.arange(ss.S.shape[0] - 1)
+    _, M, rows, cols = basis.transient(idx_t)
+    pattern = set(zip(rows.tolist(), cols.tolist()))
+
+    ss.update_epoch(Epoch(pop_sizes={'a': 1, 'b': 1}))
+    without = set(zip(*np.nonzero(np.asarray(ss.S)[np.ix_(idx_t, idx_t)])))
+
+    for X in M.values():
+        entries = set(zip(*[a.tolist() for a in X.nonzero()]))
+        assert entries <= pattern
+        assert entries - without
