@@ -615,7 +615,7 @@ class MomentEvaluator:
 
         A = sp.csr_matrix((tau * gen + (tau / lamb) * rew, Vt.indices, Vt.indptr), shape=Vt.shape)
 
-        return Backend.expm_multiply(A, w), lamb
+        return Backend.expm_multiply(A, w, blocks=k + 1), lamb
 
     def _rate_spread(self, epoch: 'Epoch', duration: float = np.inf) -> float:
         r"""
@@ -1621,7 +1621,7 @@ class MomentEvaluator:
         for lamb_e, op in steps:
             z[:(m - 1) * n] *= (lamb / lamb_e) ** k
             lamb = self._rebase(z[(m - 1) * n:], lamb, lamb_e, k, n)
-            z = Backend.expm_multiply(op, z) if use_action else next(exps) @ z
+            z = Backend.expm_multiply(op, z, blocks=k + m) if use_action else next(exps) @ z
 
         # the entry distribution propagated to the start time with the plain generator
         alpha_ext = np.zeros((k + 1) * n)
@@ -1804,7 +1804,9 @@ class MomentEvaluator:
                     [sp.csc_matrix(S), sp.identity(n, format='csc')],
                     [None, sp.csc_matrix((n, n))],
                 ], format='csc')
-                w = spla.expm_multiply((aug * tau).T.tocsc(), np.concatenate([p, m]))
+                w = Backend.expm_multiply(
+                    (aug * tau).T.tocsc(), np.concatenate([p, m]), action=spla.expm_multiply, blocks=2
+                )
             else:
                 aug = np.zeros((2 * n, 2 * n))
                 aug[:n, :n] = np.asarray(S.todense()) if sp.issparse(S) else np.asarray(S)
@@ -1937,9 +1939,11 @@ class MomentEvaluator:
                 ], format='csc')
                 # [p, 0] exp(aug tau) = (exp((aug tau)^T) [p; 0])^T, so apply the action to the transposed generator
                 if tape is None:
-                    w = spla.expm_multiply((aug * tau).T.tocsc(), np.concatenate([p, np.zeros(nt)]))
+                    w = Backend.expm_multiply(
+                        (aug * tau).T.tocsc(), np.concatenate([p, np.zeros(nt)]), action=spla.expm_multiply, blocks=2
+                    )
                 else:
-                    action = _TapedAction((aug * tau).T.tocsr())
+                    action = _TapedAction((aug * tau).T.tocsr(), blocks=2)
                     step = _OccupationStep(epoch, idx_t, tau, S, np.concatenate([p, m]), action=action)
                     w, step.checkpoints = action.apply(np.concatenate([p, np.zeros(nt)]))
                     tape.append(step)

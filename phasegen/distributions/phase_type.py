@@ -11,7 +11,7 @@ import numpy as np
 import scipy.linalg as sla
 import scipy.sparse as sp
 from ..demography import Demography, Epoch
-from ..expm import Backend
+from ..expm import Backend, _GrowthBound
 from ..errors import ModelError
 from ..lineage import LineageConfig
 from ..locus import LocusConfig
@@ -1497,11 +1497,12 @@ class TreeHeightDistribution(PhaseTypeDistribution, DensityAwareDistribution):
         """
         Advance the state distribution ``w`` by ``tau`` within the current epoch, by the dense exponential below
         ``Settings.expm_action_min_dim`` states and by the sparse action at or above it. A step whose exponent
-        exceeds ``_max_step_norm`` is split into steps of doubling length, and propagation ends once a step at least as
-        long as the slowest mean exit time of a transient state leaves the transient entries unchanged. The absorbing
-        states never feed the transient ones, so those entries are then stationary, and the CDF and density they carry
-        are final. This makes ``tau`` of any size a finite number of exponentials. An infinite ``tau`` takes the limit
-        of ``_limit``.
+        exceeds ``_max_step_norm`` is split into steps of doubling length. On the dense path, propagation ends once a
+        step at least as long as the slowest mean exit time of a transient state leaves the transient entries
+        unchanged. The absorbing states never feed the transient ones, so those entries are then stationary, and the
+        CDF and density they carry are final. On the sparse path, it ends once the vector is stationary over the
+        remaining time by the test of :meth:`Backend.expm_multiply() <phasegen.expm.Backend.expm_multiply>`. This makes
+        ``tau`` of any size a finite number of exponentials. An infinite ``tau`` takes the limit of ``_limit``.
 
         :param w: The row vector to advance, or a matrix whose rows are advanced.
         :param tau: Time to advance by, within the current epoch.
@@ -1517,22 +1518,36 @@ class TreeHeightDistribution(PhaseTypeDistribution, DensityAwareDistribution):
         S, dense, h, t_exit = self._per_epoch(memo, 'step', self._step_constants)
         h = tau if h is None else h
 
+        if dense is None:
+            # ``expm_multiply`` computes ``exp(a) @ b``, so the left action ``w @ exp(S tau)`` is ``exp(S^T tau) @ w``
+            St, abs_St, growth = self._per_epoch(memo, 'action', self._action_constants)
+
         while tau > 0:
             step = min(tau, h)
 
-            # ``expm_multiply`` computes ``exp(a) @ b``, so the left action ``w @ exp(S tau)`` is ``exp(S^T tau) @ w``
             if dense is None:
-                v = Backend.expm_multiply((sp.csr_matrix(S) * step).T.tocsr(), w)
+                w = Backend.expm_multiply(St * step, w)
+                tau, h = tau - step, 2 * h
+                stationary = tau > 0 and Backend._stationary(St, abs_St, w, tau, growth(tau))
             else:
                 v = w @ expm(dense * step)
-
-            stationary = step >= t_exit and np.array_equal(v * self._e, w * self._e)
-            w, tau, h = v, tau - step, 2 * h
+                stationary = step >= t_exit and np.array_equal(v * self._e, w * self._e)
+                w, tau, h = v, tau - step, 2 * h
 
             if stationary:
                 break
 
         return w
+
+    def _action_constants(self) -> tuple:
+        """
+        The transposed rate matrix of the current epoch, its entrywise absolute value and the bound on the growth of
+        its exponential, which the sparse path of ``_propagate`` reads.
+        """
+        St = sp.csr_matrix(self.state_space.S).T.tocsr()
+        abs_St = abs(St)
+
+        return St, abs_St, _GrowthBound(St, abs_St)
 
     def _limit(self, w: np.ndarray) -> np.ndarray:
         r"""

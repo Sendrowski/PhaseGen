@@ -938,6 +938,52 @@ def test_gradient_by_beta_alpha_close_to_two():
                                                                   rel=1e-5)
 
 
+def test_sfs_mean_and_gradient_by_beta_alpha_close_to_two_on_the_action_path(monkeypatch):
+    """The SFS mean and its gradient at 2 - alpha = 1e-7 on the sparse action, within a budget of Taylor steps, against
+    the dense exponential. Regression: the Beta time scale vanishes as alpha approaches 2, so the step norm of each
+    finite epoch grew as 1 / (2 - alpha), and the action took about 7.5e6 steps of up to 55 terms at n = 6 although the
+    mass was absorbed early in the epoch; neither the mean nor the gradient finished."""
+    from scipy.sparse.linalg import _expm_multiply
+    from phasegen.distributions._gradient import _TapedAction
+
+    budget = {'terms': 0}
+
+    def spend(n):
+        budget['terms'] += n
+        if budget['terms'] > 10 ** 6:
+            raise AssertionError('Taylor terms over budget')
+
+    core, terms = _expm_multiply._expm_multiply_simple_core, _TapedAction._terms
+
+    def counted_core(A, B, t, mu, m_star, s, *args, **kwargs):
+        spend(m_star * s)
+        return core(A, B, t, mu, m_star, s, *args, **kwargs)
+
+    def counted_terms(self, b, n_terms=None):
+        out = terms(self, b, n_terms)
+        spend(len(out))
+        return out
+
+    def coal():
+        return pg.Coalescent(n=6, model=pg.BetaCoalescent(alpha=2 - 1e-7), demography=pg.Demography(
+            pop_sizes={'pop_0': {0: 1, 0.5: 2, 1.5: 0.5}}))
+
+    monkeypatch.setattr(Settings, 'expm_action_min_dim', 10 ** 9)
+    dense = coal().sfs
+    mean, grad = dense.mean.data, dense.gradient()
+
+    monkeypatch.setattr(Settings, 'expm_action_min_dim', 0)
+    monkeypatch.setattr(_expm_multiply, '_expm_multiply_simple_core', counted_core)
+    monkeypatch.setattr(_TapedAction, '_terms', counted_terms)
+    action = coal().sfs
+
+    np.testing.assert_allclose(action.mean.data, mean, rtol=1e-10)
+    g = action.gradient()
+    np.testing.assert_allclose(g.pop_sizes, grad.pop_sizes, rtol=1e-6, atol=1e-12 * np.abs(grad.pop_sizes).max())
+    np.testing.assert_allclose(g.parameters['alpha'], grad.parameters['alpha'], rtol=1e-6)
+    assert budget['terms'] > 0
+
+
 def test_gradient_rejects_a_single_reward():
     """A bare reward raises the ValueError that asks to wrap it in a list. Regression: tuple() of the reward raised a
     TypeError on both the coalescent and the distribution."""

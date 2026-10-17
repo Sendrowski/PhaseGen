@@ -14,6 +14,7 @@ from scipy.sparse.linalg._expm_multiply import LazyOperatorNormInfo, _exact_1_no
 
 from .._blas import BlasThreadLimit
 from ..demography import Epoch
+from ..expm import Backend, _ACTION_STEP_NORM, _GrowthBound
 
 if TYPE_CHECKING:
     from ..coalescent_models import CoalescentModel
@@ -61,14 +62,18 @@ class _TapedAction:
     :math:`\mathbf{x}`, by the truncated Taylor algorithm of Al-Mohy and Higham (2011, Algorithm 3.2), with the degree,
     the number of steps and the diagonal shift :math:`\mu` chosen as by
     :func:`scipy.sparse.linalg.expm_multiply`, recording the input of every step for the reverse pass :meth:`reverse`,
-    which recomputes the Taylor terms one step at a time.
+    which recomputes the Taylor terms one step at a time. Above a 1-norm of ``_ACTION_STEP_NORM`` the steps end once
+    the vector is stationary over the remaining ones, tested as in :meth:`Backend.expm_multiply()
+    <phasegen.expm.Backend.expm_multiply>`.
     """
 
-    def __init__(self, M: sp.csr_matrix) -> None:
+    def __init__(self, M: sp.csr_matrix, blocks: int = 1) -> None:
         """
         Choose the degree and the number of steps of the action.
 
         :param M: The sparse matrix to exponentiate.
+        :param blocks: The number of equal diagonal blocks of ``M`` outside of which it is strictly block triangular,
+            see :meth:`Backend.expm_multiply() <phasegen.expm.Backend.expm_multiply>`.
         """
         n = M.shape[0]
 
@@ -86,6 +91,16 @@ class _TapedAction:
 
         self._Bt = self.B.T.tocsr()
 
+        #: The matrix, its entrywise absolute value, the bound on the growth of its exponential and the steps after
+        #: which :meth:`apply` tests stationarity, at the fractions of :meth:`Backend._step_fractions()
+        #: <phasegen.expm.Backend._step_fractions>` when the norm of the matrix exceeds ``_ACTION_STEP_NORM``.
+        self._M, self._abs_M, self._growth, self._checks = M, None, None, set()
+        norm = _exact_1_norm(M)
+        if np.isfinite(norm) and norm > _ACTION_STEP_NORM:
+            self._abs_M = abs(M)
+            self._growth = _GrowthBound(M, self._abs_M, blocks)
+            self._checks = {int(np.ceil(f * self.steps)) for f in Backend._step_fractions(norm)} - {self.steps}
+
     def apply(self, x: np.ndarray) -> Tuple[np.ndarray, List[Tuple[np.ndarray, int]]]:
         """
         Apply the action.
@@ -96,10 +111,13 @@ class _TapedAction:
         """
         eta = np.exp(self.mu / self.steps)
         checkpoints, F = [], x
-        for _ in range(self.steps):
+        for i in range(1, self.steps + 1):
             terms = self._terms(F)
             checkpoints.append((F, len(terms)))
             F = eta * np.sum(terms, axis=0)
+            f = (self.steps - i) / self.steps
+            if i in self._checks and Backend._stationary(self._M, self._abs_M, F, f, self._growth(f)):
+                break
 
         return F, checkpoints
 
