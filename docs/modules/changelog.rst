@@ -5,7 +5,7 @@ Changelog
 
 [Unreleased]
 ^^^^^^^^^^^^
-- Require Python 3.11 or newer and support Python 3.14.
+- Require Python 3.11 or newer and support Python 3.14, pandas 3 and jsonpickle 4.
 
 [2.1.0] - 2026-10-12
 ^^^^^^^^^^^^^^^^^^^^
