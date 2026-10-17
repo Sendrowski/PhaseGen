@@ -10,6 +10,7 @@ from typing import Dict, List, Tuple, Iterable, Sequence, Union, TYPE_CHECKING
 import numpy as np
 import scipy.linalg as sla
 import scipy.sparse as sp
+from .._blas import BlasThreadLimit
 from ..demography import Demography, Epoch
 from ..expm import Backend, _GrowthBound
 from ..errors import ModelError
@@ -309,6 +310,7 @@ class PhaseTypeDistribution(CallableDistributionFunctions, MomentEvaluator, Mome
         return copy.deepcopy(self._gradient(k, None if rewards is None else tuple(rewards)))
 
     @cache
+    @BlasThreadLimit()
     def _gradient(self, k: int, rewards: Tuple[Reward, ...] | None) -> 'DemographyGradient':
         """
         The derivatives of :meth:`gradient`, cached.

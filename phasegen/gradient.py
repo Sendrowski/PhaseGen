@@ -9,6 +9,7 @@ from typing import Any, Callable, Dict, List, NamedTuple, Optional, Sequence, Tu
 
 import numpy as np
 
+from ._blas import BlasThreadLimit
 from .distributions import Coalescent, DemographyGradient
 from .distributions._gradient import MeanGradient, _rate_parameters
 
@@ -272,6 +273,7 @@ class Gradient:
 
         return np.asarray(getattr(value, 'data', value), dtype=float)
 
+    @BlasThreadLimit()
     def compute(
             self,
             params: Dict[str, float],

@@ -1734,7 +1734,6 @@ class MomentEvaluator:
 
         return csr[i_epoch]
 
-    @BlasThreadLimit()
     def _mean_occupation_grid(self, end_times: Sequence[float], start_time: float = None) -> np.ndarray:
         """
         Expected time spent in each state of ``E`` over ``[start_time, t]`` for each end time ``t``, threaded across
@@ -1833,7 +1832,6 @@ class MomentEvaluator:
 
         return out[np.argsort(order)]
 
-    @BlasThreadLimit()
     def _occupation_times(
             self,
             cap: float = None,

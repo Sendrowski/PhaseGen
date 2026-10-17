@@ -7,6 +7,7 @@ from abc import ABC, abstractmethod
 from ..caching import cached_property, cache
 from typing import Dict, List, Mapping, NoReturn, Tuple, Iterable, Optional, Sequence, Union, TYPE_CHECKING
 import numpy as np
+from .._blas import BlasThreadLimit
 from ..errors import ModelError
 from ..initial import InitialDistribution
 from ..lineage import LineageConfig
@@ -340,6 +341,7 @@ class SFSDistribution(SpectrumDistribution, ABC):
 
     @_make_hashable
     @cache
+    @BlasThreadLimit()
     def moment(
             self,
             k: int,
@@ -534,6 +536,7 @@ class SFSDistribution(SpectrumDistribution, ABC):
             locus_config=self._layout_loci
         )
 
+    @BlasThreadLimit()
     def accumulate(
             self,
             k: int,
@@ -805,6 +808,7 @@ class SFSDistribution(SpectrumDistribution, ABC):
         )
 
     @cached_property
+    @BlasThreadLimit()
     def cov(self) -> TwoSFS:
         """
         Covariance matrix across site-frequency counts, evaluated as described in
@@ -858,6 +862,7 @@ class SFSDistribution(SpectrumDistribution, ABC):
         return TwoSFS(cov)
 
     @cached_property
+    @BlasThreadLimit()
     def var(self) -> SFS:
         """
         Variance of the branch length of each frequency class, the diagonal of
@@ -1640,6 +1645,7 @@ class JointSFSDistribution(SpectrumDistribution):
         return self._reward_curves('quantile', self._config_items(configs), q, n_points,
                                    'Joint SFS bin quantile functions', 'config')
 
+    @BlasThreadLimit()
     def accumulate(
             self,
             k: int,
@@ -1763,6 +1769,7 @@ class JointSFSDistribution(SpectrumDistribution):
         return self.moment(k=1)
 
     @cached_property
+    @BlasThreadLimit()
     def var(self) -> JointSFS:
         """
         Variance of the branch length of each joint site-frequency spectrum bin, the diagonal of
@@ -1833,6 +1840,7 @@ class JointSFSDistribution(SpectrumDistribution):
         return configs, cov
 
     @cached_property
+    @BlasThreadLimit()
     def cov(self) -> np.ndarray:
         """
         Covariance between the branch lengths of all pairs of (polymorphic) joint SFS bins. Returned as an array of
@@ -2193,6 +2201,7 @@ class TwoLocusSFSDistribution(SpectrumDistribution):
         return jd
 
     @cached_property
+    @BlasThreadLimit()
     def mean(self) -> TwoLocusSFS:
         r"""
         Mean two-locus SFS, :math:`\mathbb{E}[L^0_i\, L^1_j]` for all polymorphic bins, symmetrized over the two loci
