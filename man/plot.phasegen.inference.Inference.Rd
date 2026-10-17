@@ -24,7 +24,8 @@ or \code{"bootstraps"} for the bootstrapped parameters.}
 \item{t}{Times at which to evaluate the trajectories, \code{NULL} for the default.}
 
 \item{interval}{The uncertainty drawn with the trajectories: \code{"bootstrap"} for the bootstrapped trajectories,
-\code{"fisher"} for 95\% intervals from the Fisher information (see \code{Inference$trajectory_intervals()}), or \code{NULL}.}
+\code{"fisher"} or \code{"godambe"} for 95\% intervals from the Fisher information or the Godambe sandwich covariance
+(see \code{Inference$trajectory_intervals()} and \code{Inference$covariance()}), or \code{NULL}.}
 
 \item{kind}{For \code{which = "bootstraps"}, \code{"hist"} for histograms or \code{"kde"} for kernel density estimates.}
 
@@ -38,8 +39,8 @@ or \code{"bootstraps"} for the bootstrapped parameters.}
 A ggplot object.
 }
 \description{
-Draws the inferred demography together with its bootstrapped trajectories or Fisher intervals, or the distributions
-of the bootstrapped parameters.
+Draws the inferred demography together with its bootstrapped trajectories or Fisher or Godambe intervals, or the
+distributions of the bootstrapped parameters.
 }
 \examples{
 \dontrun{

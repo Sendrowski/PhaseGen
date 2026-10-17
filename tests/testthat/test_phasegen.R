@@ -223,3 +223,31 @@ test_that("the trajectory plot draws Fisher intervals", {
 
   expect_true(any(vapply(built$data, function(layer) "ymin" %in% names(layer), logical(1))))
 })
+
+test_that("Godambe standard errors agree with Fisher ones on Poisson bins and draw intervals", {
+  skip_if_not(phasegen_is_installed())
+
+  inf <- pg$Inference(
+    bounds = list(N = c(0.1, 5)),
+    x0 = list(N = 1),
+    coal = function(N) pg$Coalescent(n = 5L, demography = pg$Demography(pop_sizes = list(pop_0 = N))),
+    loss = function(coal, obs) pg$PoissonLikelihood()$compute(
+      observed = obs$polymorphic, modelled = 100 * coal$sfs$mean$polymorphic
+    ),
+    observation = pg$SFS(c(0, 180, 95, 70, 52, 0)),
+    resample = function(obs, rng) pg$SFS(rng$poisson(obs$data) * 1),
+    n_runs = 1L,
+    seed = 1L,
+    pbar = FALSE
+  )
+  inf$run()
+
+  # the ratio has a Monte-Carlo standard deviation of about 1 / sqrt(2 (n - 1)) = 0.05 for n = 200
+  ratio <- inf$standard_errors(method = "godambe", n = 200)[["N"]] / inf$standard_errors()[["N"]]
+  expect_lt(abs(ratio - 1), 0.2)
+
+  p <- plot(inf, which = "pop_sizes", interval = "godambe")
+  built <- ggplot2::ggplot_build(p)
+
+  expect_true(any(vapply(built$data, function(layer) "ymin" %in% names(layer), logical(1))))
+})

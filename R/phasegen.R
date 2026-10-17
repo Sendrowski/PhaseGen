@@ -1279,15 +1279,16 @@ accumulation_plot <- function(source, k, end_times, rewards, center, permute, ti
 
 #' Plot the results of a demographic inference
 #'
-#' Draws the inferred demography together with its bootstrapped trajectories or Fisher intervals, or the distributions
-#' of the bootstrapped parameters.
+#' Draws the inferred demography together with its bootstrapped trajectories or Fisher or Godambe intervals, or the
+#' distributions of the bootstrapped parameters.
 #'
 #' @param x An `Inference` object after `x$run()`.
 #' @param which What to draw: `"demography"` for population sizes and migration rates, `"pop_sizes"`, `"migration"`,
 #'        or `"bootstraps"` for the bootstrapped parameters.
 #' @param t Times at which to evaluate the trajectories, `NULL` for the default.
 #' @param interval The uncertainty drawn with the trajectories: `"bootstrap"` for the bootstrapped trajectories,
-#'        `"fisher"` for 95% intervals from the Fisher information (see `Inference$trajectory_intervals()`), or `NULL`.
+#'        `"fisher"` or `"godambe"` for 95% intervals from the Fisher information or the Godambe sandwich covariance
+#'        (see `Inference$trajectory_intervals()` and `Inference$covariance()`), or `NULL`.
 #' @param kind For `which = "bootstraps"`, `"hist"` for histograms or `"kde"` for kernel density estimates.
 #' @param bins Number of histogram bins. Default is `20`.
 #' @param title Plot title, `NULL` for the default.

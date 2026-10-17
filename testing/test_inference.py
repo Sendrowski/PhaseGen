@@ -2020,3 +2020,165 @@ def test_finite_differences_against_a_zero_migration_bound_reach_the_optimum():
 
     assert inf.loss_inferred < 35.7
     assert inf.params_inferred['m'] == pytest.approx(0.02, rel=1e-2)
+
+
+def _poisson_resample(obs: pg.SFS, rng: np.random.Generator) -> pg.SFS:
+    """A Poisson draw of each bin of an SFS."""
+    return pg.SFS(rng.poisson(obs.data).astype(float))
+
+
+def _negative_binomial_resample(obs: pg.SFS, rng: np.random.Generator) -> pg.SFS:
+    """A negative binomial draw of each bin of an SFS with the bin as mean and four times the bin as variance."""
+    data = np.asarray(obs.data, dtype=float)
+    out = np.zeros_like(data)
+    out[data > 0] = rng.negative_binomial(data[data > 0] / 3, 1 / 4)
+    return pg.SFS(out)
+
+
+def test_godambe_standard_error_matches_fisher_on_independent_poisson_bins():
+    """With independent Poisson bins and means proportional to Ne, the variance of the score equals the observed
+    information, so the Godambe standard error agrees with the Fisher one. The ratio of the two has a Monte-Carlo
+    standard deviation of about 1 / sqrt(2 (n - 1)) = 0.022 for n = 1000, and the tolerance is four of them."""
+    inf = _linear_poisson_inference('exact')
+    inf.resample = _poisson_resample
+    inf.run()
+
+    ratio = inf.standard_errors(method='godambe', n=1000)['Ne'] / inf.standard_errors()['Ne']
+
+    assert ratio == pytest.approx(1, abs=0.09)
+
+
+def test_godambe_standard_error_exceeds_fisher_on_overdispersed_bins():
+    """With bins resampled with four times the Poisson variance, the variance of the score is four times the observed
+    information, so the Godambe standard error is twice the Fisher one, within four Monte-Carlo standard deviations of
+    the ratio for n = 1000, widened for the excess kurtosis of the negative binomial."""
+    inf = _linear_poisson_inference('finite_differences')
+    inf.resample = _negative_binomial_resample
+    inf.run()
+
+    ratio = inf.standard_errors(method='godambe', n=1000)['Ne'] / inf.standard_errors()['Ne']
+
+    assert ratio == pytest.approx(2, abs=0.2)
+
+
+def test_godambe_standard_error_on_a_bound_centres_the_scores():
+    """On a bound, the score of the observation is not zero, while its variance over Poisson draws still equals the
+    observed information. Centring the scores keeps the Godambe standard error at the Fisher one, where the uncentred
+    mean of the outer products would add the square of the score of the observation and inflate it about tenfold."""
+    inf = _linear_poisson_inference('exact')
+    inf.bounds = dict(Ne=(0.1, 0.5))
+    inf.resample = _poisson_resample
+    inf.run()
+
+    assert inf.params_inferred['Ne'] == 0.5
+
+    ratio = inf.standard_errors(method='godambe', n=1000)['Ne'] / inf.standard_errors()['Ne']
+
+    assert ratio == pytest.approx(1, abs=0.09)
+
+
+def test_godambe_covariance_needs_resample_and_a_known_method():
+    """The Godambe covariance draws observations with the resample callback, so it raises without one, and an unknown
+    method raises as well."""
+    inf = _linear_poisson_inference('exact')
+    inf.run()
+
+    with pytest.raises(ValueError, match='resample'):
+        inf.standard_errors(method='godambe')
+
+    with pytest.raises(ValueError, match='method'):
+        inf.covariance(method='sandwich')
+
+    inf.resample = _poisson_resample
+
+    with pytest.raises(ValueError, match='at least 2'):
+        inf.covariance(method='godambe', n=1)
+
+
+def test_godambe_covariance_is_cached_and_reproducible():
+    """The covariance of the score is cached for the same estimate, observation, callback and n, recomputed for
+    another n or observation, and reproducible from the seed across objects."""
+    calls = []
+
+    def resample(obs, rng):
+        calls.append(1)
+        return _poisson_resample(obs, rng)
+
+    def make():
+        inf = _linear_poisson_inference('exact')
+        inf.seed = 7
+        inf._entropy = 7
+        inf.resample = resample
+        inf.run()
+        return inf
+
+    inf = make()
+    first = inf.standard_errors(method='godambe', n=20)
+    assert len(calls) == 20
+
+    assert inf.standard_errors(method='godambe', n=20).equals(first)
+    assert len(calls) == 20
+
+    inf.standard_errors(method='godambe', n=30)
+    assert len(calls) == 50
+
+    inf.observation = pg.SFS([0, 360, 190, 140, 104, 0])
+    inf.standard_errors(method='godambe', n=30)
+    assert len(calls) == 80
+
+    assert make().standard_errors(method='godambe', n=20).equals(first)
+
+
+def test_godambe_standard_error_of_a_parameter_the_loss_ignores_is_nan():
+    """A parameter the loss does not depend on has an undefined Godambe standard error, as with the Fisher one, while
+    the others keep theirs."""
+    inf = pg.Inference(
+        bounds=dict(Ne=(0.1, 10), z=(0, 1)),
+        x0=dict(Ne=1, z=0.5),
+        coal=lambda Ne, z: pg.Coalescent(n=5, demography=pg.Demography(pop_sizes={'pop_0': Ne})),
+        loss=lambda coal, obs: pg.PoissonLikelihood().compute(
+            observed=obs.polymorphic, modelled=100 * coal.sfs.mean.polymorphic
+        ),
+        observation=pg.SFS([0, 180, 95, 70, 52, 0]),
+        resample=_poisson_resample,
+        n_runs=1,
+        pbar=False
+    )
+    inf.run()
+
+    se = inf.standard_errors(method='godambe', n=20)
+
+    assert np.isnan(se['z'])
+    assert np.isfinite(se['Ne']) and se['Ne'] > 0
+
+
+def test_trajectory_intervals_and_plot_with_the_godambe_covariance():
+    """The trajectory intervals take the Godambe covariance when asked, giving the standard error of the population
+    size, which is the parameter itself, and the trajectory plot draws them as a band."""
+    import matplotlib.pyplot as plt
+
+    inf = _linear_poisson_inference('exact')
+    inf.resample = _negative_binomial_resample
+    inf.run()
+
+    intervals = inf.trajectory_intervals(t=np.array([0.5]), method='godambe', n=50)
+
+    np.testing.assert_allclose(intervals['standard error'], inf.standard_errors(method='godambe', n=50)['Ne'],
+                               rtol=1e-5)
+
+    ax = inf.plot_pop_sizes(show=False, interval='godambe')
+
+    assert len(ax.collections) == 1
+    plt.close('all')
+
+
+def test_inference_payload_without_a_score_covariance_restores_none():
+    """An inference serialized before the Godambe covariance existed restores without a cached score covariance."""
+    import jsonpickle
+
+    inf = _linear_poisson_inference('exact')
+    payload = jsonpickle.decode(jsonpickle.encode(inf, keys=True), keys=True)
+    payload.__dict__.pop('_score_covariance_cache', None)
+    restored = jsonpickle.decode(jsonpickle.encode(payload, keys=True), keys=True)
+
+    assert restored._score_covariance_cache is None

@@ -75,6 +75,9 @@ _CURVATURE_RTOL = 1e-10
 #: each parameter, large against the error of the gradient.
 _HESSIAN_STEP = 1e-4
 
+#: Spawn key of the generator that draws the resampled observations of the Godambe information from the entropy of the
+#: inference, of length two so that it differs from the indices of ``create_run`` and ``create_bootstrap``.
+_GODAMBE_SPAWN_KEY = (2 ** 32 - 1, 0)
 
 
 class Inference(Serializable):
@@ -130,6 +133,10 @@ class Inference(Serializable):
     #: themselves, and the information. It is not serialized. Static for backward compatibility with serialized objects
     #: that lack the attribute.
     _fisher_information: Tuple[Tuple, pd.DataFrame] | None = None
+
+    #: The key of the inputs the covariance of the score was last computed from, and the covariance. Static for
+    #: backward compatibility with serialized objects that lack the attribute.
+    _score_covariance_cache: Tuple[Tuple, pd.DataFrame] | None = None
 
     def __init__(
             self,
@@ -1049,19 +1056,103 @@ class Inference(Serializable):
         except (TypeError, ValueError):
             return id(self.observation)
 
-    def covariance(self) -> pd.DataFrame:
+    def _score_covariance(self, n: int) -> pd.DataFrame:
         r"""
-        The asymptotic covariance of the estimate, the inverse :math:`I^{-1}` of the observed information :math:`I` of
-        :meth:`Inference.fisher_information() <phasegen.inference.Inference.fisher_information>`, taken over the
-        directions in which :math:`I` is positive. A parameter that loads on a direction of zero or negative curvature,
-        such as one the loss does not depend on, has an undefined variance, reported as NaN. The covariance describes
-        the curvature of the loss at the estimate only, so it neither reflects other optima nor the uncertainty of
-        parameters on a bound, both of which a parametric bootstrap captures. A warning is logged where :math:`I` is
-        not positive definite or a parameter lies on a bound.
+        The covariance of the score over resampled observations,
 
+        .. math::
+            J = \frac{1}{n - 1} \sum_{b=1}^{n} (g_b - \bar{g})(g_b - \bar{g})^\top, \qquad
+            g_b = \nabla_\theta L\big(\mathrm{coal}(\theta),\, y^{*}_b\big) \big|_{\theta = \hat{\theta}},
+
+        where :math:`y^{*}_b` are :math:`n` observations drawn with the ``resample`` callback from a generator derived
+        from :attr:`seed`, :math:`\bar{g}` is the mean of the scores :math:`g_b` and the gradients are those of
+        :meth:`Gradient.compute() <phasegen.gradient.Gradient.compute>`.
+
+        :param n: The number of resampled observations, at least 2.
+        :return: The covariance, with the parameter names as index and columns.
+        :raises ValueError: If ``resample`` is ``None``, ``n`` is less than 2 or fewer than two scores are finite.
+        """
+        if self.resample is None:
+            raise ValueError("The Godambe covariance needs the resample callback to draw observations.")
+
+        n = int(n)
+        if n < 2:
+            raise ValueError(f'n must be at least 2, got {n}.')
+
+        names = self.param_names
+        x = {name: float(self.params_inferred[name]) for name in names}
+        entropy = self.seed if self._entropy is None else self._entropy
+        key = (tuple(x.values()), self._observation_key(), id(self.resample), id(self.loss), id(self.coal),
+               tuple(self.bounds[name] for name in names), self.gradient, n, entropy)
+
+        if self._score_covariance_cache is not None and self._score_covariance_cache[0] == key:
+            return self._score_covariance_cache[1]
+
+        rng = np.random.default_rng(np.random.SeedSequence(entropy, spawn_key=_GODAMBE_SPAWN_KEY))
+        exact = self.gradient == 'exact' and Gradient(
+            self.get_coal, lambda coal: self.loss(coal, self.observation)).supported(x)
+
+        scores = []
+        for _ in range(n):
+            y = self.resample(self.observation, rng)
+            gradient = Gradient(self.get_coal, lambda coal, y=y: self.loss(coal, y))
+            scores.append(gradient.compute(x, self.bounds, exact=exact)[1])
+
+        scores = np.array(scores, dtype=float)
+
+        finite = np.isfinite(scores).all(axis=1)
+        if finite.sum() < 2:
+            raise ValueError(f'Fewer than two of the {n} scores of the resampled observations are finite.')
+
+        if not finite.all():
+            self._logger.warning('The score is not finite for %d of %d resampled observations, which are left out.',
+                                 n - finite.sum(), n)
+
+        # centred, as the mean score is not zero where the estimate lies on a bound or short of the optimum
+        cov = pd.DataFrame(np.atleast_2d(np.cov(scores[finite], rowvar=False)), index=names, columns=names)
+        self._score_covariance_cache = (key, cov)
+
+        return cov
+
+    def covariance(self, method: Literal['fisher', 'godambe'] = 'fisher', n: int = 100) -> pd.DataFrame:
+        r"""
+        The asymptotic covariance of the estimate :math:`\hat{\theta}`. With ``'fisher'``, it is the inverse
+        :math:`H^{-1}` of the observed information :math:`H` of :meth:`Inference.fisher_information()
+        <phasegen.inference.Inference.fisher_information>`, which assumes that the loss :math:`L` is the negative
+        log-likelihood of independent observations, such as the bins of an SFS of unlinked loci. With ``'godambe'``,
+        it is the sandwich estimate of the inverse Godambe information (Coffman et al. 2016),
+
+        .. math::
+            \Sigma = H^{-1} J H^{-1},
+
+        where :math:`J` is the covariance of the score :math:`\nabla_\theta L\big(\mathrm{coal}(\theta),\, y^{*}\big)`
+        at :math:`\hat{\theta}` over :math:`n` observations :math:`y^{*}` drawn with the ``resample`` callback, without
+        refitting. It holds for a misspecified or composite likelihood, such as that of an SFS of linked sites, when the
+        callback reproduces the sampling of the observation, for instance by a block bootstrap over the genome. The
+        draws derive from :attr:`seed`, and :math:`J` is cached.
+
+        :math:`H^{-1}` is taken over the directions in which :math:`H` is positive. A parameter that loads on a direction
+        of zero or negative curvature, such as one the loss does not depend on, has an undefined variance, reported as
+        NaN. The covariance describes the curvature of the loss at the estimate only, so it neither reflects other
+        optima nor the uncertainty of parameters on a bound, both of which a bootstrap captures. A warning is logged
+        where :math:`H` is not positive definite or a parameter lies on a bound.
+
+        ::
+
+            inf.run()
+            inf.covariance(method='godambe', n=200)
+
+        :param method: ``'fisher'`` for :math:`H^{-1}`, ``'godambe'`` for :math:`H^{-1} J H^{-1}`.
+        :param n: The number of resampled observations :math:`n` of the Godambe covariance, at least 2. The standard
+            errors have a relative Monte-Carlo error of about :math:`1 / \sqrt{2 n}`.
         :return: The covariance, with the parameter names as index and columns.
         :raises RuntimeError: If :meth:`Inference.run() <phasegen.inference.Inference.run>` has not been called.
+        :raises ValueError: If ``method`` is unknown, or for ``'godambe'``, if ``resample`` is ``None`` or ``n`` is
+            less than 2.
         """
+        if method not in ('fisher', 'godambe'):
+            raise ValueError(f"method must be 'fisher' or 'godambe', got {method!r}.")
+
         info = self.fisher_information()
         w, V = np.linalg.eigh(info.to_numpy())
         positive = w > _CURVATURE_RTOL * max(np.abs(w).max(), 1e-300)
@@ -1072,30 +1163,43 @@ class Inference(Serializable):
 
         on_bound = [name for name in self.param_names if self.params_inferred[name] in self.bounds[name]]
         if on_bound:
-            self._logger.warning('The parameters %s lie on a bound, where the inverse Fisher information does not '
-                                 'describe their uncertainty.', ', '.join(on_bound))
+            self._logger.warning('The parameters %s lie on a bound, where the asymptotic covariance does not describe '
+                                 'their uncertainty.', ', '.join(on_bound))
 
         cov = (V[:, positive] / w[positive]) @ V[:, positive].T
+        if method == 'godambe':
+            cov = cov @ self._score_covariance(n).to_numpy() @ cov
+
         undefined = (V[:, ~positive] ** 2).sum(axis=1) > _CURVATURE_RTOL
         cov[undefined, :] = np.nan
         cov[:, undefined] = np.nan
 
         return pd.DataFrame(cov, index=info.index, columns=info.columns)
 
-    def standard_errors(self) -> pd.Series:
+    def standard_errors(self, method: Literal['fisher', 'godambe'] = 'fisher', n: int = 100) -> pd.Series:
         r"""
-        The asymptotic standard errors of the estimate, :math:`\sqrt{(I^{-1})_{ii}}`, the square roots of the diagonal
-        of :meth:`Inference.covariance() <phasegen.inference.Inference.covariance>`, NaN where it is undefined.
+        The asymptotic standard errors of the estimate, :math:`\sqrt{\Sigma_{ii}}`, the square roots of the diagonal
+        of the covariance :math:`\Sigma` of :meth:`Inference.covariance() <phasegen.inference.Inference.covariance>`,
+        NaN where it is undefined.
 
         ::
 
             inf.run()
-            pd.DataFrame({'estimate': inf.params_inferred, 'standard error': inf.standard_errors()})
+            pd.DataFrame({
+                'estimate': inf.params_inferred,
+                'standard error (Fisher)': inf.standard_errors(),
+                'standard error (Godambe)': inf.standard_errors(method='godambe')
+            })
 
+        :param method: ``'fisher'`` for the inverse observed information, ``'godambe'`` for the sandwich estimate,
+            see :meth:`Inference.covariance() <phasegen.inference.Inference.covariance>`.
+        :param n: The number of resampled observations of the Godambe covariance.
         :return: The standard errors, indexed by parameter name.
         :raises RuntimeError: If :meth:`Inference.run() <phasegen.inference.Inference.run>` has not been called.
+        :raises ValueError: If ``method`` is unknown, or for ``'godambe'``, if ``resample`` is ``None`` or ``n`` is
+            less than 2.
         """
-        return pd.Series(np.sqrt(np.diag(self.covariance().to_numpy())), index=self.param_names)
+        return pd.Series(np.sqrt(np.diag(self.covariance(method, n).to_numpy())), index=self.param_names)
 
     def _trajectory_times(self, t: np.ndarray = None) -> np.ndarray:
         """
@@ -1124,7 +1228,9 @@ class Inference(Serializable):
             self,
             t: np.ndarray,
             kind: Literal['all', 'pop_sizes', 'migration'],
-            level: float
+            level: float,
+            method: Literal['fisher', 'godambe'] = 'fisher',
+            n: int = 100
     ) -> Tuple['_CurveData', np.ndarray, np.ndarray, np.ndarray]:
         """
         The trajectories of the estimate with their standard errors and confidence limits, see
@@ -1133,13 +1239,15 @@ class Inference(Serializable):
         :param t: Times.
         :param kind: The trajectories.
         :param level: The confidence level.
+        :param method: The covariance, see :meth:`covariance`.
+        :param n: The number of resampled observations of the Godambe covariance.
         :return: The trajectories, and the standard errors, lower and upper limits, each of shape
             ``(n_trajectories, n_times)``.
         """
         from scipy.stats import norm
 
         names = self.param_names
-        cov = self.covariance().to_numpy()
+        cov = self.covariance(method, n).to_numpy()
         estimate = self.dist_inferred.demography._plot_data(t, kind)
         y = np.asarray(estimate.y, dtype=float)
         positive = y > 0
@@ -1180,7 +1288,9 @@ class Inference(Serializable):
             self,
             t: np.ndarray = None,
             kind: Literal['all', 'pop_sizes', 'migration'] = 'pop_sizes',
-            level: float = 0.95
+            level: float = 0.95,
+            method: Literal['fisher', 'godambe'] = 'fisher',
+            n: int = 100
     ) -> pd.DataFrame:
         r"""
         Approximate confidence intervals of the population size and migration rate trajectories of the estimate, from
@@ -1207,12 +1317,15 @@ class Inference(Serializable):
             the inferred tree height.
         :param kind: The trajectories, ``'pop_sizes'``, ``'migration'`` or ``'all'``.
         :param level: The confidence level.
+        :param method: The covariance, ``'fisher'`` or ``'godambe'``, see :meth:`Inference.covariance()
+            <phasegen.inference.Inference.covariance>`.
+        :param n: The number of resampled observations of the Godambe covariance.
         :return: One row per time and trajectory, with the columns ``time``, ``trajectory``, ``estimate``,
             ``standard error``, ``lower`` and ``upper``.
         :raises RuntimeError: If :meth:`Inference.run() <phasegen.inference.Inference.run>` has not been called.
         """
         t = self._trajectory_times(t)
-        estimate, se, lower, upper = self._trajectory_band(t, kind, level)
+        estimate, se, lower, upper = self._trajectory_band(t, kind, level, method, n)
 
         return pd.DataFrame({
             'time': np.tile(t, len(estimate.labels)),
@@ -1227,7 +1340,7 @@ class Inference(Serializable):
             self,
             t: np.ndarray = None,
             kind: Literal['all', 'pop_sizes', 'migration'] = 'all',
-            interval: Literal['bootstrap', 'fisher'] | None = 'bootstrap'
+            interval: Literal['bootstrap', 'fisher', 'godambe'] | None = 'bootstrap'
     ) -> Tuple['_CurveData', List['_CurveData'], Optional[Tuple[np.ndarray, np.ndarray]]]:
         """
         Trajectories of the inferred demography with their uncertainty, as drawn by :meth:`plot_demography`,
@@ -1235,20 +1348,20 @@ class Inference(Serializable):
 
         :param t: Times at which to evaluate the trajectories, see :meth:`trajectory_intervals`.
         :param kind: The trajectories to include, ``'pop_sizes'``, ``'migration'`` or ``'all'``.
-        :param interval: ``'bootstrap'`` for the trajectories of the bootstrap replicates, ``'fisher'`` for the 95%
-            intervals of :meth:`trajectory_intervals`, or ``None``.
+        :param interval: ``'bootstrap'`` for the trajectories of the bootstrap replicates, ``'fisher'`` or
+            ``'godambe'`` for the 95% intervals of :meth:`trajectory_intervals` with that covariance, or ``None``.
         :return: The inferred trajectories, those of each bootstrap replicate, and the lower and upper limits of the
             intervals, ``None`` without them.
         :raises RuntimeError: If the main optimization has not been run.
         :raises ValueError: If ``interval`` is unknown.
         """
-        if interval not in ('bootstrap', 'fisher', None):
-            raise ValueError(f"interval must be 'bootstrap', 'fisher' or None, got {interval!r}.")
+        if interval not in ('bootstrap', 'fisher', 'godambe', None):
+            raise ValueError(f"interval must be 'bootstrap', 'fisher', 'godambe' or None, got {interval!r}.")
 
         t = self._trajectory_times(t)
 
-        if interval == 'fisher':
-            inferred, _, lower, upper = self._trajectory_band(t, kind, 0.95)
+        if interval in ('fisher', 'godambe'):
+            inferred, _, lower, upper = self._trajectory_band(t, kind, 0.95, interval)
             return inferred, [], (lower, upper)
 
         bootstraps = self._bootstrap_demographies if interval == 'bootstrap' else []
@@ -1342,7 +1455,7 @@ class Inference(Serializable):
     def plot_demography(
             self,
             t: np.ndarray = None,
-            interval: Literal['bootstrap', 'fisher'] | None = 'bootstrap',
+            interval: Literal['bootstrap', 'fisher', 'godambe'] | None = 'bootstrap',
             show: bool = True,
             file: str = None,
             kwargs: dict = None,
@@ -1356,8 +1469,9 @@ class Inference(Serializable):
             :attr:`Settings.plot_inference_quantile <phasegen.settings.Settings.plot_inference_quantile>` quantile of
             the inferred tree height, or up to the end time of a windowed coalescent.
         :param interval: The uncertainty drawn with the estimate: ``'bootstrap'`` for the trajectory of each
-            bootstrap replicate, ``'fisher'`` for the 95% intervals of :meth:`Inference.trajectory_intervals()
-            <phasegen.inference.Inference.trajectory_intervals>`, or ``None``.
+            bootstrap replicate, ``'fisher'`` or ``'godambe'`` for the 95% intervals of
+            :meth:`Inference.trajectory_intervals() <phasegen.inference.Inference.trajectory_intervals>` with that
+            covariance, or ``None``.
         :param show: Whether to show the plot.
         :param file: File to save the plot.
         :param kwargs: Additional keyword arguments passed to the plot function.
@@ -1378,7 +1492,7 @@ class Inference(Serializable):
             self,
             t: np.ndarray = None,
             show: bool = True,
-            interval: Literal['bootstrap', 'fisher'] | None = 'bootstrap',
+            interval: Literal['bootstrap', 'fisher', 'godambe'] | None = 'bootstrap',
             file: str = None,
             kwargs: dict = None,
             ax: Optional['plt.Axes'] = None
@@ -1392,8 +1506,9 @@ class Inference(Serializable):
             the inferred tree height, or up to the end time of a windowed coalescent.
         :param show: Whether to show the plot.
         :param interval: The uncertainty drawn with the estimate: ``'bootstrap'`` for the trajectory of each
-            bootstrap replicate, ``'fisher'`` for the 95% intervals of :meth:`Inference.trajectory_intervals()
-            <phasegen.inference.Inference.trajectory_intervals>`, or ``None``.
+            bootstrap replicate, ``'fisher'`` or ``'godambe'`` for the 95% intervals of
+            :meth:`Inference.trajectory_intervals() <phasegen.inference.Inference.trajectory_intervals>` with that
+            covariance, or ``None``.
         :param file: File to save the plot.
         :param kwargs: Additional keyword arguments passed to the plot function.
         :param ax: Axes to plot on.
@@ -1414,7 +1529,7 @@ class Inference(Serializable):
             t: np.ndarray = None,
             show: bool = True,
             file: str = None,
-            interval: Literal['bootstrap', 'fisher'] | None = 'bootstrap',
+            interval: Literal['bootstrap', 'fisher', 'godambe'] | None = 'bootstrap',
             kwargs: dict = None,
             ax: Optional['plt.Axes'] = None
     ) -> 'plt.Axes':
@@ -1428,8 +1543,9 @@ class Inference(Serializable):
         :param show: Whether to show the plot.
         :param file: File to save the plot.
         :param interval: The uncertainty drawn with the estimate: ``'bootstrap'`` for the trajectory of each
-            bootstrap replicate, ``'fisher'`` for the 95% intervals of :meth:`Inference.trajectory_intervals()
-            <phasegen.inference.Inference.trajectory_intervals>`, or ``None``.
+            bootstrap replicate, ``'fisher'`` or ``'godambe'`` for the 95% intervals of
+            :meth:`Inference.trajectory_intervals() <phasegen.inference.Inference.trajectory_intervals>` with that
+            covariance, or ``None``.
         :param kwargs: Additional keyword arguments passed to the plot function.
         :param ax: Axes to plot on.
         :return: Axes.
@@ -1448,7 +1564,7 @@ class Inference(Serializable):
             self,
             t: np.ndarray,
             show: bool,
-            interval: Literal['bootstrap', 'fisher'] | None,
+            interval: Literal['bootstrap', 'fisher', 'godambe'] | None,
             ax: Optional['plt.Axes'],
             kind: Literal['pop_sizes', 'migration', 'all'],
             file: str = None,
@@ -1460,8 +1576,9 @@ class Inference(Serializable):
         :param t: Time points, ``None`` for the default of :meth:`_plot_demography_data`.
         :param show: Whether to show the plot.
         :param interval: The uncertainty drawn with the estimate: ``'bootstrap'`` for the trajectory of each
-            bootstrap replicate, ``'fisher'`` for the 95% intervals of :meth:`Inference.trajectory_intervals()
-            <phasegen.inference.Inference.trajectory_intervals>`, or ``None``.
+            bootstrap replicate, ``'fisher'`` or ``'godambe'`` for the 95% intervals of
+            :meth:`Inference.trajectory_intervals() <phasegen.inference.Inference.trajectory_intervals>` with that
+            covariance, or ``None``.
         :param ax: Axes to plot on.
         :param kind: The trajectories to include.
         :param file: File to save the plot.

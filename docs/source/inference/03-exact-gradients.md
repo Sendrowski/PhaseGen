@@ -111,4 +111,4 @@ round(setNames(as.data.frame(result[[2]], row.names = 1:9), c("t", "Ne")), 4)
 ```
 
 +++
-The same derivatives yield the observed Fisher information at the estimate of an inference, from which {meth}`Inference.standard_errors() <phasegen.inference.Inference.standard_errors>` derives the standard errors shown in {ref}`joint-sfs`.
+The same derivatives yield the observed Fisher information at the estimate of an inference and the scores of resampled observations, from which {meth}`Inference.standard_errors() <phasegen.inference.Inference.standard_errors>` derives the Fisher and Godambe standard errors shown in {ref}`joint-sfs`.

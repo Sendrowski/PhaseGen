@@ -315,7 +315,7 @@ options(repr.plot.width = 4.4, repr.plot.height = 3.3)
 
 +++
 ### Bootstrapping
-As for the SFS of one deme in {ref}`single-deme-sfs`, a parametric bootstrap resamples each bin of the observed joint SFS from a Poisson distribution and reruns the inference from the estimate. Its spread can be compared with the standard errors from the Fisher information.
+As for the SFS of one deme in {ref}`single-deme-sfs`, a parametric bootstrap resamples each bin of the observed joint SFS from a Poisson distribution and reruns the inference from the estimate. Its spread can be compared with the standard errors from the Fisher information, which assume independent bins, as for unlinked loci and for the observation simulated here. The Godambe standard errors of {meth}`Inference.standard_errors() <phasegen.inference.Inference.standard_errors>` with ``method='godambe'`` evaluate the score of the loss at the estimate on observations drawn with the same callback, without refitting, and remain valid for linked sites when the callback draws a block bootstrap over the genome.
 
 ```{code-cell} python
 :tags: [remove-output]
@@ -333,6 +333,7 @@ import pandas as pd
 pd.DataFrame({
     'estimate': inf.params_inferred,
     'standard error (Fisher)': inf.standard_errors(),
+    'standard error (Godambe)': inf.standard_errors(method='godambe'),
     'standard deviation (bootstrap)': inf.bootstraps[names].std()
 }).round(3)
 ```
@@ -364,10 +365,12 @@ inf$bootstrap()
 ```{code-cell} r
 boots <- as.matrix(inf$bootstraps[names])
 se <- inf$standard_errors()
+se_godambe <- inf$standard_errors(method = "godambe")
 
 round(data.frame(
     estimate = unlist(inf$params_inferred[names]),
     `standard error (Fisher)` = se[names],
+    `standard error (Godambe)` = se_godambe[names],
     `standard deviation (bootstrap)` = apply(boots, 2, sd),
     check.names = FALSE
 ), 3)
