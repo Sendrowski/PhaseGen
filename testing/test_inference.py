@@ -1365,7 +1365,7 @@ def test_model_error_in_a_loss_evaluation_logs_one_warning(caplog):
         assert loss([1.0]) == 1e100
 
     assert [r.getMessage() for r in caplog.records] == ['The model raised "invalid" for {\'Ne\': 1.0}; substituting a '
-                                                        'large finite penalty']
+                                                        'finite penalty']
 
 
 def test_cached_start_point_on_a_zero_population_size_bound():
@@ -1782,3 +1782,241 @@ def test_plot_pop_sizes_with_fisher_intervals():
 
     with pytest.raises(ValueError, match='interval'):
         inf.plot_pop_sizes(show=False, interval='bands')
+
+
+def test_log_scale_start_points_are_log_uniform():
+    """Start points of a parameter on a logarithmic scale are uniform in its logarithm, those of the others uniform and
+    drawn from the same generator position. Regression: they were uniform on the linear scale, so with bounds
+    (0.01, 100) about 99% of them lay above 1."""
+    kwargs = dict(coal=lambda a, b: pg.Coalescent(n=2), loss=lambda c, o: 0.0,
+                  bounds=dict(a=(0.01, 100), b=(0.01, 100)), seed=7)
+    inf = pg.Inference(log_scale=['a'], **kwargs)
+    linear = pg.Inference(**kwargs)
+
+    samples = pd.DataFrame([inf._sample() for _ in range(400)])
+    reference = pd.DataFrame([linear._sample() for _ in range(400)])
+
+    # log10 of a log-uniform draw on (0.01, 100) is uniform on (-2, 2)
+    assert 0.4 < (samples['a'] < 1).mean() < 0.6
+    assert abs(np.log10(samples['a']).mean()) < 0.2
+    assert samples['a'].between(0.01, 100).all()
+    assert (reference['a'] > 1).mean() > 0.95
+
+    # the parameter on the linear scale draws the same values, and the start point drawn at construction is log-uniform
+    np.testing.assert_array_equal(samples['b'], reference['b'])
+    assert 0.4 < np.mean([pg.Inference(log_scale=True, **(kwargs | dict(seed=s))).x0['a'] < 1
+                          for s in range(200)]) < 0.6
+
+
+def _bottleneck_before_split(t: float, d: float) -> pg.Coalescent:
+    """
+    A bottleneck of size 0.1 from ``t`` to ``t + d``, invalid where it would end after a dated split at time 1.
+    """
+    if t + d > 1:
+        raise pg.ModelError('The bottleneck ends after the split.')
+
+    return pg.Coalescent(n=10, demography=pg.Demography(pop_sizes={'pop_0': {0: 1, t: 0.1, t + d: 1}}))
+
+
+def _bottleneck_inference(**kwargs) -> pg.Inference:
+    """
+    Inference of the bottleneck of :func:`_bottleneck_before_split` from its expected SFS at ``t = 0.3`` and
+    ``d = 0.6``, next to the invalid region ``t + d > 1`` inside the bounds.
+    """
+    observation = pg.SFS(np.round(1000 * _bottleneck_before_split(0.3, 0.6).sfs.mean.data))
+
+    return pg.Inference(**(dict(
+        bounds=dict(t=(0.0, 1.0), d=(0.01, 1.0)),
+        x0=dict(t=0.2, d=0.3),
+        coal=_bottleneck_before_split,
+        loss=lambda coal, obs: pg.PoissonLikelihood().compute(
+            observed=obs.polymorphic, modelled=1000 * coal.sfs.mean.polymorphic
+        ),
+        observation=observation,
+        n_runs=1,
+        pbar=False
+    ) | kwargs))
+
+
+@pytest.mark.parametrize('gradient', ['exact', 'finite_differences'])
+def test_gradient_optimization_backtracks_from_an_invalid_region(gradient):
+    """L-BFGS-B steps into a region where the model raises and backtracks to the optimum next to it. Regression: the
+    penalty of 1e100 there collapsed the interpolated step of the line search, so the optimization stopped at its start
+    point after one iteration and reported convergence."""
+    inf = _bottleneck_inference(gradient=gradient)
+    inf.run()
+
+    # the loss is 28.95 at the parameters the observation was rounded from, and Nelder-Mead reaches 28.946
+    assert inf.result.nit > 3
+    assert inf.loss_inferred < 28.95
+    assert inf.params_inferred['t'] == pytest.approx(0.3, abs=0.02)
+
+
+@pytest.mark.parametrize('smooth', [False, True])
+def test_exact_gradient_at_an_invalid_point_is_zero(smooth):
+    """The exact-gradient loss gives an invalid point a zero gradient once the current iterate is valid, and a smooth
+    penalty lies just above that iterate. Regression: it differenced the penalty of 1e100, which gave a gradient of
+    order 1e108."""
+    inf = _bottleneck_inference()
+    x0 = dict(t=0.2, d=0.3)
+    loss = pg.Inference._get_loss_function(inf.observation, x0, None, inf.get_coal, inf.loss,
+                                           **(dict(smooth=True) if smooth else {}))
+    f = pg.Inference._get_loss_and_gradient(loss, x0, inf.bounds, None, inf.get_coal, inf.loss, inf.observation)
+
+    value, _ = f(np.array([0.2, 0.3]))
+    # just inside the invalid region, so that a difference of the penalty reaches the valid region
+    penalty, grad = f(np.array([0.4, 0.600001]))
+
+    np.testing.assert_array_equal(grad, [0, 0])
+    assert value < penalty < value * (1 + 1e-5) if smooth else penalty == 1e100
+
+
+def test_penalty_is_flat_without_a_gradient():
+    """A gradient-free optimization keeps the penalty of 1e100, which ranks an invalid point last."""
+    inf = _bottleneck_inference()
+    loss = pg.Inference._get_loss_function(inf.observation, dict(t=0.2, d=0.3), None, inf.get_coal, inf.loss)
+
+    loss([0.2, 0.3])
+
+    assert loss([0.5, 0.6]) == 1e100
+
+
+def test_disagreeing_restarts_of_a_non_identifiable_model_warn(caplog):
+    """Runs reaching the best loss at different estimates are reported, naming the parameters, when the loss depends on
+    a product of two parameters only."""
+    import logging
+
+    inf = pg.Inference(
+        bounds=dict(a=(0.2, 5), b=(0.2, 5)),
+        coal=lambda a, b: pg.Coalescent(n=5, demography=pg.Demography(pop_sizes={'pop_0': a * b})),
+        loss=lambda coal, obs: pg.PoissonLikelihood().compute(obs.polymorphic, 100 * coal.sfs.mean.polymorphic),
+        observation=pg.SFS([0, 180, 95, 70, 52, 0]),
+        n_runs=4,
+        seed=3,
+        pbar=False
+    )
+
+    with caplog.at_level(logging.WARNING):
+        inf.run()
+
+    messages = [r.getMessage() for r in caplog.records if 'identifiable' in r.getMessage()]
+    assert len(messages) == 1
+    assert 'in a, b,' in messages[0]
+
+
+def test_agreeing_restarts_and_worse_optima_do_not_warn(caplog):
+    """Runs of a well-identified model reaching one estimate, and runs ending at a clearly worse local optimum, are not
+    reported as disagreeing."""
+    import logging
+
+    identified = pg.Inference(
+        bounds=dict(Ne=(0.2, 5)),
+        coal=lambda Ne: pg.Coalescent(n=5, demography=pg.Demography(pop_sizes={'pop_0': Ne})),
+        loss=lambda coal, obs: pg.PoissonLikelihood().compute(obs.polymorphic, 100 * coal.sfs.mean.polymorphic),
+        observation=pg.SFS([0, 180, 95, 70, 52, 0]),
+        n_runs=4,
+        seed=3,
+        pbar=False
+    )
+
+    # the mean tree height of two lineages is Ne, so that the loss has local minima near Ne = 1 and Ne = 3, whose
+    # losses differ by about 0.2
+    bimodal = pg.Inference(
+        bounds=dict(Ne=(0.2, 4)),
+        coal=lambda Ne: pg.Coalescent(n=2, demography=pg.Demography(pop_sizes={'pop_0': Ne})),
+        loss=lambda coal, obs: ((coal.tree_height.mean - 1) ** 2 * (coal.tree_height.mean - 3) ** 2
+                                + 0.1 * coal.tree_height.mean),
+        x0=dict(Ne=3.2),
+        n_runs=8,
+        seed=1,
+        pbar=False
+    )
+
+    with caplog.at_level(logging.WARNING):
+        identified.run()
+        bimodal.run()
+
+    assert len(set(np.round(bimodal.runs['Ne'], 1))) > 1
+    assert not [r for r in caplog.records if 'identifiable' in r.getMessage()]
+
+
+def test_fisher_information_follows_a_new_loss_at_a_reused_id():
+    """The cached information is recomputed for a new loss, even one allocated at the address of the previous one.
+    Regression: it was keyed on the id of the loss, which a new object may take once the old one is collected."""
+    inf = _linear_poisson_inference('exact')
+    inf.run()
+    info = inf.fisher_information()
+    names = inf.param_names
+
+    new = lambda coal, obs: 2 * pg.PoissonLikelihood().compute(
+        observed=obs.polymorphic, modelled=100 * coal.sfs.mean.polymorphic
+    )
+
+    # the entry an id-keyed cache holds when the new loss takes the address of the collected one
+    x = tuple(float(inf.params_inferred[n]) for n in names)
+    inf._fisher_information = ((x, inf._observation_key(), id(new), id(inf.coal),
+                                tuple(inf.bounds[n] for n in names), inf.gradient), info)
+    inf.loss = new
+
+    assert inf.fisher_information().loc['Ne', 'Ne'] == pytest.approx(2 * info.loc['Ne', 'Ne'], rel=1e-5)
+
+
+def test_fisher_information_cache_is_not_serialized():
+    """The cached information, whose key holds the callables, is left out of the serialized state, and a restored
+    object computes it afresh."""
+    import jsonpickle
+
+    inf = _linear_poisson_inference('exact')
+    inf.run()
+    info = inf.fisher_information()
+
+    assert '_fisher_information' not in inf.__getstate__()
+
+    restored = jsonpickle.decode(jsonpickle.encode(inf, keys=True), keys=True)
+
+    assert restored._fisher_information is None
+    pd.testing.assert_frame_equal(restored.fisher_information(), info)
+
+
+def test_difference_step_from_an_invalid_point_shares_its_penalty():
+    """A point within a finite-difference step of a penalized point gets the same penalty, so that the difference
+    gradient of the optimizer there is zero, and a point further away is evaluated. Without the shared penalty, the
+    step reached the valid region, and the difference gave a gradient of the order of the loss over the step."""
+    from scipy.optimize._numdiff import approx_derivative
+
+    inf = _bottleneck_inference()
+    loss = pg.Inference._get_loss_function(inf.observation, dict(t=0.2, d=0.3), None, inf.get_coal, inf.loss,
+                                           smooth=True)
+    loss([0.2, 0.3])
+
+    # 5e-9 inside the invalid region, at an upper bound, so that the backward step of 1e-8 reaches the valid region
+    x = np.array([0.4, 0.600000005])
+    gradient = approx_derivative(loss, x, method='2-point', abs_step=1e-8, bounds=([0, 0.01], x))
+
+    np.testing.assert_array_equal(gradient, [0, 0])
+    assert loss([0.4, 0.5]) != loss.penalty and not loss.invalid
+
+
+def test_finite_differences_against_a_zero_migration_bound_reach_the_optimum():
+    """An island model whose migration rate has a lower bound of zero, where the demography does not absorb, reaches
+    the optimum with the finite-difference gradient of the optimizer. A penalty just above the iterate without a shared
+    penalty for difference steps stopped this run after two iterations, at a loss of about 1e5, since the difference of
+    the penalty reached the loss diverging toward the bound."""
+    def coal(m, Ne):
+        return pg.Coalescent(n={'pop_0': 4, 'pop_1': 4}, demography=pg.Demography(
+            pop_sizes={'pop_0': 1, 'pop_1': Ne}, migration_rates={('pop_0', 'pop_1'): m, ('pop_1', 'pop_0'): m}))
+
+    inf = pg.Inference(
+        bounds=dict(m=(0.0, 2.0), Ne=(0.1, 10.0)),
+        x0=dict(m=1.3649788833403462, Ne=2.815657862887755),
+        observation=pg.SFS(np.round(1000 * coal(0.02, 2.0).sfs.mean.data)),
+        coal=coal,
+        loss=lambda c, obs: pg.PoissonLikelihood().compute(obs.polymorphic, 1000 * c.sfs.mean.polymorphic),
+        gradient='finite_differences',
+        n_runs=1,
+        pbar=False
+    )
+    inf.run()
+
+    assert inf.loss_inferred < 35.7
+    assert inf.params_inferred['m'] == pytest.approx(0.02, rel=1e-2)

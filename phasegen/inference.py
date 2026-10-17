@@ -33,8 +33,25 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger('phasegen')
 
-#: Finite penalty substituted for a non-finite loss, large enough that any genuine loss wins the minimisation.
+#: Finite penalty substituted for a non-finite loss in a gradient-free optimization, and in a gradient-based one at its
+#: first evaluation, large enough that any genuine loss wins the minimisation.
 _LOSS_PENALTY = 1e100
+
+#: Margin of the penalty of a gradient-based optimization above the loss of its current iterate, relative to the
+#: magnitude of that loss (at least 1).
+_PENALTY_MARGIN = 1e-6
+
+#: Largest distance from a penalized point, relative to its magnitude (at least 1), at which a point counts as a step of
+#: a finite difference taken there, well above the default steps of the gradient-based methods (at most 1.5e-8).
+_DIFFERENCE_STEP = 1e-6
+
+#: Runs whose loss exceeds the best by at most this fraction of its magnitude (at least 1) count as reaching the optimum,
+#: about a thousandfold the relative tolerance on the loss at which L-BFGS-B stops by default.
+_RESTART_LOSS_RTOL = 1e-6
+
+#: Estimates of runs reaching the optimum that differ by more than this fraction, or by more than this in the logarithm
+#: for a parameter on a logarithmic scale, are reported as disagreeing.
+_RESTART_PARAM_RTOL = 1e-2
 
 #: The methods of `scipy.optimize.minimize` that honour bounds and need no analytic Jacobian.
 _BOUNDED_METHODS = ('nelder-mead', 'powell', 'l-bfgs-b', 'tnc', 'slsqp', 'cobyla', 'cobyqa', 'trust-constr')
@@ -109,8 +126,9 @@ class Inference(Serializable):
     #: lack the attribute.
     log_scale: Tuple[str, ...] = ()
 
-    #: The key of the inputs the Fisher information was last computed from, and the information. Static for backward
-    #: compatibility with serialized objects that lack the attribute.
+    #: The key of the inputs the Fisher information was last computed from, holding the ``loss`` and ``coal`` callables
+    #: themselves, and the information. It is not serialized. Static for backward compatibility with serialized objects
+    #: that lack the attribute.
     _fisher_information: Tuple[Tuple, pd.DataFrame] | None = None
 
     def __init__(
@@ -185,7 +203,8 @@ class Inference(Serializable):
             differences. With ``'finite_differences'``, every gradient is a finite difference of the loss.
         :param log_scale: The name or names of the parameters optimized as their logarithms, ``True`` for all of
             them, which suits population sizes and rates spanning orders of magnitude and often reduces the number of
-            iterations considerably. The estimates, bounds and bootstraps stay on the original scale.
+            iterations considerably. Their sampled start points are log-uniform within the bounds. The estimates,
+            bounds and bootstraps stay on the original scale.
         :raises ValueError: If a lower bound exceeds its upper bound, ``x0`` lies outside the bounds or does not specify
             exactly the parameters in ``bounds``, ``method_mle`` is not one of the supported methods, ``gradient`` is not
             one of the supported values, ``n_runs`` or ``n_bootstraps`` is less than 1, or a parameter on a logarithmic
@@ -264,6 +283,9 @@ class Inference(Serializable):
         #: Random number generator.
         self._rng: np.random.Generator = np.random.default_rng(np.random.SeedSequence(self._entropy))
 
+        #: The parameters optimized on a logarithmic scale.
+        self.log_scale: Tuple[str, ...] = log_names
+
         #: Dictionary of initial numeric guesses for parameters to optimize, sampled within the bounds if not given.
         self._x0: Dict[str, float] = self._sample() if x0 is None else x0
 
@@ -278,9 +300,6 @@ class Inference(Serializable):
 
         #: How the gradient of the loss is obtained.
         self.gradient: Literal['exact', 'finite_differences'] = gradient
-
-        #: The parameters optimized on a logarithmic scale.
-        self.log_scale: Tuple[str, ...] = log_names
 
         #: Optimization result
         self.result: OptimizeResult | None = None
@@ -350,7 +369,7 @@ class Inference(Serializable):
         lambdas/closures that the standard pickler and ``copy.deepcopy`` cannot handle reliably, especially
         once they have themselves been restored from a previous ``dill`` round-trip). They are dumped
         directly from ``self`` without a prior deep copy. Only the remaining state is deep-copied, so the live object
-        is left untouched.
+        is left untouched. The cached Fisher information, whose key holds the callables, is left out.
 
         The dump is recursive, so that the module-level names a callable references (the package alias, the
         observation, helper functions) travel with it. A restored callable therefore evaluates against the
@@ -360,7 +379,9 @@ class Inference(Serializable):
         """
         callables = ['coal', 'loss', 'resample']
 
-        state = copy.deepcopy({key: value for key, value in self.__dict__.items() if key not in callables})
+        state = copy.deepcopy({
+            key: value for key, value in self.__dict__.items() if key not in callables + ['_fisher_information']
+        })
 
         # a plain dict, as jsonpickle encodes the instance dictionary of an OptimizeResult as an additional item
         if state['result'] is not None:
@@ -432,10 +453,12 @@ class Inference(Serializable):
             pbar: tqdm | None,
             get_dist: Callable[..., Coalescent],
             get_loss: Callable[[Coalescent, Any], float],
-            logger: logging.Logger = logger
-    ) -> Callable[[list], float]:
+            logger: logging.Logger = logger,
+            smooth: bool = False
+    ) -> '_PenalizedLoss':
         """
-        Get the loss function that accepts a list as an argument.
+        Get the loss function that accepts a list as an argument, with a finite penalty where the model raises or the
+        loss is not finite.
 
         :param observation: Observation.
         :param x0: Initial parameters.
@@ -443,41 +466,11 @@ class Inference(Serializable):
         :param get_dist: Callback returning the configured coalescent distribution.
         :param get_loss: Loss function.
         :param logger: Logger.
+        :param smooth: Whether the penalty lies just above the loss of the current iterate, for a gradient-based
+            optimizer.
         :return: Loss function.
         """
-
-        def loss(params: list) -> float:
-            """
-            Loss function that accepts a list as an argument.
-
-            :param params: List of parameters to optimize.
-            :return: Value of the loss function.
-            """
-            # convert the list of parameters back into a dictionary
-            params_dict = dict(zip(x0.keys(), params))
-
-            # a model the parameters make invalid, such as a demography that cannot absorb on a bound of zero
-            # migration, counts as a non-finite loss, so the optimizer steps away rather than the run being lost
-            try:
-                loss = get_loss(get_dist(**params_dict), observation)
-            except (ModelError, np.linalg.LinAlgError) as e:
-                logger.warning('The model raised "%s" for %s; substituting a large finite penalty', e, params_dict)
-                loss = _LOSS_PENALTY
-
-            # a non-finite loss (NaN or +/-inf) fed to the optimizer poisons its finite-difference gradient and
-            # steps it to invalid parameters; substitute a large finite penalty so it stays in a valid region
-            if np.ndim(loss) != 0 or not np.isfinite(loss):
-                logger.warning(f'Loss function returned invalid value "{loss}" for {params_dict}; '
-                               f'substituting a large finite penalty')
-                loss = _LOSS_PENALTY
-
-            loss = float(loss)
-
-            Inference._report(params_dict, loss, pbar, logger)
-
-            return loss
-
-        return loss
+        return _PenalizedLoss(observation, x0, pbar, get_dist, get_loss, logger, smooth)
 
     @staticmethod
     def _report(params: Dict[str, float], loss: float, pbar: tqdm | None, logger: logging.Logger) -> None:
@@ -519,7 +512,7 @@ class Inference(Serializable):
 
     @staticmethod
     def _get_loss_and_gradient(
-            loss: Callable[[list], float],
+            loss: '_PenalizedLoss',
             x0: Dict[str, float],
             bounds: Dict[str, Tuple[float, float]],
             pbar: tqdm | None,
@@ -530,7 +523,8 @@ class Inference(Serializable):
     ) -> Callable[[np.ndarray], Tuple[float, np.ndarray]]:
         """
         The loss with its gradient, exact where :class:`~phasegen.gradient.Gradient` supports the loss and otherwise a
-        central difference of ``loss`` within the bounds.
+        central difference of ``loss`` within the bounds. A penalized point has a zero gradient once the current
+        iterate is valid, and otherwise the differences, which point from an invalid start toward the valid region.
 
         :param loss: The loss function of :meth:`_get_loss_function`.
         :param x0: Initial parameters, for their names.
@@ -558,10 +552,16 @@ class Inference(Serializable):
                 except Exception as e:
                     logger.debug('Exact gradient unavailable at %s (%s), using finite differences', params_dict, e)
 
-            if out is not None and np.isfinite(out[1]).all():
+            if out is not None and np.isfinite(out[0]) and np.isfinite(out[1]).all():
                 failures = 0
+                loss.record(float(out[0]))
                 Inference._report(params_dict, float(out[0]), pbar, logger)
                 return float(out[0]), out[1]
+
+            value = loss(params)
+
+            if loss.invalid and loss.current < _LOSS_PENALTY:
+                return value, np.zeros(len(params))
 
             failures += 1
             if failures == _MAX_GRADIENT_FAILURES:
@@ -570,7 +570,7 @@ class Inference(Serializable):
                     'differences for the rest of this optimization.', failures, params_dict
                 )
 
-            return loss(params), Gradient._differences(loss, params, bounds_list)
+            return value, Gradient._differences(loss, params, bounds_list)
 
         return loss_and_gradient
 
@@ -613,23 +613,24 @@ class Inference(Serializable):
 
         pbar = tqdm(desc='Optimizing loss function') if show_pbar else None
 
-        # get the loss function
-        loss = Inference._get_loss_function(
+        # a loss the exact gradient does not support at its observation is left to the finite differences of the
+        # optimizer
+        jac = (gradient == 'exact' and method_mle.lower() in _GRADIENT_METHODS and
+               Gradient(get_dist, lambda coal: get_loss(coal, observation)).supported(x0)) or None
+
+        # a gradient-based optimizer backtracks from a penalty just above its iterate, which a gradient-free one need not
+        penalized = loss = Inference._get_loss_function(
             observation=observation,
             x0=x0,
             pbar=pbar,
             get_dist=get_dist,
             get_loss=get_loss,
-            logger=logger
+            logger=logger,
+            smooth=method_mle.lower() in _GRADIENT_METHODS
         )
 
-        # a loss the exact gradient does not support at its observation is left to the finite differences of the
-        # optimizer
-        jac = None
-        if (gradient == 'exact' and method_mle.lower() in _GRADIENT_METHODS and
-                Gradient(get_dist, lambda coal: get_loss(coal, observation)).supported(x0)):
+        if jac:
             loss = Inference._get_loss_and_gradient(loss, x0, bounds_dict, pbar, get_dist, get_loss, observation, logger)
-            jac = True
 
         # the optimizer sees y = log(x) for the parameters on a logarithmic scale, and dL/dy = x dL/dx, with x clipped
         # to its bounds
@@ -654,7 +655,8 @@ class Inference(Serializable):
                 method=method_mle,
                 bounds=[(np.log(lo), np.log(hi)) if is_log else (lo, hi) for (lo, hi), is_log in zip(bounds, log)],
                 jac=jac,
-                options=opts
+                options=opts,
+                callback=penalized.update
             )
         result.x = to_x(result.x)
 
@@ -771,6 +773,8 @@ class Inference(Serializable):
                 'rather than an estimate. The preceding warnings name the parameters and the underlying error.'
             )
 
+        self._check_agreement(results)
+
         # fetch optimized params
         self.params_inferred = dict(zip(list(self.x0.keys()), self.result.x))
 
@@ -792,9 +796,45 @@ class Inference(Serializable):
         # return the result of the optimization
         return self.result
 
+    def _check_agreement(self, results: List[OptimizeResult]) -> None:
+        """
+        Warn when runs reaching the loss of the best run within :data:`_RESTART_LOSS_RTOL` end at estimates that differ
+        from it by more than :data:`_RESTART_PARAM_RTOL`, a sign that the loss is multimodal or the parameters are not
+        identifiable.
+
+        :param results: The results of the runs, among them the best run :attr:`result`.
+        """
+        best = self.result
+        if not best.fun < _LOSS_PENALTY:
+            return
+
+        log = np.array([name in self.log_scale for name in self.param_names])
+        tolerance = _RESTART_LOSS_RTOL * max(abs(best.fun), 1)
+        differ = np.zeros(len(log), dtype=bool)
+        n_ties = 0
+
+        for result in results:
+            if result is best or not result.fun - best.fun <= tolerance or not np.isfinite(result.x).all():
+                continue
+
+            n_ties += 1
+            a, b = np.asarray(result.x, dtype=float), np.asarray(best.x, dtype=float)
+            differ |= np.where(
+                log,
+                np.abs(np.log(np.where(log, a, 1)) - np.log(np.where(log, b, 1))) > _RESTART_PARAM_RTOL,
+                np.abs(a - b) > _RESTART_PARAM_RTOL * np.maximum(np.abs(a), np.abs(b))
+            )
+
+        if differ.any():
+            self._logger.warning(
+                '%d other runs reach the loss of the best run within a relative %.0e but differ from its estimate by '
+                'more than a relative %.0e in %s, so the loss may be multimodal or these parameters not identifiable.',
+                n_ties, _RESTART_LOSS_RTOL, _RESTART_PARAM_RTOL, ', '.join(np.array(self.param_names)[differ])
+            )
+
     def _sample(self) -> Dict[str, float]:
         """
-        Sample initial parameters by using the provided bounds.
+        Sample initial parameters uniformly within the bounds, log-uniformly for the parameters on a logarithmic scale.
 
         :return: Sampled parameters.
         :raises ValueError: If a bound is not finite.
@@ -807,7 +847,11 @@ class Inference(Serializable):
                 f'use a single run, or give finite bounds.'
             )
 
-        return {key: self._rng.uniform(*bounds) for key, bounds in self.bounds.items()}
+        return {
+            key: float(np.clip(np.exp(self._rng.uniform(np.log(lower), np.log(upper))), lower, upper))
+            if key in self.log_scale else self._rng.uniform(lower, upper)
+            for key, (lower, upper) in self.bounds.items()
+        }
 
     def run(self) -> None:
         """
@@ -976,7 +1020,7 @@ class Inference(Serializable):
 
         names = self.param_names
         x = np.array([self.params_inferred[name] for name in names], dtype=float)
-        key = (tuple(x), self._observation_key(), id(self.loss), id(self.coal), tuple(self.bounds[n] for n in names),
+        key = (tuple(x), self._observation_key(), self.loss, self.coal, tuple(self.bounds[n] for n in names),
                self.gradient)
 
         if self._fisher_information is not None and self._fisher_information[0] == key:
@@ -1614,6 +1658,132 @@ class Inference(Serializable):
         """
         for d in data:
             self.add_bootstrap(d)
+
+
+class _PenalizedLoss:
+    """
+    The loss of a parameter vector, with a finite penalty where the model raises or the loss is not finite.
+    """
+
+    def __init__(
+            self,
+            observation: Any,
+            x0: Dict[str, float],
+            pbar: tqdm | None,
+            get_dist: Callable[..., Coalescent],
+            get_loss: Callable[[Coalescent, Any], float],
+            logger: logging.Logger,
+            smooth: bool = False
+    ) -> None:
+        """
+        Configure the loss.
+
+        :param observation: Observation.
+        :param x0: Initial parameters, for their names.
+        :param pbar: Progress bar.
+        :param get_dist: Callback returning the configured coalescent distribution.
+        :param get_loss: Loss function.
+        :param logger: Logger.
+        :param smooth: Whether the penalty lies just above the loss of the current iterate, rather than at
+            :data:`_LOSS_PENALTY`, and is shared by the points within a difference step of a penalized point, for a
+            gradient-based optimizer.
+        """
+        self.observation = observation
+        self.names = list(x0.keys())
+        self.pbar = pbar
+        self.get_dist = get_dist
+        self.get_loss = get_loss
+        self.logger = logger
+        self.smooth = smooth
+
+        #: The loss of the current iterate, that of the first evaluation until :meth:`update` reports an iterate.
+        self.current: float | None = None
+
+        #: Whether the last evaluation was penalized.
+        self.invalid: bool = False
+
+        #: The last penalized point, whose penalty the points within a difference step of it share.
+        self.anchor: np.ndarray | None = None
+
+    @property
+    def penalty(self) -> float:
+        """
+        The penalty of an invalid point.
+        """
+        if not self.smooth or self.current is None:
+            return _LOSS_PENALTY
+
+        # just above the current iterate, so that a line search rejects the point and bisects back toward the iterate,
+        # where a cliff collapses its interpolated step and stops the optimization early
+        return self.current + _PENALTY_MARGIN * max(abs(self.current), 1)
+
+    def update(self, intermediate_result: OptimizeResult) -> None:
+        """
+        Record the loss of an iterate, as a callback of :func:`scipy.optimize.minimize`. The methods that pass only
+        the parameters leave the loss of the first evaluation in place, which lies above their later iterates.
+
+        :param intermediate_result: The iterate.
+        """
+        if isinstance(intermediate_result, OptimizeResult) and np.isfinite(intermediate_result.get('fun', np.nan)):
+            self.current = float(intermediate_result.fun)
+
+    def __call__(self, params: list) -> float:
+        """
+        Evaluate the loss.
+
+        :param params: The parameters, in the order of ``x0``.
+        :return: The loss, or the penalty.
+        """
+        params_dict = dict(zip(self.names, params))
+        x = np.asarray(params, dtype=float)
+
+        # a difference step from a penalized point shares its penalty, so that a finite-difference gradient there is
+        # zero rather than reaching into a valid region, where the loss may diverge toward the invalid one
+        if self.smooth and self.anchor is not None and \
+                np.max(np.abs(x - self.anchor)) <= _DIFFERENCE_STEP * max(np.max(np.abs(self.anchor)), 1):
+            self.invalid = True
+            Inference._report(params_dict, self.penalty, self.pbar, self.logger)
+            return self.penalty
+
+        # a model the parameters make invalid, such as a demography that cannot absorb on a bound of zero
+        # migration, counts as a non-finite loss, so the optimizer steps away rather than the run being lost
+        try:
+            loss = self.get_loss(self.get_dist(**params_dict), self.observation)
+        except (ModelError, np.linalg.LinAlgError) as e:
+            self.logger.warning('The model raised "%s" for %s; substituting a finite penalty', e, params_dict)
+            loss = None
+
+        # a non-finite loss (NaN or +/-inf) fed to the optimizer poisons its finite-difference gradient and
+        # steps it to invalid parameters, so it is penalized as well
+        if loss is not None and (np.ndim(loss) != 0 or not np.isfinite(loss)):
+            self.logger.warning('Loss function returned invalid value "%s" for %s; substituting a finite penalty',
+                                loss, params_dict)
+            loss = None
+
+        self.invalid = loss is None
+
+        if self.invalid:
+            loss = self.penalty
+            self.anchor = x
+            self.current = loss if self.current is None else self.current
+        else:
+            loss = float(loss)
+            self.record(loss)
+
+        Inference._report(params_dict, loss, self.pbar, self.logger)
+
+        return loss
+
+    def record(self, value: float) -> None:
+        """
+        Record a valid evaluation, taken as the current iterate if no evaluation preceded it.
+
+        :param value: The loss.
+        """
+        self.anchor = None
+
+        if self.current is None:
+            self.current = value
 
 
 class WeightedLoss:  # pragma: no cover
