@@ -22,9 +22,11 @@ scipy = "^1.13.0"
 sfsutils-popgen = "^1.1.2"
 numba = ">=0.59"
 
-# problems installing msprime with poetry
 [tool.poetry.group.dev.dependencies]
 urllib3 = "^2.8"
+# the optional msprime and demes interop, which the API reference resolves type hints against
+msprime = ">=1.3"
+demes = ">=0.2"
 # 1.3.0 is the first release whose page-TOC scroll-spy works again. Cap <1.4, as 1.4.0
 # (pydata-sphinx-theme 0.20) breaks the mobile sidebar toggle
 sphinx_book_theme = "~1.3.0"

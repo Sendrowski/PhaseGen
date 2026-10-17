@@ -622,6 +622,22 @@ files = [
 ]
 
 [[package]]
+name = "demes"
+version = "0.2.3"
+description = "tools for describing demographic models"
+optional = false
+python-versions = ">=3.7"
+groups = ["dev"]
+files = [
+    {file = "demes-0.2.3-py3-none-any.whl", hash = "sha256:e92455d30bd600bed21ed74583e2b952b4dbc074a7434a9a2d8adecf6fb187d5"},
+    {file = "demes-0.2.3.tar.gz", hash = "sha256:9e613b65b475dba277bca751de1f37a89fd5eb4d856ba27733a2099c8a823617"},
+]
+
+[package.dependencies]
+attrs = ">=20.3.0"
+"ruamel.yaml" = ">=0.15.78"
+
+[[package]]
 name = "dill"
 version = "0.4.1"
 description = "serialize all of Python"
@@ -1562,6 +1578,39 @@ files = [
 ]
 
 [[package]]
+name = "msprime"
+version = "1.4.4"
+description = "Simulate genealogical trees and genomic sequence data using population genetic models"
+optional = false
+python-versions = ">=3.11"
+groups = ["dev"]
+files = [
+    {file = "msprime-1.4.4-cp311-cp311-macosx_14_0_arm64.whl", hash = "sha256:9b075949ef667f89d095c539ab8c1427c84048d6129b3069c5766f1d4af653b1"},
+    {file = "msprime-1.4.4-cp311-cp311-macosx_14_0_x86_64.whl", hash = "sha256:27978c0952cca27cc65820b1e7b4464408b391a05bd4679ab5331f1c3aed9cfc"},
+    {file = "msprime-1.4.4-cp311-cp311-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:863b9d706565c7a3ebcd44bbb7ddd3d7a398559b4a78c72bcad1665099c110c4"},
+    {file = "msprime-1.4.4-cp311-cp311-win_amd64.whl", hash = "sha256:94e40fe43421c6ab9e1b4771a7860a66f6264b3ffbeaa3a925eb3767b364a29d"},
+    {file = "msprime-1.4.4-cp312-cp312-macosx_14_0_arm64.whl", hash = "sha256:0b12afccd116586e0bdd515424ce6bcd104d5cb85cee646c6d2ca2a8eebc6fd0"},
+    {file = "msprime-1.4.4-cp312-cp312-macosx_14_0_x86_64.whl", hash = "sha256:6e434d51e7c4a66de92d8c1cc90f7aaae18c8b0e4813219a80b970d0dece2a82"},
+    {file = "msprime-1.4.4-cp312-cp312-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:defa4cb04e841be0c940ebd86d39a714e6e588507b7fd15652f59ff49622819d"},
+    {file = "msprime-1.4.4-cp312-cp312-win_amd64.whl", hash = "sha256:e4099e75cebbf9066673fd6712a75380c6d760d5fa5e7e1b88de2ed5eeea7cb3"},
+    {file = "msprime-1.4.4-cp313-cp313-macosx_14_0_arm64.whl", hash = "sha256:4aa0f711c580c5fb456187c86d35fa0664f93233489e34c5376b0a60bcb3731a"},
+    {file = "msprime-1.4.4-cp313-cp313-macosx_14_0_x86_64.whl", hash = "sha256:9de6ff01895b8441b33d84be4878bfa2e141b33ed407734f816bd22bea8f2664"},
+    {file = "msprime-1.4.4-cp313-cp313-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:5b7a03694919f6dec884b8c6d5c0b75b883d50e1513c7481b9e65aaba79c0162"},
+    {file = "msprime-1.4.4-cp313-cp313-win_amd64.whl", hash = "sha256:3624a47e6990182436d81874798280af6012bbc0df805a639c06bb29fe451252"},
+    {file = "msprime-1.4.4-cp314-cp314-macosx_14_0_arm64.whl", hash = "sha256:2c33a07a3500dc4639f45919146e19119ee330c7c3a04d5cfdca4bca081956c3"},
+    {file = "msprime-1.4.4-cp314-cp314-macosx_14_0_x86_64.whl", hash = "sha256:5b5c4f4f0589b94ca7231df9ce55c262aa1fd5828f41898e53aac97a61960444"},
+    {file = "msprime-1.4.4-cp314-cp314-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:7b3a5ba03a1611a00683423791d28fdac55070a3bad2df4e1883512f1c537763"},
+    {file = "msprime-1.4.4-cp314-cp314-win_amd64.whl", hash = "sha256:c3decb4069fc91db286e1736ebabdf669e5fa483107ab810381f097062c0d569"},
+    {file = "msprime-1.4.4.tar.gz", hash = "sha256:54deb6be3d80f2d9fa03b7f039883024cdebdb14851a890a12650d7ad6fec568"},
+]
+
+[package.dependencies]
+demes = ">=0.2"
+newick = ">=1.3.0"
+numpy = ">=2"
+tskit = ">=1.0.0"
+
+[[package]]
 name = "multiprocess"
 version = "0.70.19"
 description = "better multiprocessing and multithreading in Python"
@@ -1704,6 +1753,22 @@ files = [
 ]
 
 [[package]]
+name = "newick"
+version = "1.11.0"
+description = "A python module to read and write the Newick format"
+optional = false
+python-versions = ">=3.8"
+groups = ["dev"]
+files = [
+    {file = "newick-1.11.0-py2.py3-none-any.whl", hash = "sha256:c431976e33ea9166d6bf87394408086ce616930a5a434a30883220dee547d6eb"},
+    {file = "newick-1.11.0.tar.gz", hash = "sha256:b8bf81f88dbc0e1cb85928e6f4c7e0e29062c3739e27216aae76c3065a297186"},
+]
+
+[package.extras]
+dev = ["build", "flake8", "tox", "twine", "wheel (>=0.36)"]
+test = ["coverage (>=4.2)", "pytest (>=3.6)", "pytest-cov", "pytest-mock"]
+
+[[package]]
 name = "numba"
 version = "0.65.1"
 description = "compiling Python code using LLVM"
@@ -1748,7 +1813,7 @@ version = "2.4.6"
 description = "Fundamental package for array computing in Python"
 optional = false
 python-versions = ">=3.11"
-groups = ["main"]
+groups = ["main", "dev"]
 files = [
     {file = "numpy-2.4.6-cp311-cp311-macosx_10_9_x86_64.whl", hash = "sha256:0280e0356c0829a18d9de1cb7eee50ec22ca639878d7240307ca0943d73cd2c4"},
     {file = "numpy-2.4.6-cp311-cp311-macosx_11_0_arm64.whl", hash = "sha256:110f8b71aacb688ec69062bb7f6938a0f8acb01b7c1c4beb453c65b6d234584d"},
@@ -2615,6 +2680,24 @@ files = [
 ]
 
 [[package]]
+name = "ruamel-yaml"
+version = "0.19.1"
+description = "ruamel.yaml is a YAML parser/emitter that supports roundtrip preservation of comments, seq/map flow style, and map key order"
+optional = false
+python-versions = ">=3.9"
+groups = ["dev"]
+files = [
+    {file = "ruamel_yaml-0.19.1-py3-none-any.whl", hash = "sha256:27592957fedf6e0b62f281e96effd28043345e0e66001f97683aa9a40c667c93"},
+    {file = "ruamel_yaml-0.19.1.tar.gz", hash = "sha256:53eb66cd27849eff968ebf8f0bf61f46cdac2da1d1f3576dd4ccee9b25c31993"},
+]
+
+[package.extras]
+docs = ["mercurial (>5.7)", "ryd"]
+jinja2 = ["ruamel.yaml.jinja2 (>=0.2)"]
+libyaml = ["ruamel.yaml.clibz (>=0.3.7) ; platform_python_implementation == \"CPython\""]
+oldlibyaml = ["ruamel.yaml.clib ; platform_python_implementation == \"CPython\""]
+
+[[package]]
 name = "scipy"
 version = "1.17.1"
 description = "Fundamental algorithms for scientific computing in Python"
@@ -3221,6 +3304,45 @@ docs = ["myst-parser", "pydata-sphinx-theme", "sphinx"]
 test = ["argcomplete (>=3.0.3)", "mypy (>=1.17.0,<1.19)", "pre-commit", "pytest (>=7.0,<8.2)", "pytest-mock", "pytest-mypy-testing"]
 
 [[package]]
+name = "tskit"
+version = "1.0.3"
+description = "The tree sequence toolkit."
+optional = false
+python-versions = ">=3.11"
+groups = ["dev"]
+files = [
+    {file = "tskit-1.0.3-cp311-cp311-macosx_10_9_x86_64.whl", hash = "sha256:a5d5f5e0d0ad53ac554563c76b91c5f2bb721d021b7c761606a9a72fe1e49d74"},
+    {file = "tskit-1.0.3-cp311-cp311-macosx_11_0_arm64.whl", hash = "sha256:af978aa415f04fbabd613ad2933526110b4767e8e64f319ec03cefca9e2242bd"},
+    {file = "tskit-1.0.3-cp311-cp311-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:f509b7b271dd80a68ee3f6bfdff614e3b8ac989dcc44dd8d36c25c8181443b79"},
+    {file = "tskit-1.0.3-cp311-cp311-musllinux_1_2_x86_64.whl", hash = "sha256:0722a4c1fc9c287c96a2141ae3587df6defed2a049cca7ab90479958c613835f"},
+    {file = "tskit-1.0.3-cp311-cp311-win32.whl", hash = "sha256:3901c9fc02497e2c7e0ee5ca36ce5b65749f9c630e5ace1daa990963d8f5a63d"},
+    {file = "tskit-1.0.3-cp311-cp311-win_amd64.whl", hash = "sha256:0d374768d422e941f8ad6ffdba85d6ca1585467532f6f4945b171f18d6613285"},
+    {file = "tskit-1.0.3-cp312-cp312-macosx_10_13_x86_64.whl", hash = "sha256:3d035946888c9da5eefb93ca99c2ae3ad2cb7cb64bc6037588fe285f775ee67a"},
+    {file = "tskit-1.0.3-cp312-cp312-macosx_11_0_arm64.whl", hash = "sha256:31aee6a8b6d9a0bdae06f0b186fb7aad54d53f34050c0ee72a6caa560506950f"},
+    {file = "tskit-1.0.3-cp312-cp312-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:fb07ead500c7e88c69677469b4f489c8997ad944103102b04d724c855b4b980b"},
+    {file = "tskit-1.0.3-cp312-cp312-musllinux_1_2_x86_64.whl", hash = "sha256:241192b12d310e49b21bfae524c76768a15d0ed3f7b950d6ee09dce1528b8973"},
+    {file = "tskit-1.0.3-cp312-cp312-win32.whl", hash = "sha256:3e11c9fe328b27c0e4a3ff64a0fed972d2cd48a743c03c8bc339352664322ee8"},
+    {file = "tskit-1.0.3-cp312-cp312-win_amd64.whl", hash = "sha256:66c83c7f971bc160fd29ca6169e1ee31023a5283ca88936df3eed1e568eee209"},
+    {file = "tskit-1.0.3-cp313-cp313-macosx_10_13_x86_64.whl", hash = "sha256:d52e2ad0eb79e3b21da8a236d0f5eb888f9b18569e48f4b84a3875523e80ee22"},
+    {file = "tskit-1.0.3-cp313-cp313-macosx_11_0_arm64.whl", hash = "sha256:5bd1744a020a518e5835b85971fea14ca827d76f778650eb37e3f44c6db0a711"},
+    {file = "tskit-1.0.3-cp313-cp313-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:405c20fad5256edd6abd1f8b514c5bc653d808102f509c4512c9b174507dbe84"},
+    {file = "tskit-1.0.3-cp313-cp313-musllinux_1_2_x86_64.whl", hash = "sha256:bc1c97f00ce8e79460aa9ff3b36987daf70f2dc267e36a32db77018dbefc822b"},
+    {file = "tskit-1.0.3-cp313-cp313-win32.whl", hash = "sha256:53444ef3b2fd7ea9ca863e562c33402e46a55e645887dd4d983686b607e3f788"},
+    {file = "tskit-1.0.3-cp313-cp313-win_amd64.whl", hash = "sha256:721ae7f02730ed91233a6da2a9d4b59632d1512877cd0d6fe948ea5d9ddc17e9"},
+    {file = "tskit-1.0.3-cp314-cp314-macosx_10_15_x86_64.whl", hash = "sha256:62a45d5e57f5a9181eb113c0dd478783ef3c4829856c0831ea2eba2cdf00a8de"},
+    {file = "tskit-1.0.3-cp314-cp314-macosx_11_0_arm64.whl", hash = "sha256:8df716837129652fc82d095d80fd4e23a728213a4b18de9233f3aebb073b60b4"},
+    {file = "tskit-1.0.3-cp314-cp314-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:151eefbbae9a339f3ea64980937fa89d6ac9fb371dba880a9b30791a461753ad"},
+    {file = "tskit-1.0.3-cp314-cp314-musllinux_1_2_x86_64.whl", hash = "sha256:2170cacd8ade47fd8f1510aca78549e09e9ba875c25496f0ccfb755e09c0b06b"},
+    {file = "tskit-1.0.3-cp314-cp314-win32.whl", hash = "sha256:24f8fffc1e1dd4154654e91bb7bac22078b3cadd9837e5c490225aa5c313b819"},
+    {file = "tskit-1.0.3-cp314-cp314-win_amd64.whl", hash = "sha256:cbe791757cbd4d060a9c06c270bbcacc932f60ce1d77e98dcea35c931d0b0aa9"},
+    {file = "tskit-1.0.3.tar.gz", hash = "sha256:8a305b3bcf4145688be17962f6ea2ac20aa65db440ed0c02b49f9b4a3c00836b"},
+]
+
+[package.dependencies]
+jsonschema = ">=3.0.0"
+numpy = ">=2"
+
+[[package]]
 name = "typing-extensions"
 version = "4.15.0"
 description = "Backported and Experimental Type Hints for Python 3.9+"
@@ -3298,4 +3420,4 @@ type = ["pytest-mypy (>=1.0.1) ; platform_python_implementation != \"PyPy\""]
 [metadata]
 lock-version = "2.1"
 python-versions = ">=3.11,<3.15"
-content-hash = "7246ae401cdaac81c3d9b2b0f1fcb201bc1a9ea6b3889fcaddba78bcb291d928"
+content-hash = "b0900c1679d2abf9419b457610d1aa05f98aef2f84073e9a1814fa3a7e82d74a"
