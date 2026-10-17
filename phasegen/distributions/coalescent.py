@@ -815,9 +815,12 @@ class Coalescent(AbstractCoalescent, Serializable):
         :return: The derivatives.
         :raises NotImplementedError: If ``k`` is not one, or the moment is accumulated over a time window.
         :raises ValueError: If ``rewards`` does not hold one reward, or the occupation times have no closed form.
+        :raises TypeError: If an entry of ``rewards`` is not a :class:`~phasegen.rewards.Reward`.
         """
         if _validate_order(k) != 1:
             raise NotImplementedError('Gradients are available for first moments only.')
+
+        _validate_rewards(rewards, 1)
 
         return copy.deepcopy(self._gradient(None if rewards is None else tuple(rewards)))
 

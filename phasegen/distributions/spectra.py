@@ -2011,6 +2011,20 @@ class TwoLocusSFSDistribution(SpectrumDistribution):
 
     loci = demes = property(_unsupported)
 
+    def gradient(self, k: int = 1, rewards: Sequence[Reward] = None) -> NoReturn:
+        """
+        Not available, as an entry of the two-locus spectrum is a cross moment of two rewards.
+
+        :param k: The order of the moment.
+        :param rewards: The rewards.
+        :raises NotImplementedError: Always.
+        """
+        raise NotImplementedError(
+            "A two-locus SFS entry (i, j) is a cross moment E[L^0_i . L^1_j] of two rewards, which has no exact "
+            "gradient. The gradient of a per-locus branch length is pg.Coalescent(...).gradient(rewards="
+            "[pg.rewards.TwoLocusSFSReward(locus, i)])."
+        )
+
     def distribution(self, reward: Reward = None) -> 'RewardDistribution':
         """
         The distribution of an accumulated reward on the two-locus state space, as

@@ -938,6 +938,27 @@ def test_gradient_by_beta_alpha_close_to_two():
                                                                   rel=1e-5)
 
 
+def test_gradient_rejects_a_single_reward():
+    """A bare reward raises the ValueError that asks to wrap it in a list. Regression: tuple() of the reward raised a
+    TypeError on both the coalescent and the distribution."""
+    coal = pg.Coalescent(n=4, demography=pg.Demography(pop_sizes={'pop_0': {0: 1, 0.5: 2}}))
+
+    with pytest.raises(ValueError, match='Wrap it in a list'):
+        coal.gradient(rewards=pg.TotalBranchLengthReward())
+    with pytest.raises(ValueError, match='Wrap it in a list'):
+        coal.tree_height.gradient(rewards=pg.TotalBranchLengthReward())
+
+
+def test_two_locus_sfs_gradient_raises():
+    """The two-locus SFS holds cross moments of two rewards, which have no first-moment gradient. Regression: the
+    gradient of the tree height was returned silently, of shape (2, 1) and equal to Coalescent.gradient()."""
+    coal = pg.Coalescent(n=4, loci=pg.LocusConfig(n=2, recombination_rate=1),
+                         demography=pg.Demography(pop_sizes={'pop_0': {0: 1, 0.5: 2}}))
+
+    with pytest.raises(NotImplementedError, match='cross moment'):
+        coal.sfs2.gradient()
+
+
 def test_gradient_returns_a_copy_and_accepts_a_list_of_rewards():
     """The cached gradient is returned as a copy, so that changing the result leaves later calls intact, and the
     rewards may be a list. Regression: the cached object itself was returned, and a list raised a TypeError."""

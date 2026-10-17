@@ -20,7 +20,8 @@ from ..settings import Settings
 from ..spectrum import SFS, AbstractSpectrum
 from ..state_space import LineageCountingStateSpace, StateSpace
 
-from ._common import N_EMPIRICAL_SAMPLES, _validate_order, _validate_reward, _validate_start_time, _sqrt_spectrum
+from ._common import N_EMPIRICAL_SAMPLES, _validate_order, _validate_reward, _validate_rewards, _validate_start_time, \
+    _sqrt_spectrum
 from .base import CallableDistributionFunctions, DensityAwareDistribution, DistributionFunction, \
     MarginalDemeDistributions, MarginalLocusDistributions, MomentAwareDistribution, _LogSurvivalGrid, \
     _GridCumulativeDistributionFunction, _GridDensityFunction, _GridQuantileFunction
@@ -300,8 +301,12 @@ class PhaseTypeDistribution(CallableDistributionFunctions, MomentEvaluator, Mome
         :raises NotImplementedError: If ``k`` is not one, or the moment is accumulated over a time window.
         :raises ValueError: If ``rewards`` does not hold one reward, or the occupation times have no closed form, as
             without certain absorption in the last epoch.
+        :raises TypeError: If an entry of ``rewards`` is not a :class:`~phasegen.rewards.Reward`.
         """
-        return copy.deepcopy(self._gradient(_validate_order(k), None if rewards is None else tuple(rewards)))
+        k = _validate_order(k)
+        _validate_rewards(rewards, 1)
+
+        return copy.deepcopy(self._gradient(k, None if rewards is None else tuple(rewards)))
 
     @cache
     def _gradient(self, k: int, rewards: Tuple[Reward, ...] | None) -> 'DemographyGradient':

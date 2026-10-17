@@ -64,7 +64,7 @@ Phase-type distributions. The :class:`~phasegen.distributions.Coalescent` class 
 .. autoclass:: phasegen.distributions.JointSFSDistribution
 
 .. autoclass:: phasegen.distributions.TwoLocusSFSDistribution
-   :exclude-members: cdf, pdf, quantile, plot_cdf, bin, loci, demes
+   :exclude-members: cdf, pdf, quantile, plot_cdf, bin, loci, demes, gradient
 
 .. autoclass:: phasegen.distributions.DemographyGradient
 
