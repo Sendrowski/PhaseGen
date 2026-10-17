@@ -735,6 +735,39 @@ def test_gradient_by_recombination_rate():
     assert th.gradient().parameters['recombination_rate'] == pytest.approx(_richardson(mean, 0.7), rel=1e-7)
 
 
+def _two_locus(n: int, r: float) -> pg.Coalescent:
+    """A two-locus coalescent with a size change, the setup of the recombination-rate references."""
+    return pg.Coalescent(n=n, loci=2, recombination_rate=r,
+                         demography=pg.Demography(pop_sizes={'pop_0': {0: 1, 0.4: 1.3}}))
+
+
+@pytest.mark.parametrize('n, r, action, expected', [
+    # references from a fourth-order forward difference with h = 1e-3, Richardson-extrapolated against h = 2e-3
+    (3, 0.0, True, 1.3230734390),
+    (5, 0.0, False, 1.5081653871),
+    (3, 1e-9, False, 1.3230734345),
+])
+def test_gradient_by_recombination_rate_near_zero(n, r, action, expected):
+    """At a recombination rate of zero, the generator has no recombination entries, which the sparsity pattern of the
+    reverse pass of the action and of the sparse last epoch then lacked, so the derivative came out as -0.480 for n=3
+    on the action path and -1.418 for n=5 on the sparse last epoch. At r=1e-9, the central difference of the generator
+    shrank its step to 1e-12 and lost three digits to cancellation."""
+    Settings.expm_action_min_dim = 0 if action else 10 ** 9
+
+    assert _two_locus(n, r).tree_height.gradient().parameters['recombination_rate'] == pytest.approx(expected,
+                                                                                                    rel=1e-8)
+
+
+def test_parameter_jacobian_by_recombination_rate_at_zero():
+    """The Jacobian by a recombination rate on its lower bound of zero has the sign of the one-sided difference."""
+    gradient = pg.Gradient(lambda r, N: pg.Coalescent(n=5, loci=2, recombination_rate=r, demography=pg.Demography(
+        pop_sizes={'pop_0': {0: 1, 0.4: N}})), lambda c: c.tree_height.mean)
+
+    _, jacobian = gradient.compute(dict(r=0.0, N=1.3), bounds=dict(r=(0, 5), N=(0.1, 10)))
+
+    assert np.ravel(jacobian)[0] == pytest.approx(1.5081653871, rel=1e-8)
+
+
 def test_loss_gradient_model_and_recombination_parameters_without_loss_differences():
     """A loss over a Beta coalescent parameter, a recombination rate and a population size is differentiated exactly,
     without evaluating the loss at perturbed parameters."""

@@ -325,8 +325,9 @@ class _GeneratorBasis:
 
     def _stencil(self, name: str) -> Optional[List[Tuple['_GeneratorBasis', float]]]:
         """
-        The bases and weights of a second-order difference of the generator over a parameter, central where the
-        parameter may vary by a thousand steps either way and one-sided towards valid values otherwise, memoized.
+        The bases and weights of a second-order difference of the generator over a parameter, memoized. A model
+        parameter takes a central difference where it may vary by a thousand steps either way and a one-sided one
+        towards valid values otherwise. The recombination rate, on which the generator is linear, takes the full step.
 
         :param name: The parameter.
         :return: The bases with their weights, or ``None`` if the parameter cannot be varied.
@@ -337,6 +338,11 @@ class _GeneratorBasis:
             stencil = None
 
             h = _PARAMETER_STEP * scale
+            if name == 'recombination_rate':
+                stencil = ([(self._varied(name, x + h), 1 / (2 * h)), (self._varied(name, x - h), -1 / (2 * h))]
+                           if x >= h else [(self, -3 / (2 * h)), (self._varied(name, x + h), 4 / (2 * h)),
+                                           (self._varied(name, x + 2 * h), -1 / (2 * h))])
+
             while stencil is None and h > _MIN_PARAMETER_STEP * scale:
                 if self._valid(name, x - _STEP_MARGIN * h) and self._valid(name, x + _STEP_MARGIN * h):
                     stencil = [(self._varied(name, x + h), 1 / (2 * h)), (self._varied(name, x - h), -1 / (2 * h))]
@@ -377,9 +383,8 @@ class _GeneratorBasis:
     def transient(self, idx_t: np.ndarray) -> Tuple[
         Dict[str, sp.csr_matrix], Dict[Tuple[str, str], sp.csr_matrix], np.ndarray, np.ndarray]:
         """
-        The coalescence and migration parts restricted to transient states, and the union of the sparsity patterns of
-        the restricted parts and :attr:`K`, which holds every entry a generator of the space can take, whatever its
-        rates, memoized per set of states.
+        The coalescence and migration parts restricted to transient states, and the union of their sparsity patterns
+        with those of the parameter stencils, memoized per set of states.
 
         :param idx_t: The transient states.
         :return: The coalescence parts by deme, the migration parts by ordered pair, and the rows and columns of the
@@ -389,9 +394,12 @@ class _GeneratorBasis:
         if key not in self._transient:
             C = {p: self.C[p][idx_t][:, idx_t].tocsr() for p in self.pops}
             M = {pair: self.M[pair][idx_t][:, idx_t].tocsr() for pair in self.pairs}
-            union = abs(self.K[idx_t][:, idx_t])
-            for X in list(C.values()) + list(M.values()):
-                union = union + abs(X)
+            parts = [self.K] + list(self.C.values()) + list(self.M.values())
+            for name in _rate_parameters(self.state_space.model, self.state_space.locus_config):
+                for basis, _ in self._stencil(name) or []:
+                    if basis is not self:
+                        parts += [basis.K] + list(basis.C.values()) + list(basis.M.values())
+            union = sum((abs(X) for X in parts), sp.csr_matrix(self.K.shape))[idx_t][:, idx_t]
             coo = sp.coo_matrix(union)
             self._transient[key] = (C, M, coo.row, coo.col)
 
