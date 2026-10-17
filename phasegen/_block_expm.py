@@ -40,8 +40,8 @@ class BlockTriangularExpm:
     :math:`\mathbf{A}` and their quotients keep this structure, so the scaling and squaring with Padé approximants of
     Al-Mohy & Higham (2009) multiplies only the upper blocks, block column :math:`l` of the left factor with block row
     :math:`l` of the right factor, and the Padé solve is a block back substitution with one LU factorization of
-    :math:`\mathbf{D}`. A product costs :math:`\sum_{l=1}^{K} l (K - l + 1)` products of size :math:`n`, and none for the
-    scalar diagonal blocks, instead of :math:`K^3`.
+    :math:`\mathbf{D}`. A product costs at most :math:`\sum_{l=1}^{K} l (K - l + 1)` products of size :math:`n`, those
+    with a scalar diagonal block reducing to scalings, instead of :math:`K^3`.
 
     Example, the occupation integral :math:`\int_0^t e^{\mathbf{S} s} ds` of a generator :math:`\mathbf{S}` of size
     :math:`n`::
@@ -229,6 +229,7 @@ class BlockTriangularExpm:
                 # the diagonal block l is a multiple of the identity in both factors
                 Z[:a, a:b] += X[:a, a:b] * Y[a, a]
                 Z[a:b, b:] += X[a, a] * Y[a:b, b:]
+                Z[:a, b:] += X[:a, a:b] @ Y[a:b, b:]
                 Z[a:b, a:b] = X[a, a] * Y[a:b, a:b]
             else:
                 Z[:b, a:] += X[:b, a:b] @ Y[a:b, a:]

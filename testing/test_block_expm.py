@@ -69,6 +69,34 @@ def test_structured_expm_matches_the_generic_one(name, A, n, scalar):
         assert not E[i * n:(i + 1) * n, :i * n].any()
 
 
+def _patterned(n: int, scalar: list, rng: np.random.Generator) -> np.ndarray:
+    """A block upper triangular matrix with ``c I`` on the scalar diagonal blocks and one shared matrix elsewhere."""
+    K = len(scalar)
+    D = rng.standard_normal((n, n))
+    A = np.zeros((K * n, K * n))
+    for i in range(K):
+        A[i * n:(i + 1) * n, i * n:(i + 1) * n] = rng.standard_normal() * np.eye(n) if scalar[i] else D
+        A[i * n:(i + 1) * n, (i + 1) * n:] = rng.standard_normal((n, (K - i - 1) * n))
+    return A
+
+
+@pytest.mark.parametrize('n', [4, 25])
+@pytest.mark.parametrize('scalar', [
+    [False, True, False], [False, True, True], [True, False, False], [False, False, True], [False] * 4,
+    [True, True, False, True]
+], ids=str)
+def test_structured_expm_with_a_scalar_block_before_the_last(n, scalar):
+    """
+    A scalar diagonal block that is neither first nor last carries the products of the blocks above it with those to
+    its right. Without them every pattern with such a block missed the paths through it and disagreed with
+    :func:`scipy.linalg.expm` by order one.
+    """
+    A = _patterned(n, scalar, np.random.default_rng(7))
+    ref = scipy.linalg.expm(A)
+
+    np.testing.assert_allclose(BlockTriangularExpm(n, scalar).compute(A), ref, rtol=0, atol=1e-12 * np.abs(ref).max())
+
+
 @pytest.mark.parametrize('k', [1, 3])
 @pytest.mark.parametrize('tau', [60.0, 1e3])
 def test_structured_expm_of_a_triangular_matrix_keeps_its_accuracy_over_many_squarings(k, tau):
