@@ -8,7 +8,7 @@
   x,
   which = c("demography", "pop_sizes", "migration", "bootstraps"),
   t = NULL,
-  include_bootstraps = TRUE,
+  interval = "bootstrap",
   kind = c("hist", "kde"),
   bins = 20L,
   title = NULL,
@@ -23,7 +23,8 @@ or \code{"bootstraps"} for the bootstrapped parameters.}
 
 \item{t}{Times at which to evaluate the trajectories, \code{NULL} for the default.}
 
-\item{include_bootstraps}{Logical, whether to draw the bootstrapped trajectories. Default is \code{TRUE}.}
+\item{interval}{The uncertainty drawn with the trajectories: \code{"bootstrap"} for the bootstrapped trajectories,
+\code{"fisher"} for 95\% intervals from the Fisher information (see \code{Inference$trajectory_intervals()}), or \code{NULL}.}
 
 \item{kind}{For \code{which = "bootstraps"}, \code{"hist"} for histograms or \code{"kde"} for kernel density estimates.}
 
@@ -37,8 +38,8 @@ or \code{"bootstraps"} for the bootstrapped parameters.}
 A ggplot object.
 }
 \description{
-Draws the inferred demography together with its bootstrapped trajectories, or the distributions of the bootstrapped
-parameters.
+Draws the inferred demography together with its bootstrapped trajectories or Fisher intervals, or the distributions
+of the bootstrapped parameters.
 }
 \examples{
 \dontrun{

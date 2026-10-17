@@ -1574,6 +1574,41 @@ def test_plot_bootstraps_bins_each_parameter_over_its_own_range():
     plt.close('all')
 
 
+def test_plot_bootstraps_rejects_fewer_axes_than_parameters():
+    """Too few axes for the parameters raise a ValueError naming the required count. Regression: a single Axes with
+    two parameters raised an IndexError."""
+    import matplotlib.pyplot as plt
+
+    inf = InferenceTestCase.get_basic_inference(InferenceTestCase())
+    inf.bootstraps = pd.DataFrame({'t': np.linspace(0, 1, 10), 'Ne': np.linspace(0.1, 1, 10)})
+    _, ax = plt.subplots()
+
+    with pytest.raises(ValueError, match='needs 2 axes, got 1'):
+        inf.plot_bootstraps(ax=ax, show=False)
+
+    plt.close('all')
+
+
+def test_plot_bootstraps_returns_one_axis_per_parameter():
+    """The returned axes are those of the parameters, without the hidden padding of the grid. Regression: five
+    parameters on a grid of three columns returned six axes."""
+    import matplotlib.pyplot as plt
+
+    names = ['a', 'b', 'c', 'd', 'e']
+    inf = InferenceTestCase.get_basic_inference(InferenceTestCase(), dict(
+        x0={k: 0.5 for k in names},
+        bounds={k: (0.1, 1) for k in names},
+        coal=lambda **kw: pg.Coalescent(n=10)
+    ))
+    inf.bootstraps = pd.DataFrame({k: np.linspace(0.1, 1, 10) for k in names})
+
+    axes = inf.plot_bootstraps(show=False)
+
+    assert len(axes) == 5
+    assert all(ax.get_visible() for ax in axes)
+    plt.close('all')
+
+
 def test_inference_payload_without_a_gradient_mode_uses_the_exact_gradient():
     """An inference serialized before the gradient option existed restores with the exact gradient, the class default,
     and without a cached Fisher information."""

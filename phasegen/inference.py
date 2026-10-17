@@ -1234,6 +1234,7 @@ class Inference(Serializable):
         :return: Axes or list of axes.
         :raises RuntimeError: If no bootstraps are available, or if ``kind`` is ``'kde'`` and a parameter has fewer
             than two finite replicates.
+        :raises ValueError: If ``subplots`` is true and fewer axes than parameters are given.
         """
         from .visualization import Visualization
 
@@ -1264,7 +1265,9 @@ class Inference(Serializable):
                 fig, ax = plt.subplots(int(np.ceil(n / ncols)), ncols, squeeze=False)
                 for extra in ax.ravel()[n:]:
                     extra.set_visible(False)
-            ax = np.ravel(ax)
+            elif np.ravel(ax).size < n:
+                raise ValueError(f"Plotting {n} parameters as subplots needs {n} axes, got {np.ravel(ax).size}.")
+            ax = np.ravel(ax)[:n]
             colors = plt.rcParams['axes.prop_cycle'].by_key()['color']
 
             for i, name in enumerate(self.param_names):
