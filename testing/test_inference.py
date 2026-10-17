@@ -1327,13 +1327,21 @@ def test_methods_that_ignore_bounds_or_need_a_jacobian_are_rejected(method):
         _single_ne_inference(method_mle=method)
 
 
-@pytest.mark.parametrize("method", ['Nelder-Mead', 'Powell', 'TNC', 'SLSQP', 'COBYLA', 'trust-constr'])
+@pytest.mark.parametrize("method", ['Nelder-Mead', 'Powell', 'TNC', 'SLSQP', 'COBYLA'])
 def test_bounded_methods_are_accepted(method):
     """The methods that honour bounds without an analytic Jacobian run."""
     inf = _single_ne_inference(method_mle=method, loss=lambda coal, obs: float((coal.tree_height.mean - obs) ** 2))
     inf.run()
 
     assert 0.5 <= inf.params_inferred['Ne'] <= 2.0
+
+
+def test_trust_constr_is_rejected():
+    """trust-constr walked onto the penalty of an invalid region, which its barrier term made attractive, and stopped
+    there, so that run() reported a penalized point at t + d = 1.14 as the estimate of the bottleneck, or raised when
+    building its coalescent."""
+    with pytest.raises(ValueError, match="does not honour bounds"):
+        _bottleneck_inference(method_mle='trust-constr')
 
 
 def test_infinite_bound_raises_when_a_start_point_is_sampled():
@@ -1733,7 +1741,9 @@ def test_log_scale_result_gradient_is_on_the_original_scale():
 
         _, expected = pg.Gradient(inf.get_coal, lambda coal: inf.loss(coal, inf.observation)).compute(params)
 
-        np.testing.assert_allclose(inf.result.jac, expected, rtol=1e-8)
+        # the gradient at the optimum is of order 1e-6, where the rescaled rate matrices cached across evaluations
+        # leave it uncertain by about 0.3%, while the gradient by the logarithms differs by a factor of 0.83 or 1.24
+        np.testing.assert_allclose(inf.result.jac, expected, rtol=2e-2)
         assert 'hess_inv' not in inf.result
 
 
@@ -1838,17 +1848,19 @@ def _bottleneck_inference(**kwargs) -> pg.Inference:
     ) | kwargs))
 
 
+@pytest.mark.parametrize('method', ['L-BFGS-B', 'TNC', 'SLSQP'])
 @pytest.mark.parametrize('gradient', ['exact', 'finite_differences'])
-def test_gradient_optimization_backtracks_from_an_invalid_region(gradient):
-    """L-BFGS-B steps into a region where the model raises and backtracks to the optimum next to it. Regression: the
-    penalty of 1e100 there collapsed the interpolated step of the line search, so the optimization stopped at its start
-    point after one iteration and reported convergence."""
-    inf = _bottleneck_inference(gradient=gradient)
+def test_gradient_optimization_backtracks_from_an_invalid_region(gradient, method):
+    """The gradient methods step into a region where the model raises and backtrack to the optimum next to it.
+    Regressions: the penalty of 1e100 there collapsed the interpolated step of the line search, so L-BFGS-B stopped at
+    its start point after one iteration and reported convergence. TNC with the forward differences of scipy, whose
+    steps shared the penalty of a nearby invalid point, stopped at a loss of 28.9469."""
+    inf = _bottleneck_inference(gradient=gradient, method_mle=method)
     inf.run()
 
-    # the loss is 28.95 at the parameters the observation was rounded from, and Nelder-Mead reaches 28.946
+    # the loss is 28.95 at the parameters the observation was rounded from, and Nelder-Mead reaches 28.94593
     assert inf.result.nit > 3
-    assert inf.loss_inferred < 28.95
+    assert inf.loss_inferred < 28.946
     assert inf.params_inferred['t'] == pytest.approx(0.3, abs=0.02)
 
 
@@ -1978,23 +1990,78 @@ def test_fisher_information_cache_is_not_serialized():
     pd.testing.assert_frame_equal(restored.fisher_information(), info)
 
 
-def test_difference_step_from_an_invalid_point_shares_its_penalty():
-    """A point within a finite-difference step of a penalized point gets the same penalty, so that the difference
-    gradient of the optimizer there is zero, and a point further away is evaluated. Without the shared penalty, the
-    step reached the valid region, and the difference gave a gradient of the order of the loss over the step."""
-    from scipy.optimize._numdiff import approx_derivative
-
+def test_finite_difference_next_to_an_invalid_point_is_one_sided():
+    """Within a step of the invalid region, the finite-difference gradient is a one-sided difference of the loss toward
+    the valid side, and an invalid point has a zero gradient. Regression: a step from a penalized point shared its
+    penalty over a radius set by the largest parameter, which hid every valid point of a smaller parameter."""
     inf = _bottleneck_inference()
-    loss = pg.Inference._get_loss_function(inf.observation, dict(t=0.2, d=0.3), None, inf.get_coal, inf.loss,
-                                           smooth=True)
-    loss([0.2, 0.3])
+    x0 = dict(t=0.2, d=0.3)
+    loss = pg.Inference._get_loss_function(inf.observation, x0, None, inf.get_coal, inf.loss, smooth=True)
+    f = pg.Inference._get_loss_and_gradient(loss, x0, inf.bounds, None, inf.get_coal, inf.loss, inf.observation,
+                                            exact=False)
+    raw = lambda t, d: inf.loss(inf.get_coal(t=t, d=d), inf.observation)
 
-    # 5e-9 inside the invalid region, at an upper bound, so that the backward step of 1e-8 reaches the valid region
-    x = np.array([0.4, 0.600000005])
-    gradient = approx_derivative(loss, x, method='2-point', abs_step=1e-8, bounds=([0, 0.01], x))
+    # 5e-7 below the cliff t + d = 1, so that the forward steps of 1e-6 in t and d are invalid
+    t, d = 0.4, 0.6 - 5e-7
+    value, grad = f(np.array([t, d]))
+    h = 1e-4
+    backward = [(raw(t - 2 * h, d) - 4 * raw(t - h, d) + 3 * value) / (2 * h),
+                (raw(t, d - 2 * h) - 4 * raw(t, d - h) + 3 * value) / (2 * h)]
 
-    np.testing.assert_array_equal(gradient, [0, 0])
-    assert loss([0.4, 0.5]) != loss.penalty and not loss.invalid
+    np.testing.assert_allclose(grad, backward, rtol=1e-4)
+    assert not loss.invalid
+    np.testing.assert_array_equal(f(np.array([0.4, 0.61]))[1], [0, 0])
+
+
+def test_finite_differences_on_parameters_of_different_scales_reach_the_optimum():
+    """An island model with an absolute population size next to a migration rate reaches the optimum of the exact
+    gradient with finite differences. Regression: after the line search hit the migration bound of zero, every point
+    within 1e-6 times the population size of it, about 0.04, shared its penalty, which covered the whole range of the
+    migration rate, so the run stopped at its start point at a loss of 1190.1."""
+    def coal(m, Ne):
+        return pg.Coalescent(n={'pop_0': 4, 'pop_1': 4}, demography=pg.Demography(
+            pop_sizes={'pop_0': 1e4, 'pop_1': Ne}, migration_rates={('pop_0', 'pop_1'): m, ('pop_1', 'pop_0'): m}))
+
+    inf = pg.Inference(
+        bounds=dict(m=(0.0, 1e-2), Ne=(1e3, 1e5)),
+        x0=dict(m=5e-3, Ne=4e4),
+        observation=pg.SFS(np.round(1e-1 * coal(2e-5, 2e4).sfs.mean.data)),
+        coal=coal,
+        loss=lambda c, obs: pg.PoissonLikelihood().compute(obs.polymorphic, 1e-1 * c.sfs.mean.polymorphic),
+        gradient='finite_differences',
+        n_runs=1,
+        pbar=False
+    )
+    inf.run()
+
+    # the exact gradient reaches 946.1616
+    assert inf.loss_inferred < 946.2
+
+
+@pytest.mark.parametrize('method', ['L-BFGS-B', 'TNC', 'SLSQP'])
+@pytest.mark.parametrize('gradient', ['exact', 'finite_differences'])
+def test_fixed_parameter_is_held_out_of_the_optimizer(gradient, method, capsys):
+    """A parameter whose bounds coincide is held at its value, with a zero gradient, and the methods agree on the free
+    one. Regression: scipy wrapped the callback of a problem with fixed variables, which TNC called with an array, so
+    every run raised and run() reported that no run returned a finite loss, while L-BFGS-B and SLSQP printed the
+    callback to stdout."""
+    inf = _bottleneck_inference(bounds=dict(t=(0.0, 1.0), d=(0.6, 0.6)), x0=dict(t=0.2, d=0.6), gradient=gradient,
+                                method_mle=method)
+    inf.run()
+
+    assert inf.params_inferred['d'] == 0.6
+    assert inf.params_inferred['t'] == pytest.approx(0.30044, abs=1e-4)
+    assert inf.result.jac[1] == 0
+    assert '<bound method' not in capsys.readouterr().out
+
+
+def test_all_parameters_fixed_evaluates_the_start_point():
+    """With every parameter fixed by its bounds, the result is the loss at the start point."""
+    inf = _bottleneck_inference(bounds=dict(t=(0.3, 0.3), d=(0.6, 0.6)), x0=dict(t=0.3, d=0.6), method_mle='TNC')
+    inf.run()
+
+    assert inf.params_inferred == dict(t=0.3, d=0.6)
+    assert inf.loss_inferred == pytest.approx(inf.loss(_bottleneck_before_split(0.3, 0.6), inf.observation), rel=1e-12)
 
 
 def test_finite_differences_against_a_zero_migration_bound_reach_the_optimum():

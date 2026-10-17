@@ -385,18 +385,21 @@ def test_loss_gradient_windowed_mean_unsupported():
 
 
 def test_inference_exact_gradient_reaches_finite_difference_optimum():
-    """Both gradients reach the same optimum, the exact one with a fraction of the loss evaluations."""
+    """Both gradients reach the same optimum, the exact one evaluating the moments of a fraction of the coalescents."""
     x0 = {'a0': 1.2, 'a1': 0.6, 'a2': 1.5, 'b0': 0.8, 'b1': 1.1, 'b2': 2.0, 'm': 0.4}
     observation = pg.SFS(np.round(1000 * _two_deme(**{k: v * 0.8 for k, v in x0.items()}).sfs.mean.normalize().data))
 
-    results = {}
+    results, evaluations = {}, {}
     for gradient in ['exact', 'finite_differences']:
-        inf = _inference(_two_deme, _sfs_loss, x0, {k: (0.05, 5) for k in x0}, observation, gradient=gradient)
+        # the coalescents the loss reads, unwrapped from the recorder of the exact gradient and kept alive for their ids
+        coals = []
+        inf = _inference(_two_deme, lambda c, obs: coals.append(getattr(c, '_coal', c)) or _sfs_loss(c, obs), x0,
+                         {k: (0.05, 5) for k in x0}, observation, gradient=gradient)
         inf.run()
-        results[gradient] = inf
+        results[gradient], evaluations[gradient] = inf, len({id(c) for c in coals})
 
     assert results['exact'].loss_inferred == pytest.approx(results['finite_differences'].loss_inferred, rel=1e-6)
-    assert results['exact'].result.nfev < results['finite_differences'].result.nfev / 3
+    assert evaluations['exact'] < evaluations['finite_differences'] / 3
 
 
 def test_inference_logs_exact_gradient(caplog):
@@ -1070,6 +1073,44 @@ def test_parameter_jacobian_by_differences_stays_within_the_bounds():
     one_sided = (-3 * coal(0.1).tree_height.var + 4 * coal(0.1 + h).tree_height.var
                  - coal(0.1 + 2 * h).tree_height.var) / (2 * h)
     assert jacobian[0] == pytest.approx(one_sided, rel=1e-4)
+
+
+def _log_richardson(f: Callable[[float], np.ndarray], x: float) -> np.ndarray:
+    """Richardson-extrapolated central difference of ``f`` over the logarithm of a positive ``x``, divided by ``x``."""
+    d = lambda e: (f(x * np.exp(e)) - f(x * np.exp(-e))) / (2 * e)
+    return (4 * d(5e-3) - d(1e-2)) / 3 / x
+
+
+def _near_one_richardson(f: Callable[[float], np.ndarray], x: float) -> np.ndarray:
+    """Richardson-extrapolated central difference of ``f`` at ``x`` within 1e-6 below 1, with steps below 1 - x."""
+    d = lambda h: (f(x + h) - f(x - h)) / (2 * h)
+    return (4 * d(1e-7) - d(2e-7)) / 3
+
+
+@pytest.mark.parametrize('coal, statistic, params, name, reference, rtol', [
+    (lambda m, N: pg.Coalescent(n={'A': 2, 'B': 2}, demography=pg.Demography(
+        pop_sizes={'A': N, 'B': 1.0}, migration_rates={('A', 'B'): m, ('B', 'A'): m})),
+     lambda c: c.jsfs.mean.data, dict(m=5e-7, N=1.2), 'm', _log_richardson, 1e-6),
+    (lambda psi, c, N: pg.Coalescent(n=6, model=pg.DiracCoalescent(psi=psi, c=c),
+                                     demography=pg.Demography(pop_sizes={'pop_0': {0: 1, 0.4: N}})),
+     lambda c: c.sfs.mean.normalize().polymorphic, dict(psi=0.3, c=1e-6, N=1.5), 'c', _log_richardson, 1e-4),
+    (lambda psi, c, N: pg.Coalescent(n=6, model=pg.DiracCoalescent(psi=psi, c=c),
+                                     demography=pg.Demography(pop_sizes={'pop_0': {0: 1, 0.4: N}})),
+     lambda c: c.sfs.mean.normalize().polymorphic, dict(psi=0.999999, c=50.0, N=1.5), 'psi', _near_one_richardson,
+     1e-6)
+], ids=['migration-rate-5e-7', 'dirac-c-1e-6', 'dirac-psi-0.999999'])
+def test_parameter_jacobian_steps_away_from_an_invalid_parameter(coal, statistic, params, name, reference, rtol):
+    """An unbounded parameter within a step of the edge of its domain is differenced one-sided toward the valid side.
+    Regression: the central difference built the coalescent at a negative migration rate or rate c, or at psi above 1,
+    and Gradient.compute raised."""
+    _, jacobian = Gradient(coal, statistic).compute(params)
+    f = lambda y: np.asarray(getattr(statistic(coal(**(params | {name: y}))), 'data',
+                                     statistic(coal(**(params | {name: y})))), dtype=float)
+
+    expected = reference(f, params[name])
+
+    np.testing.assert_allclose(jacobian[..., list(params).index(name)], expected, rtol=rtol,
+                               atol=1e-2 * rtol * np.max(np.abs(expected)))
 
 
 def test_inference_failure_counter_resets_after_an_exact_gradient(caplog, monkeypatch):

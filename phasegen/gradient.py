@@ -8,7 +8,6 @@ import logging
 from typing import Any, Callable, Dict, List, NamedTuple, Optional, Sequence, Tuple
 
 import numpy as np
-from scipy.optimize._numdiff import approx_derivative
 
 from .distributions import Coalescent, DemographyGradient
 from .distributions._gradient import MeanGradient, _rate_parameters
@@ -20,11 +19,18 @@ _DISTRIBUTIONS = ('sfs', 'fsfs', 'jsfs', 'tree_height', 'total_branch_length')
 #: moments it is handed, a smooth function of them, so that a small step leaves a truncation error of order its square.
 _MOMENT_STEP = 1e-5
 
-#: Relative step of the central differences of the quantities of the coalescent over a parameter.
+#: Relative step of the differences of the quantities of the coalescent over a parameter.
 _PARAMETER_STEP = 1e-6
 
 #: Relative tolerance between a moment and its value recomputed by the backward pass.
 _VALUE_RTOL = 1e-9
+
+#: Relative step of the differences of :meth:`Gradient._differences` by default, that of
+#: :func:`scipy.optimize.approx_derivative` for central differences.
+_DEFAULT_STEP = np.finfo(float).eps ** (1 / 3)
+
+#: The errors by which a function differenced by :meth:`Gradient._stencil` signals that it is invalid at a point.
+_INVALID_ERRORS = (ValueError, ZeroDivisionError)
 
 
 class _Unsupported(BaseException):
@@ -219,11 +225,11 @@ class Gradient:
     migration rates and start times of the epochs, the parameters of the coalescent model and the recombination rate.
     The derivatives :math:`\partial \mu_l / \partial q_k` are those of :meth:`PhaseTypeDistribution.gradient()
     <phasegen.distributions.PhaseTypeDistribution.gradient>`, :math:`\partial s_j / \partial \mu_l` are central
-    differences of the statistic over the computed moments, and :math:`\partial q_k / \partial \theta_i` central
-    differences of the coalescent the callback builds. The Jacobian costs about one evaluation of the moments, whatever
-    the number of parameters. A parameter that changes the coalescent otherwise is differentiated by a central
-    difference of the statistic, and a statistic without an exact gradient by central differences altogether, as noted
-    in the log.
+    differences of the statistic over the computed moments, and :math:`\partial q_k / \partial \theta_i` differences
+    of the coalescent the callback builds, central or, at a bound or next to a value at which the callback raises,
+    one-sided of second order. The Jacobian costs about one evaluation of the moments, whatever the number of
+    parameters. A parameter that changes the coalescent otherwise is differentiated by such a difference of the
+    statistic, and a statistic without an exact gradient by such differences altogether, as noted in the log.
 
     ::
 
@@ -278,7 +284,7 @@ class Gradient:
         :param params: The parameters.
         :param bounds: Bounds of the parameters, which the differences taken through the callback respect. By default,
             the parameters are unbounded. A parameter whose bounds coincide has a derivative of zero.
-        :param exact: Whether to try the exact Jacobian, which a statistic without one replaces by central differences.
+        :param exact: Whether to try the exact Jacobian, which a statistic without one replaces by differences.
         :return: The entries of the statistic, and the Jacobian of shape ``entries.shape + (len(params),)``, with the
             parameters in the order of ``params``.
         """
@@ -300,33 +306,97 @@ class Gradient:
 
     @staticmethod
     def _differences(f: Callable[[np.ndarray], Any], x: np.ndarray, bounds: Sequence[Tuple[float, float]],
-                     rel_step: float = None) -> np.ndarray:
+                     steps: np.ndarray = None, f0: Any = None) -> np.ndarray:
         """
-        The Jacobian of a function by central differences, one-sided at a bound, zero for a parameter whose bounds
-        coincide.
+        The Jacobian of a function by the differences of :meth:`Gradient._stencil` over each parameter, zero for a
+        parameter whose bounds coincide or at which ``f`` is invalid on both sides.
 
-        :param f: The function of the parameters, returning a number or a vector.
+        :param f: The function of the parameters, returning a number or a vector, or ``None`` where it is invalid.
         :param x: The parameters.
         :param bounds: Their bounds.
-        :param rel_step: The step relative to the magnitude of each parameter, by default that of
-            :func:`scipy.optimize.approx_derivative` for central differences.
+        :param steps: The step of each parameter, by default :data:`_DEFAULT_STEP` times its magnitude (at least 1).
+        :param f0: The value at ``x``, evaluated if not given.
         :return: The Jacobian, of shape ``(len(x),)`` for a number and ``(len(f(x)), len(x))`` for a vector.
+        :raises ValueError: The last error of ``f``, or a :class:`ZeroDivisionError`, if it raises on both sides of a
+            parameter.
         """
-        lower, upper = np.array(bounds, dtype=float).reshape(-1, 2).T
-        free = lower < upper
-        value = np.asarray(f(x), dtype=float)
+        value = np.asarray(f(x) if f0 is None else f0, dtype=float)
+        steps = _DEFAULT_STEP * np.maximum(np.abs(x), 1) if steps is None else steps
         jacobian = np.zeros(value.shape + (len(x),))
 
-        if free.any():
-            def g(y: np.ndarray) -> Any:
+        for i, (lo, hi) in enumerate(bounds):
+            if lo == hi:
+                continue
+
+            def g(y: float) -> Any:
                 z = x.copy()
-                z[free] = y
+                z[i] = y
                 return f(z)
 
-            jacobian[..., free] = approx_derivative(g, x[free], method='3-point', rel_step=rel_step, f0=value,
-                                                    bounds=(lower[free], upper[free]))
+            stencil = Gradient._stencil(g, x[i], lo, hi, steps[i], value)
+            if stencil is not None:
+                values, coefficients, dx = stencil
+                jacobian[..., i] = sum(c * np.asarray(v, dtype=float) for c, v in zip(coefficients, values)) / dx
 
         return jacobian
+
+    @staticmethod
+    def _stencil(f: Callable[[float], Any], x: float, lo: float, hi: float, h: float,
+                 f0: Any) -> Optional[Tuple[List[Any], Tuple[int, ...], float]]:
+        r"""
+        A difference of a function of one parameter,
+
+        .. math::
+            f'(x) \approx \frac{1}{d} \sum_k c_k f(x_k),
+
+        central over :math:`x_k = x \pm h` with :math:`c = (-1, 1)`, or one-sided of second order over
+        :math:`x, x + s, x + 2s` with :math:`c = (-3, 4, -1)` where a side of the central difference leaves the bounds
+        :math:`[l, u]` or ``f`` is invalid there, toward the other side first and with :math:`|s| \leq h` within the
+        bounds. Here :math:`d` is the distance between the outermost points. ``f`` is invalid where it returns ``None``
+        or raises one of :data:`_INVALID_ERRORS`.
+
+        :param f: The function.
+        :param x: The parameter :math:`x`.
+        :param lo: The lower bound :math:`l`.
+        :param hi: The upper bound :math:`u`.
+        :param h: The step :math:`h`.
+        :param f0: The value of ``f`` at ``x``.
+        :return: The values :math:`f(x_k)`, the coefficients :math:`c_k` and :math:`d`, or ``None`` if ``f`` is invalid
+            on both sides without raising.
+        :raises ValueError: The last error of ``f``, or a :class:`ZeroDivisionError`, if it is invalid on both sides and
+            raised.
+        """
+        cache, error = {}, None
+
+        def value(y: float) -> Any:
+            nonlocal error
+            if y not in cache:
+                try:
+                    cache[y] = f(y)
+                except _INVALID_ERRORS as e:
+                    cache[y], error = None, e
+            return cache[y]
+
+        if lo <= x - h and x + h <= hi:
+            up, down = value(x + h), value(x - h)
+            if down is not None and up is not None:
+                return [down, up], (-1, 1), (x + h) - (x - h)
+            sides = (1, -1) if down is None else (-1, 1)
+        else:
+            sides = (1, -1) if hi - x >= x - lo else (-1, 1)
+
+        for sign in sides:
+            s = sign * min(h, (hi - x if sign > 0 else x - lo) / 2)
+            if x + s == x:
+                continue
+            f1, f2 = value(x + s), value(x + 2 * s)
+            if f1 is not None and f2 is not None:
+                return [f0, f1, f2], (-3, 4, -1), (x + 2 * s) - x
+
+        if error is not None:
+            raise error
+
+        return None
 
     def supported(self, params: Dict[str, float]) -> bool:
         """
@@ -519,9 +589,8 @@ class Gradient:
             if lo == hi:
                 continue
 
-            h = _PARAMETER_STEP * max(abs(x), 1.0)
-            up, down = min(x + h, hi), max(x - h, lo)
-            coals = [self.coal(**(params | {key: y})) for y in (up, down)]
+            coals, coefficients, dx = self._stencil(lambda y: self.coal(**(params | {key: y})), x, lo, hi,
+                                                    _PARAMETER_STEP * max(abs(x), 1.0), coal)
 
             if all(self._same_but_rates(coal, c, names) for c in coals):
                 try:
@@ -532,10 +601,11 @@ class Gradient:
                 # a perturbation that moves an epoch across an index changes the quantities by far more than the step
                 if q is not None and all(np.all(np.abs(qi[k] - q0[k]) <= 1e-3 * (np.abs(q0[k]) + 1))
                                          for qi in q for k in range(len(hosts))):
-                    jacobian[:, i] = sum(host.flat @ (q[0][k] - q[1][k]) for k, host in enumerate(hosts)) / (up - down)
+                    jacobian[:, i] = sum(host.flat @ sum(c * qi[k] for c, qi in zip(coefficients, q))
+                                         for k, host in enumerate(hosts)) / dx
                     continue
 
-            jacobian[:, i] = (self._entries(coals[0]).ravel() - self._entries(coals[1]).ravel()) / (up - down)
+            jacobian[:, i] = sum(c * self._entries(ci).ravel() for c, ci in zip(coefficients, coals)) / dx
 
         return jacobian.reshape(tuple(shape) + (len(params),))
 
