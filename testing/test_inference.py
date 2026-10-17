@@ -2249,3 +2249,86 @@ def test_inference_payload_without_a_score_covariance_restores_none():
     restored = jsonpickle.decode(jsonpickle.encode(payload, keys=True), keys=True)
 
     assert restored._score_covariance_cache is None
+
+
+def test_score_covariance_follows_a_new_resample_at_a_reused_id():
+    """The cached score covariance is recomputed for a new resample callback, even one allocated at the address of the
+    previous one. Regression: it was keyed on the ids of the callbacks, which a new object may take once the old one is
+    collected, so a noisier callback kept the stale standard error."""
+    inf = _linear_poisson_inference('exact')
+    inf.resample = _poisson_resample
+    inf.run()
+    se = inf.standard_errors(method='godambe', n=200)['Ne']
+    names = inf.param_names
+
+    def new(obs, rng):
+        return _negative_binomial_resample(obs, rng)
+
+    # the entry an id-keyed cache holds when the new callback takes the address of the collected one
+    x = tuple(float(inf.params_inferred[n]) for n in names)
+    entropy = inf.seed if inf._entropy is None else inf._entropy
+    inf._score_covariance_cache = ((x, inf._observation_key(), id(new), id(inf.loss), id(inf.coal),
+                                    tuple(inf.bounds[n] for n in names), inf.gradient, 200, entropy),
+                                   inf._score_covariance_cache[1])
+    inf.resample = new
+
+    # four times the Poisson variance doubles the standard error
+    assert inf.standard_errors(method='godambe', n=200)['Ne'] > 1.5 * se
+
+
+def test_score_covariance_cache_is_not_serialized():
+    """The cached score covariance, whose key holds the callables, is left out of the serialized state, and a restored
+    object computes the same covariance afresh from the seed."""
+    inf = _linear_poisson_inference('exact')
+    inf.resample = _poisson_resample
+    inf.run()
+    cov = inf.covariance(method='godambe', n=20)
+
+    assert '_score_covariance_cache' not in inf.__getstate__()
+
+    restored = pg.Inference.from_json(inf.to_json())
+
+    assert restored._score_covariance_cache is None
+    pd.testing.assert_frame_equal(restored.covariance(method='godambe', n=20), cov)
+
+
+def test_trajectory_intervals_of_all_trajectories_at_another_level():
+    """With kind='all', the intervals cover the population sizes and both migration directions. The absent direction
+    is zero with a zero standard error and limits [0, 0], and the log-scale half-widths at level 0.9 are those at 0.95
+    scaled by the ratio z(0.95) / z(0.975) of the normal quantiles."""
+    from scipy.stats import norm
+
+    def coal(m, Ne):
+        return pg.Coalescent(n={'pop_0': 3, 'pop_1': 3}, demography=pg.Demography(
+            pop_sizes={'pop_0': 1, 'pop_1': Ne}, migration_rates={('pop_0', 'pop_1'): m}))
+
+    inf = pg.Inference(
+        bounds=dict(m=(0.05, 5), Ne=(0.1, 10)),
+        x0=dict(m=1, Ne=1),
+        coal=coal,
+        loss=lambda c, obs: pg.PoissonLikelihood().compute(obs.polymorphic, 1000 * c.sfs.mean.polymorphic),
+        observation=pg.SFS(np.round(1000 * coal(0.5, 2).sfs.mean.data)),
+        n_runs=1,
+        pbar=False
+    )
+    inf.run()
+
+    t = np.array([0.1, 1.0])
+    narrow = inf.trajectory_intervals(t=t, kind='all', level=0.9).set_index(['trajectory', 'time'])
+    wide = inf.trajectory_intervals(t=t, kind='all', level=0.95).set_index(['trajectory', 'time'])
+    migration = inf.trajectory_intervals(t=t, kind='migration', level=0.9).set_index(['trajectory', 'time'])
+
+    assert set(narrow.index.get_level_values('trajectory')) == {'pop_0', 'pop_1', 'pop_0->pop_1', 'pop_1->pop_0'}
+    pd.testing.assert_frame_equal(migration, narrow.loc[['pop_0->pop_1', 'pop_1->pop_0']])
+
+    absent = narrow.loc['pop_1->pop_0']
+    np.testing.assert_array_equal(absent[['estimate', 'standard error', 'lower', 'upper']].to_numpy(), 0)
+
+    # the fitted trajectories are positive and take log-scale limits, symmetric about the estimate in the logarithm
+    fitted = narrow.index.get_level_values('trajectory').isin(['pop_1', 'pop_0->pop_1'])
+    assert (narrow.loc[fitted, 'standard error'] > 0).all()
+
+    ratio = (np.log(narrow['upper'] / narrow['estimate']) / np.log(wide['upper'] / wide['estimate']))[fitted]
+    np.testing.assert_allclose(ratio, norm.ppf(0.95) / norm.ppf(0.975), rtol=1e-12)
+    np.testing.assert_allclose(np.log(narrow['estimate'] / narrow['lower'])[fitted],
+                               np.log(narrow['upper'] / narrow['estimate'])[fitted], rtol=1e-12)

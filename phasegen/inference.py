@@ -379,7 +379,8 @@ class Inference(Serializable):
         lambdas/closures that the standard pickler and ``copy.deepcopy`` cannot handle reliably, especially
         once they have themselves been restored from a previous ``dill`` round-trip). They are dumped
         directly from ``self`` without a prior deep copy. Only the remaining state is deep-copied, so the live object
-        is left untouched. The cached Fisher information, whose key holds the callables, is left out.
+        is left untouched. The cached Fisher information and score covariance, whose keys hold the callables, are left
+        out.
 
         The dump is recursive, so that the module-level names a callable references (the package alias, the
         observation, helper functions) travel with it. A restored callable therefore evaluates against the
@@ -390,7 +391,7 @@ class Inference(Serializable):
         callables = ['coal', 'loss', 'resample']
 
         state = copy.deepcopy({
-            key: value for key, value in self.__dict__.items() if key not in callables + ['_fisher_information']
+            key: value for key, value in self.__dict__.items() if key not in callables + ['_fisher_information', '_score_covariance_cache']
         })
 
         # a plain dict, as jsonpickle encodes the instance dictionary of an OptimizeResult as an additional item
@@ -1096,7 +1097,7 @@ class Inference(Serializable):
         names = self.param_names
         x = {name: float(self.params_inferred[name]) for name in names}
         entropy = self.seed if self._entropy is None else self._entropy
-        key = (tuple(x.values()), self._observation_key(), id(self.resample), id(self.loss), id(self.coal),
+        key = (tuple(x.values()), self._observation_key(), self.resample, self.loss, self.coal,
                tuple(self.bounds[name] for name in names), self.gradient, n, entropy)
 
         if self._score_covariance_cache is not None and self._score_covariance_cache[0] == key:
@@ -1328,7 +1329,7 @@ class Inference(Serializable):
         :param t: Times. By default, :attr:`Settings.plot_inference_n_grid
             <phasegen.settings.Settings.plot_inference_n_grid>` points up to the
             :attr:`Settings.plot_inference_quantile <phasegen.settings.Settings.plot_inference_quantile>` quantile of
-            the inferred tree height.
+            the inferred tree height, or up to the end time of a windowed coalescent.
         :param kind: The trajectories, ``'pop_sizes'``, ``'migration'`` or ``'all'``.
         :param level: The confidence level.
         :param method: The covariance, ``'fisher'`` or ``'godambe'``, see :meth:`Inference.covariance()
@@ -1337,6 +1338,8 @@ class Inference(Serializable):
         :return: One row per time and trajectory, with the columns ``time``, ``trajectory``, ``estimate``,
             ``standard error``, ``lower`` and ``upper``.
         :raises RuntimeError: If :meth:`Inference.run() <phasegen.inference.Inference.run>` has not been called.
+        :raises ValueError: If ``method`` is unknown, or for ``'godambe'``, if ``resample`` is ``None`` or ``n`` is
+            less than 2.
         """
         t = self._trajectory_times(t)
         estimate, se, lower, upper = self._trajectory_band(t, kind, level, method, n)
@@ -1491,6 +1494,8 @@ class Inference(Serializable):
         :param kwargs: Additional keyword arguments passed to the plot function.
         :param ax: Axes to plot on.
         :return: Axes.
+        :raises RuntimeError: If :meth:`Inference.run() <phasegen.inference.Inference.run>` has not been called.
+        :raises ValueError: If ``interval`` is unknown, or for ``'godambe'``, if ``resample`` is ``None``.
         """
         return self._plot_demography(
             t=t,
@@ -1527,6 +1532,8 @@ class Inference(Serializable):
         :param kwargs: Additional keyword arguments passed to the plot function.
         :param ax: Axes to plot on.
         :return: Axes.
+        :raises RuntimeError: If :meth:`Inference.run() <phasegen.inference.Inference.run>` has not been called.
+        :raises ValueError: If ``interval`` is unknown, or for ``'godambe'``, if ``resample`` is ``None``.
         """
         return self._plot_demography(
             t=t,
@@ -1563,6 +1570,8 @@ class Inference(Serializable):
         :param kwargs: Additional keyword arguments passed to the plot function.
         :param ax: Axes to plot on.
         :return: Axes.
+        :raises RuntimeError: If :meth:`Inference.run() <phasegen.inference.Inference.run>` has not been called.
+        :raises ValueError: If ``interval`` is unknown, or for ``'godambe'``, if ``resample`` is ``None``.
         """
         return self._plot_demography(
             t=t,
