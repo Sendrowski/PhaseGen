@@ -726,6 +726,39 @@ def test_gradient_by_model_parameter_near_a_bound():
     assert th.gradient().parameters['psi'] == pytest.approx(one_sided, rel=1e-6)
 
 
+def _dirac(psi: float, c: float, N: float = 1.5) -> pg.Coalescent:
+    """A Dirac coalescent with a size change, the setup of the references by the rate ``c``."""
+    return pg.Coalescent(n=6, model=pg.DiracCoalescent(psi=psi, c=c),
+                         demography=pg.Demography(pop_sizes={'pop_0': {0: 1, 0.4: N}}))
+
+
+def _richardson_wide(f: Callable[[float], np.ndarray], x: float, h: float) -> np.ndarray:
+    """Richardson-extrapolated central difference of ``f`` at ``x`` with a large step ``h``."""
+    d1 = (f(x + h) - f(x - h)) / (2 * h)
+    d2 = (f(x + h / 2) - f(x - h / 2)) / h
+
+    return (4 * d2 - d1) / 3
+
+
+def test_gradient_by_dirac_rate_at_small_psi():
+    """The derivative of the spectrum by the Dirac rate c at psi = 1e-3, where it is of order psi^2 against rates of
+    order one. A difference of the generator with a step of 1e-6 lost about eps / (1e-6 psi^2) to cancellation, a
+    relative error of 3.3e-4 in the bins. The reference agrees with its half-step version to 1e-8."""
+    numeric = _richardson_wide(lambda c: _dirac(1e-3, c).sfs.mean.data[1:-1], 1.0, 0.2)
+
+    np.testing.assert_allclose(_dirac(1e-3, 1.0).sfs.gradient().parameters['c'][1:-1], numeric, rtol=1e-7)
+
+
+def test_parameter_jacobian_by_dirac_rate_at_small_psi():
+    """The Jacobian of the normalized polymorphic spectrum by the Dirac rate c at psi = 1e-3 through
+    :class:`phasegen.Gradient`, which a step of 1e-6 in the generator differences got wrong by 2.4e-3 relative."""
+    stat = lambda coal: coal.sfs.mean.normalize().polymorphic
+    _, jacobian = pg.Gradient(lambda psi, c, N: _dirac(psi, c, N), stat).compute(dict(psi=1e-3, c=1.0, N=1.5))
+    numeric = _richardson_wide(lambda c: np.asarray(stat(_dirac(1e-3, c))), 1.0, 0.2)
+
+    np.testing.assert_allclose(np.asarray(jacobian)[:, 1], numeric, rtol=1e-6)
+
+
 def test_gradient_by_recombination_rate():
     """The derivative of the two-locus tree height by the recombination rate, against central differences."""
     def mean(r):

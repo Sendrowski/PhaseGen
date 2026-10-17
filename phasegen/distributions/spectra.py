@@ -415,10 +415,12 @@ class SFSDistribution(SpectrumDistribution, ABC):
             reward: Reward = None
     ) -> Tuple['PhaseTypeDistribution', np.ndarray, List[Tuple[int, ...]]]:
         """
-        The bin rewards of the first moment, see :meth:`PhaseTypeDistribution._mean_rewards`. Where flattening applies,
-        they are the flattened weights on the lineage-counting state space of the tree height.
+        The bin rewards of the first moment, see
+        :meth:`PhaseTypeDistribution._mean_rewards() <phasegen.distributions.PhaseTypeDistribution._mean_rewards>`.
+        Where flattening applies, they are the flattened weights on the lineage-counting state space of the tree height.
 
-        :param reward: The reward multiplied with the bin rewards, by default that of :attr:`mean`.
+        :param reward: The reward multiplied with the bin rewards, by default that of
+            :attr:`SFSDistribution.mean <phasegen.distributions.SFSDistribution.mean>`.
         :return: The distribution, the reward matrix and the positions.
         """
         reward = self.reward if reward is None else reward
@@ -1702,9 +1704,11 @@ class JointSFSDistribution(SpectrumDistribution):
             reward: Reward = None
     ) -> Tuple['PhaseTypeDistribution', np.ndarray, List[Tuple[int, ...]]]:
         """
-        The bin rewards of the first moment, see :meth:`PhaseTypeDistribution._mean_rewards`.
+        The bin rewards of the first moment, see
+        :meth:`PhaseTypeDistribution._mean_rewards() <phasegen.distributions.PhaseTypeDistribution._mean_rewards>`.
 
-        :param reward: The reward multiplied with the bin rewards, by default that of :attr:`mean`.
+        :param reward: The reward multiplied with the bin rewards, by default that of
+            :attr:`JointSFSDistribution.mean <phasegen.distributions.JointSFSDistribution.mean>`.
         :return: The distribution, the reward matrix and the positions.
         """
         reward = self.reward if reward is None else reward

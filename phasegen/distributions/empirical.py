@@ -1804,8 +1804,7 @@ class EmpiricalTwoLocusSFSDistribution(_EmpiricalAccumulating, EmpiricalSpectrum
     @cached_property
     def var(self) -> TwoLocusSFS:
         """
-        Sample variance, see
-        :meth:`EmpiricalDistribution.moment() <phasegen.distributions.EmpiricalDistribution.moment>`.
+        Sample variance, see :meth:`EmpiricalDistribution.moment() <phasegen.distributions.EmpiricalDistribution.moment>`.
         """
         return TwoLocusSFS(super().var)
 
@@ -4752,7 +4751,8 @@ class MsprimeCoalescent(AbstractCoalescent):
         Concatenate the arrays under ``key`` of all batches along ``axis`` into one preallocated array, releasing
         each batch's array once copied.
 
-        :param batches: The per-batch result dictionaries of :meth:`_simulate`.
+        :param batches: The per-batch result dictionaries of
+            :meth:`MsprimeCoalescent._simulate() <phasegen.distributions.MsprimeCoalescent._simulate>`.
         :param key: The key of the arrays to concatenate.
         :param axis: The axis to concatenate along.
         :return: The concatenated array.

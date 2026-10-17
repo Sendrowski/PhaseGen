@@ -183,10 +183,10 @@ class MsprimeGroundTruthTestCase(TestCase):
 
         assert np.asarray(ms.sfs2.mean.data).ndim == 2
 
-    def test_joint_sfs_n_samples_is_the_replicate_count_not_the_cap(self):
-        """``EmpiricalJointSFSDistribution.n_samples`` must record the replicate count the moments were averaged over,
-        not the (capped) number of retained per-replicate samples -- otherwise the tuner's jSFS noise floor is
-        inflated by ``sqrt(num_replicates / cap)``. It defaults to ``len(samples)`` only when not passed."""
+    def test_joint_sfs_n_samples_is_the_replicate_count_of_a_sample_subset(self):
+        """Given a subset of the per-replicate samples, ``EmpiricalJointSFSDistribution.n_samples`` records the
+        replicate count the moments were averaged over, which sets the noise floor of the comparisons, and keeps it
+        after the samples are dropped. It defaults to ``len(samples)`` only when not passed."""
         from phasegen.distributions.empirical import EmpiricalJointSFSDistribution
 
         moments = np.ones((3, 2, 2))

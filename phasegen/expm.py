@@ -28,8 +28,9 @@ import scipy.special
 
 logger = logging.getLogger('phasegen')
 
-#: 1-norm of the first step of :meth:`Backend.expm_multiply` on an argument of larger norm. The steps double in norm
-#: and end once the vector is stationary, since the cost of the truncated Taylor action grows linearly in the norm.
+#: 1-norm of the first step of :meth:`Backend.expm_multiply() <phasegen.expm.Backend.expm_multiply>` on an argument of
+#: larger norm. The steps double in norm and end once the vector is stationary, since the cost of the truncated Taylor
+#: action grows linearly in the norm.
 _ACTION_STEP_NORM = 1e4
 
 #: Unit roundoff below which the remaining change of an action counts as none.
@@ -42,10 +43,10 @@ _STATIONARY_NOISE = 32
 
 class _GrowthBound:
     r"""
-    A bound :math:`G(f) \ge f^{-1} \int_0^f \|\exp(s \mathbf{A})\|_1\, ds` for :meth:`Backend._stationary`. With
-    :math:`\mathbf{A} = \mathbf{D} + \mathbf{N}` split into its :math:`L` diagonal blocks :math:`\mathbf{D}` and the
-    strictly block triangular rest :math:`\mathbf{N}`, the Dyson series of :math:`\exp(s \mathbf{A})` ends after
-    :math:`L` terms, so that
+    A bound :math:`G(f) \ge f^{-1} \int_0^f \|\exp(s \mathbf{A})\|_1\, ds` for
+    :meth:`Backend._stationary() <phasegen.expm.Backend._stationary>`. With :math:`\mathbf{A} = \mathbf{D} + \mathbf{N}`
+    split into its :math:`L` diagonal blocks :math:`\mathbf{D}` and the strictly block triangular rest
+    :math:`\mathbf{N}`, the Dyson series of :math:`\exp(s \mathbf{A})` ends after :math:`L` terms, so that
 
     .. math::
         G(f) = \min_{p \in \{1, \infty\}} c_p \Big( \varphi(f m_p) + e^{f m_p}
@@ -292,8 +293,9 @@ class Backend(ABC):
     def expm_multiply(cls, a, b: np.ndarray, action: Callable = None, blocks: int = 1) -> np.ndarray:
         """
         Compute the action of the matrix exponential, :math:`\\exp(\\mathbf{A})\\mathbf{v}` (``exp(a) @ b``), via the
-        active backend, as a writable NumPy array. An argument of 1-norm above ``_ACTION_STEP_NORM`` is applied in
-        steps of doubling norm (:meth:`_step_fractions`) that end once the vector is stationary (:meth:`_stationary`).
+        active backend, as a writable NumPy array. An argument of 1-norm above ``_ACTION_STEP_NORM`` is applied in steps
+        of doubling norm (:meth:`Backend._step_fractions() <phasegen.expm.Backend._step_fractions>`) that end once the
+        vector is stationary (:meth:`Backend._stationary() <phasegen.expm.Backend._stationary>`).
 
         :param a: Matrix (typically a sparse matrix).
         :param b: Vector or thin matrix.

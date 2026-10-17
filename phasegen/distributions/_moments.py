@@ -130,11 +130,13 @@ class MomentEvaluator:
     @staticmethod
     def _block_expm(A: np.ndarray, n: int, scalar: Sequence[bool]) -> np.ndarray:
         """
-        The dense exponentials of a stack of Van Loan matrices of :meth:`_van_loan_matrix` or of augmented occupation
-        generators, block upper triangular of the structure of ``BlockTriangularExpm``. With the default backend, that
-        class evaluates each matrix where ``_block_expm_applies``, and :func:`scipy.linalg.expm` the stack otherwise.
-        Other backends evaluate each matrix. The strictly lower blocks are exactly zero. The rebases between balancing
-        factors multiply them by powers of the factor ratio, so any rounding left in them would reach the moment.
+        The dense exponentials of a stack of Van Loan matrices of
+        :meth:`MomentEvaluator._van_loan_matrix() <phasegen.distributions._moments.MomentEvaluator._van_loan_matrix>` or
+        of augmented occupation generators, block upper triangular of the structure of ``BlockTriangularExpm``. With the
+        default backend, that class evaluates each matrix where ``_block_expm_applies``, and :func:`scipy.linalg.expm`
+        the stack otherwise. Other backends evaluate each matrix. The strictly lower blocks are exactly zero. The
+        rebases between balancing factors multiply them by powers of the factor ratio, so any rounding left in them
+        would reach the moment.
 
         :param A: Stack of block upper triangular matrices of ``len(scalar)`` blocks of size ``n`` in each dimension,
             times their steps, of shape ``(m, dim, dim)``.

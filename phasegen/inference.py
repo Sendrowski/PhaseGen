@@ -540,7 +540,8 @@ class Inference(Serializable):
         :data:`_DIFFERENCE_STEP`. A penalized point has a zero gradient once the current iterate is valid, and otherwise
         the central differences of the penalized loss, which point from an invalid start toward the valid region.
 
-        :param loss: The loss function of :meth:`_get_loss_function`.
+        :param loss: The loss function of
+            :meth:`Inference._get_loss_function() <phasegen.inference.Inference._get_loss_function>`.
         :param x0: Initial parameters, for their names.
         :param bounds: The bounds of the parameters.
         :param pbar: Progress bar.
@@ -824,7 +825,8 @@ class Inference(Serializable):
         Warn when runs reaching the loss of the best run within :data:`_RESTART_LOSS_RTOL` end at estimates that differ
         from it by more than :data:`_RESTART_PARAM_RTOL`.
 
-        :param results: The results of the runs, among them the best run :attr:`result`.
+        :param results: The results of the runs, among them the best run
+            :attr:`Inference.result <phasegen.inference.Inference.result>`.
         """
         best = self.result
         if not best.fun < _LOSS_PENALTY:
@@ -1080,8 +1082,8 @@ class Inference(Serializable):
             g_b = \nabla_\theta L\big(\mathrm{coal}(\theta),\, y^{*}_b\big) \big|_{\theta = \hat{\theta}},
 
         where :math:`y^{*}_b` are :math:`n` observations drawn with the ``resample`` callback from a generator derived
-        from :attr:`seed`, :math:`\bar{g}` is the mean of the scores :math:`g_b` and the gradients are those of
-        :meth:`Gradient.compute() <phasegen.gradient.Gradient.compute>`.
+        from :attr:`Inference.seed <phasegen.inference.Inference.seed>`, :math:`\bar{g}` is the mean of the scores
+        :math:`g_b` and the gradients are those of :meth:`Gradient.compute() <phasegen.gradient.Gradient.compute>`.
 
         :param n: The number of resampled observations, at least 2.
         :return: The covariance, with the parameter names as index and columns.
@@ -1144,7 +1146,7 @@ class Inference(Serializable):
         at :math:`\hat{\theta}` over :math:`n` observations :math:`y^{*}` drawn with the ``resample`` callback, without
         refitting. It holds for a misspecified or composite likelihood, such as that of an SFS of linked sites, when the
         callback reproduces the sampling of the observation, for instance by a block bootstrap over the genome. The
-        draws derive from :attr:`seed`, and :math:`J` is cached.
+        draws derive from :attr:`Inference.seed <phasegen.inference.Inference.seed>`, and :math:`J` is cached.
 
         :math:`H^{-1}` is taken over the directions in which :math:`H` is positive. A parameter that loads on a direction
         of zero or negative curvature, such as one the loss does not depend on, has an undefined variance, reported as
@@ -1220,9 +1222,10 @@ class Inference(Serializable):
         """
         The times at which trajectories are evaluated.
 
-        :param t: Times, by default :attr:`Settings.plot_inference_n_grid` points up to the
-            :attr:`Settings.plot_inference_quantile` quantile of the inferred tree height, or up to the end time of a
-            windowed coalescent.
+        :param t: Times, by default
+            :attr:`Settings.plot_inference_n_grid <phasegen.settings.Settings.plot_inference_n_grid>` points up to the
+            :attr:`Settings.plot_inference_quantile <phasegen.settings.Settings.plot_inference_quantile>` quantile of
+            the inferred tree height, or up to the end time of a windowed coalescent.
         :return: The times.
         :raises RuntimeError: If the main optimization has not been run.
         """
@@ -1249,12 +1252,12 @@ class Inference(Serializable):
     ) -> Tuple['_CurveData', np.ndarray, np.ndarray, np.ndarray]:
         """
         The trajectories of the estimate with their standard errors and confidence limits, see
-        :meth:`trajectory_intervals`.
+        :meth:`Inference.trajectory_intervals() <phasegen.inference.Inference.trajectory_intervals>`.
 
         :param t: Times.
         :param kind: The trajectories.
         :param level: The confidence level.
-        :param method: The covariance, see :meth:`covariance`.
+        :param method: The covariance, see :meth:`Inference.covariance() <phasegen.inference.Inference.covariance>`.
         :param n: The number of resampled observations of the Godambe covariance.
         :return: The trajectories, and the standard errors, lower and upper limits, each of shape
             ``(n_trajectories, n_times)``.
@@ -1360,13 +1363,18 @@ class Inference(Serializable):
             interval: Literal['bootstrap', 'fisher', 'godambe'] | None = 'bootstrap'
     ) -> Tuple['_CurveData', List['_CurveData'], Optional[Tuple[np.ndarray, np.ndarray]]]:
         """
-        Trajectories of the inferred demography with their uncertainty, as drawn by :meth:`plot_demography`,
-        :meth:`plot_pop_sizes` and :meth:`plot_migration`.
+        Trajectories of the inferred demography with their uncertainty, as drawn by
+        :meth:`Inference.plot_demography() <phasegen.inference.Inference.plot_demography>`,
+        :meth:`Inference.plot_pop_sizes() <phasegen.inference.Inference.plot_pop_sizes>` and
+        :meth:`Inference.plot_migration() <phasegen.inference.Inference.plot_migration>`.
 
-        :param t: Times at which to evaluate the trajectories, see :meth:`trajectory_intervals`.
+        :param t: Times at which to evaluate the trajectories, see
+            :meth:`Inference.trajectory_intervals() <phasegen.inference.Inference.trajectory_intervals>`.
         :param kind: The trajectories to include, ``'pop_sizes'``, ``'migration'`` or ``'all'``.
-        :param interval: ``'bootstrap'`` for the trajectories of the bootstrap replicates, ``'fisher'`` or
-            ``'godambe'`` for the 95% intervals of :meth:`trajectory_intervals` with that covariance, or ``None``.
+        :param interval: ``'bootstrap'`` for the trajectories of the bootstrap replicates, ``'fisher'`` or ``'godambe'``
+            for the 95% intervals of
+            :meth:`Inference.trajectory_intervals() <phasegen.inference.Inference.trajectory_intervals>` with that
+            covariance, or ``None``.
         :return: The inferred trajectories, those of each bootstrap replicate, and the lower and upper limits of the
             intervals, ``None`` without them.
         :raises RuntimeError: If the main optimization has not been run.
@@ -1835,7 +1843,8 @@ class _PenalizedLoss:
         self.logger = logger
         self.smooth = smooth
 
-        #: The loss of the current iterate, that of the first evaluation until :meth:`update` reports an iterate.
+        #: The loss of the current iterate, that of the first evaluation until
+        #: :meth:`_PenalizedLoss.update() <phasegen.inference._PenalizedLoss.update>` reports an iterate.
         self.current: float | None = None
 
         #: Whether the last evaluation was penalized.

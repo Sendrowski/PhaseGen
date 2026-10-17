@@ -86,7 +86,8 @@ class _DistributionRecorder:
     def moment(self, k: int = 1, rewards: Sequence = None, start_time: float = None, end_time: float = None,
                center: bool = True, permute: bool = True) -> Any:
         """
-        Serve a first moment, see :meth:`_CoalescentRecorder.first_moment`.
+        Serve a first moment, see
+        :meth:`_CoalescentRecorder.first_moment() <phasegen.gradient._CoalescentRecorder.first_moment>`.
         """
         dist = self._distribution
 
@@ -98,9 +99,10 @@ class _DistributionRecorder:
 
 class _CoalescentRecorder:
     """
-    Stand-in for a :class:`~phasegen.distributions.Coalescent` passed to a statistic, admitting only first moments:
-    the means and first moments of :data:`_DISTRIBUTIONS` and :meth:`Coalescent.moment` of order one. The reads of one
-    evaluation are numbered in order, so that a moment can be overridden in the next evaluation.
+    Stand-in for a :class:`~phasegen.distributions.Coalescent` passed to a statistic, admitting only first moments: the
+    means and first moments of :data:`_DISTRIBUTIONS` and
+    :meth:`Coalescent.moment() <phasegen.distributions.Coalescent.moment>` of order one. The reads of one evaluation are
+    numbered in order, so that a moment can be overridden in the next evaluation.
     """
 
     def __init__(self, coal: Coalescent) -> None:
@@ -163,7 +165,8 @@ class _CoalescentRecorder:
     def moment(self, k: int = 1, rewards: Sequence = None, start_time: float = None, end_time: float = None,
                center: bool = True, permute: bool = True) -> Any:
         """
-        Serve a first moment of :meth:`Coalescent.moment`, see :meth:`first_moment`.
+        Serve a first moment of :meth:`Coalescent.moment() <phasegen.distributions.Coalescent.moment>`, see
+        :meth:`_CoalescentRecorder.first_moment() <phasegen.gradient._CoalescentRecorder.first_moment>`.
         """
         coal = self._coal
 

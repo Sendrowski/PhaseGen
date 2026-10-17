@@ -30,9 +30,13 @@ _CHUNK = 64
 #: Relative tolerance of the reconstruction of a generator from the basis of :class:`_GeneratorBasis`.
 _BASIS_RTOL = 1e-10
 
-#: Largest step of the differences of the generator over a parameter of the coalescent model or the recombination
-#: rate, relative to the magnitude of the parameter (at least 1).
+#: Largest step of the differences of the generator over a parameter of the coalescent model it is not affine in,
+#: relative to the magnitude of the parameter (at least 1).
 _PARAMETER_STEP = 1e-6
+
+#: Step of the exact difference of the generator over a parameter it is affine in, relative to the magnitude of the
+#: parameter (at least 1).
+_AFFINE_STEP = 1.0
 
 #: Smallest relative step tried, below which a parameter counts as not variable.
 _MIN_PARAMETER_STEP = 1e-14
@@ -59,11 +63,11 @@ class _TapedAction:
     r"""
     The action :math:`\mathbf{y} = e^{\mathbf{M}} \mathbf{x}` of a sparse square matrix :math:`\mathbf{M}` on a vector
     :math:`\mathbf{x}`, by the truncated Taylor algorithm of Al-Mohy and Higham (2011, Algorithm 3.2), with the degree,
-    the number of steps and the diagonal shift :math:`\mu` chosen as by
-    :func:`scipy.sparse.linalg.expm_multiply`, recording the input of every step for the reverse pass :meth:`reverse`,
-    which recomputes the Taylor terms one step at a time. Above a 1-norm of ``_ACTION_STEP_NORM`` the steps end once
-    the vector is stationary over the remaining ones, tested as in :meth:`Backend.expm_multiply()
-    <phasegen.expm.Backend.expm_multiply>`.
+    the number of steps and the diagonal shift :math:`\mu` chosen as by :func:`scipy.sparse.linalg.expm_multiply`,
+    recording the input of every step for the reverse pass
+    :meth:`_TapedAction.reverse() <phasegen.distributions._gradient._TapedAction.reverse>`, which recomputes the Taylor
+    terms one step at a time. Above a 1-norm of ``_ACTION_STEP_NORM`` the steps end once the vector is stationary over
+    the remaining ones, tested as in :meth:`Backend.expm_multiply() <phasegen.expm.Backend.expm_multiply>`.
     """
 
     def __init__(self, M: sp.csr_matrix, blocks: int = 1) -> None:
@@ -91,8 +95,9 @@ class _TapedAction:
         self._Bt = self.B.T.tocsr()
 
         #: The matrix, its entrywise absolute value, the bound on the growth of its exponential and the steps after
-        #: which :meth:`apply` tests stationarity, at the fractions of :meth:`Backend._step_fractions()
-        #: <phasegen.expm.Backend._step_fractions>` when the norm of the matrix exceeds ``_ACTION_STEP_NORM``.
+        #: which :meth:`_TapedAction.apply() <phasegen.distributions._gradient._TapedAction.apply>` tests stationarity,
+        #: at the fractions of :meth:`Backend._step_fractions() <phasegen.expm.Backend._step_fractions>` when the norm
+        #: of the matrix exceeds ``_ACTION_STEP_NORM``.
         self._M, self._abs_M, self._growth, self._checks = M, None, None, set()
         norm = _exact_1_norm(M)
         if np.isfinite(norm) and norm > _ACTION_STEP_NORM:
@@ -105,8 +110,9 @@ class _TapedAction:
         Apply the action.
 
         :param x: The vector.
-        :return: :math:`e^{\\mathbf{M}} \\mathbf{x}`, and the input and number of Taylor terms of every step, from
-            which :meth:`reverse` recomputes the terms one step at a time.
+        :return: :math:`e^{\\mathbf{M}} \\mathbf{x}`, and the input and number of Taylor terms of every step, from which
+            :meth:`_TapedAction.reverse() <phasegen.distributions._gradient._TapedAction.reverse>` recomputes the terms
+            one step at a time.
         """
         eta = np.exp(self.mu / self.steps)
         checkpoints, F = [], x
@@ -150,11 +156,13 @@ class _TapedAction:
             cols: np.ndarray
     ) -> Tuple[np.ndarray, np.ndarray]:
         """
-        Reverse pass of :meth:`apply` for a scalar :math:`L` with :math:`\\partial L / \\partial \\mathbf{y} = \\lambda`,
-        holding the shift, the degree and the number of steps fixed.
+        Reverse pass of :meth:`_TapedAction.apply() <phasegen.distributions._gradient._TapedAction.apply>` for a scalar
+        :math:`L` with :math:`\\partial L / \\partial \\mathbf{y} = \\lambda`, holding the shift, the degree and the
+        number of steps fixed.
 
         :param lam: The adjoint of the result.
-        :param checkpoints: The step inputs and term counts recorded by :meth:`apply`.
+        :param checkpoints: The step inputs and term counts recorded by
+            :meth:`_TapedAction.apply() <phasegen.distributions._gradient._TapedAction.apply>`.
         :param rows: The rows of the entries of :math:`\\mathbf{M}` to differentiate by.
         :param cols: Their columns.
         :return: :math:`\\partial L / \\partial \\mathbf{x}`, and :math:`\\partial L / \\partial M_{rc}` over the entries
@@ -342,36 +350,38 @@ class _GeneratorBasis:
 
     def _stencil(self, name: str) -> Optional[List[Tuple['_GeneratorBasis', float]]]:
         """
-        The bases and weights of a second-order difference of the generator over a parameter, memoized. A model
-        parameter takes a central difference where it may vary by a thousand steps either way and a one-sided one
-        towards valid values otherwise. The recombination rate, on which the generator is linear, takes the full step.
+        The bases and weights of a difference of the generator over a parameter, memoized. A parameter the generator
+        is affine in (the recombination rate and the parameters in ``_affine_parameters`` of the model) takes an exact
+        two-point difference with a large step towards valid values. Any other takes a second-order central
+        difference where it may vary by a thousand steps either way and a one-sided one towards valid values otherwise.
 
         :param name: The parameter.
         :return: The bases with their weights, or ``None`` if the parameter cannot be varied.
         """
         if name not in self._stencils:
-            x = _rate_parameters(self.state_space.model, self.state_space.locus_config)[name]
+            model = self.state_space.model
+            x = _rate_parameters(model, self.state_space.locus_config)[name]
             scale = max(abs(x), 1.0)
             stencil = None
 
-            h = _PARAMETER_STEP * scale
-            if name == 'recombination_rate':
-                stencil = ([(self._varied(name, x + h), 1 / (2 * h)), (self._varied(name, x - h), -1 / (2 * h))]
-                           if x >= h else [(self, -3 / (2 * h)), (self._varied(name, x + h), 4 / (2 * h)),
-                                           (self._varied(name, x + 2 * h), -1 / (2 * h))])
-
-            while stencil is None and h > _MIN_PARAMETER_STEP * scale:
-                if self._valid(name, x - _STEP_MARGIN * h) and self._valid(name, x + _STEP_MARGIN * h):
-                    stencil = [(self._varied(name, x + h), 1 / (2 * h)), (self._varied(name, x - h), -1 / (2 * h))]
-                h /= 10
-
-            for sign in (1, -1):
-                h = sign * _PARAMETER_STEP * scale
-                while stencil is None and abs(h) > _MIN_PARAMETER_STEP * scale:
-                    if self._valid(name, x + 2 * _STEP_MARGIN * h):
-                        stencil = [(self, -3 / (2 * h)), (self._varied(name, x + h), 4 / (2 * h)),
-                                   (self._varied(name, x + 2 * h), -1 / (2 * h))]
+            if name == 'recombination_rate' or name in model._affine_parameters:
+                for h in (_AFFINE_STEP * scale, -_AFFINE_STEP * scale):
+                    if stencil is None and self._valid(name, x + h):
+                        stencil = [(self._varied(name, x + h), 1 / h), (self, -1 / h)]
+            else:
+                h = _PARAMETER_STEP * scale
+                while stencil is None and h > _MIN_PARAMETER_STEP * scale:
+                    if self._valid(name, x - _STEP_MARGIN * h) and self._valid(name, x + _STEP_MARGIN * h):
+                        stencil = [(self._varied(name, x + h), 1 / (2 * h)), (self._varied(name, x - h), -1 / (2 * h))]
                     h /= 10
+
+                for sign in (1, -1):
+                    h = sign * _PARAMETER_STEP * scale
+                    while stencil is None and abs(h) > _MIN_PARAMETER_STEP * scale:
+                        if self._valid(name, x + 2 * _STEP_MARGIN * h):
+                            stencil = [(self, -3 / (2 * h)), (self._varied(name, x + h), 4 / (2 * h)),
+                                       (self._varied(name, x + 2 * h), -1 / (2 * h))]
+                        h /= 10
 
             self._stencils[name] = stencil
 
@@ -380,8 +390,8 @@ class _GeneratorBasis:
     def parameter_derivatives(self, epoch: Epoch, idx_t: np.ndarray) -> Dict[str, sp.csr_matrix]:
         r"""
         The derivatives :math:`\partial \mathbf{T} / \partial \theta` of the transient block of the generator of an
-        epoch by the parameters :math:`\theta` of :func:`_rate_parameters`, by second-order differences of the bases,
-        which are exact for the recombination rate, on which the generator depends linearly.
+        epoch by the parameters :math:`\theta` of :func:`_rate_parameters`, by differences of the bases, which are
+        exact for the parameters the generator is affine in.
 
         :param epoch: The epoch.
         :param idx_t: The transient states.

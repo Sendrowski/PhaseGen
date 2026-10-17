@@ -43,7 +43,8 @@ class DemographyGradient:
     Derivatives of a first moment :math:`\mu` with respect to the population sizes :math:`N_{d,e}` of the demes
     :math:`d`, the migration rates :math:`m_{ab,e}` from deme :math:`a` to deme :math:`b` and the start times
     :math:`t_e` of the epochs :math:`e` the moment was evaluated over, and the continuous parameters of the coalescent
-    model and the recombination rate of two loci (:attr:`parameters`), as returned by
+    model and the recombination rate of two loci
+    (:attr:`DemographyGradient.parameters <phasegen.distributions.DemographyGradient.parameters>`), as returned by
     :meth:`PhaseTypeDistribution.gradient() <phasegen.distributions.PhaseTypeDistribution.gradient>`. For a spectrum,
     each array carries the shape of the spectrum as leading axes, one derivative per bin.
     """
@@ -72,7 +73,7 @@ class DemographyGradient:
         self.pop_sizes: np.ndarray = np.zeros(tuple(shape) + (len(self.epochs), len(self.pops)))
 
         #: Derivative :math:`\partial \mu / \partial m_{ab,e}`, of shape ``shape + (n_epochs, n_pairs)``, in the
-        #: order of :attr:`pairs`.
+        #: order of :attr:`DemographyGradient.pairs <phasegen.distributions.DemographyGradient.pairs>`.
         self.migration_rates: np.ndarray = np.zeros(tuple(shape) + (len(self.epochs), len(self.pairs)))
 
         #: Derivative :math:`\partial \mu / \partial t_e`, of shape ``shape + (n_epochs,)``. The first epoch starts at
@@ -113,7 +114,7 @@ class DemographyGradient:
                    parameters: Dict[str, float], names: Sequence[str]) -> np.ndarray:
         """
         The population sizes, migration rates and start times of epochs and the named parameters, in the layout of
-        :meth:`flat`.
+        :meth:`DemographyGradient.flat() <phasegen.distributions.DemographyGradient.flat>`.
 
         :param epochs: The epochs.
         :param pops: The demes.
@@ -131,8 +132,9 @@ class DemographyGradient:
 
     def flat(self) -> np.ndarray:
         """
-        The derivatives of a scalar moment as one vector, in the layout of :meth:`quantities` over the parameters of
-        :attr:`parameters`.
+        The derivatives of a scalar moment as one vector, in the layout of
+        :meth:`DemographyGradient.quantities() <phasegen.distributions.DemographyGradient.quantities>` over the
+        parameters of :attr:`DemographyGradient.parameters <phasegen.distributions.DemographyGradient.parameters>`.
         """
         return np.concatenate([
             self.pop_sizes.ravel(), self.migration_rates.ravel(), self.start_times,
@@ -252,7 +254,8 @@ class PhaseTypeDistribution(CallableDistributionFunctions, MomentEvaluator, Mome
         distribution whose state space carries them, a matrix with one column per entry, and the positions of the
         entries in the data of the moment, an empty tuple for a scalar.
 
-        :param reward: The reward of the first moment, by default that of :attr:`mean`.
+        :param reward: The reward of the first moment, by default that of
+            :attr:`PhaseTypeDistribution.mean <phasegen.distributions.PhaseTypeDistribution.mean>`.
         :return: The distribution, the reward matrix and the positions.
         """
         reward = self.reward if reward is None else reward
@@ -261,12 +264,14 @@ class PhaseTypeDistribution(CallableDistributionFunctions, MomentEvaluator, Mome
 
     def gradient(self, k: int = 1, rewards: Sequence[Reward] = None) -> 'DemographyGradient':
         r"""
-        Exact derivatives of the first moment :math:`\mu` of :meth:`moment`, of every bin for a spectrum, with respect
-        to the population sizes :math:`N_{d,e}` of deme :math:`d` in epoch :math:`e`, the migration rates
-        :math:`m_{ab,e}` from deme :math:`a` to deme :math:`b`, the start times :math:`t_e` of the epochs, the
-        continuous parameters of the coalescent model (``alpha`` of :class:`~phasegen.coalescent_models.BetaCoalescent`,
-        ``psi`` and ``c`` of :class:`~phasegen.coalescent_models.DiracCoalescent`) and the recombination rate between
-        two loci, collected in a :class:`~phasegen.distributions.DemographyGradient`.
+        Exact derivatives of the first moment :math:`\mu` of
+        :meth:`PhaseTypeDistribution.moment() <phasegen.distributions.PhaseTypeDistribution.moment>`, of every bin for a
+        spectrum, with respect to the population sizes :math:`N_{d,e}` of deme :math:`d` in epoch :math:`e`, the
+        migration rates :math:`m_{ab,e}` from deme :math:`a` to deme :math:`b`, the start times :math:`t_e` of the
+        epochs, the continuous parameters of the coalescent model (``alpha`` of
+        :class:`~phasegen.coalescent_models.BetaCoalescent`, ``psi`` and ``c`` of
+        :class:`~phasegen.coalescent_models.DiracCoalescent`) and the recombination rate between two loci, collected in
+        a :class:`~phasegen.distributions.DemographyGradient`.
 
         The first moment is the expected occupation time :math:`\mathbf{m}` of the transient states contracted with the
         reward vector :math:`\mathbf{r}`, :math:`\mu = \mathbf{m}\, \mathbf{r}`. In the last epoch :math:`E`, which
@@ -283,8 +288,9 @@ class PhaseTypeDistribution(CallableDistributionFunctions, MomentEvaluator, Mome
         \mathbf{r}` backwards through the epochs, by the Fréchet derivative of the exponential for dense rate matrices
         and by reversing the truncated Taylor action for sparse ones. The generator is affine in the inverse coalescent
         time scales and the migration rates, so that :math:`\partial \mathbf{T} / \partial \theta` is a fixed matrix
-        for these quantities, and a central difference of the generator for the model parameters and the
-        recombination rate. The cost is a few moment evaluations per entry, whatever the number of quantities, and the
+        for these quantities. For the recombination rate and the rate ``c`` of a Dirac coalescent, in which the
+        generator is also affine, it is an exact difference of two generators, and for the other model parameters a
+        central difference. The cost is a few moment evaluations per entry, whatever the number of quantities, and the
         result is cached as moments are, and a copy returned. :class:`~phasegen.inference.Inference` differentiates losses with these
         derivatives, and :class:`~phasegen.gradient.Gradient` chains them through a coalescent callback.
 
@@ -313,7 +319,8 @@ class PhaseTypeDistribution(CallableDistributionFunctions, MomentEvaluator, Mome
     @BlasThreadLimit()
     def _gradient(self, k: int, rewards: Tuple[Reward, ...] | None) -> 'DemographyGradient':
         """
-        The derivatives of :meth:`gradient`, cached.
+        The derivatives of
+        :meth:`PhaseTypeDistribution.gradient() <phasegen.distributions.PhaseTypeDistribution.gradient>`, cached.
 
         :param k: The order of the moment.
         :param rewards: The rewards.
@@ -1331,7 +1338,9 @@ class TreeHeightDistribution(PhaseTypeDistribution, DensityAwareDistribution):
 
     where :math:`\boldsymbol{\alpha}_T e^{\mathbf{T} x}` holds the probabilities of the transient states at time
     :math:`x` and :math:`\mathbf{q}` their absorption rates (Bladt and Nielsen, 2017). The density is read off the
-    same vector as the CDF, without differencing.
+    same vector as the CDF, without differencing. Above :attr:`Settings.expm_action_min_dim
+    <phasegen.settings.Settings.expm_action_min_dim>` states, the density far in the tail is accurate to roundoff
+    relative to its maximum, not relative to its own value.
 
     .. rubric:: Several epochs
 

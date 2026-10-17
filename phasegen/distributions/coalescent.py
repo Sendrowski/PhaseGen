@@ -827,7 +827,7 @@ class Coalescent(AbstractCoalescent, Serializable):
     @cache
     def _gradient(self, rewards: Tuple[Reward, ...] | None) -> 'DemographyGradient':
         """
-        The derivatives of :meth:`gradient`, cached.
+        The derivatives of :meth:`Coalescent.gradient() <phasegen.distributions.Coalescent.gradient>`, cached.
 
         :param rewards: The rewards.
         :return: The derivatives.

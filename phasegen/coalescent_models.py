@@ -38,7 +38,15 @@ class CoalescentModel(ABC):
     positive rates :math:`q_{ij}` returned here are model-specific. A model defines the rate of a :math:`k`-fold
     merger of :math:`b` lineages. The concrete subclasses are :class:`StandardCoalescent`, :class:`BetaCoalescent`,
     and :class:`DiracCoalescent`.
+
+    Gradients vary a custom subclass continuously in every numeric argument of its constructor that it stores as an
+    attribute of the same name, so these arguments must be floats. The derivative by a population size :math:`N` takes a
+    complex step through the time scale :math:`s(N)`, so ``_get_timescale`` must accept a complex :math:`N` and return
+    :math:`s(N)` evaluated with complex arithmetic.
     """
+
+    #: Constructor parameters the merger rates are affine in.
+    _affine_parameters: Tuple[str, ...] = ()
 
     def get_rate(self, s1: int, s2: int) -> float:
         """
@@ -481,6 +489,8 @@ class DiracCoalescent(MultipleMergerCoalescent):
 
         sfs = pg.Coalescent(n=5, model=pg.DiracCoalescent(psi=0.5, c=1)).sfs.mean
     """
+
+    _affine_parameters = ('c',)
 
     def __init__(self, psi: float, c: float, scale_time: bool = True) -> None:
         """
