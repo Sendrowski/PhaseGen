@@ -328,6 +328,13 @@ inf.bootstrap()
 ```
 
 ```{code-cell} python
+:tags: [remove-cell]
+import pandas as pd
+
+pd.set_option('display.width', 200)
+```
+
+```{code-cell} python
 import pandas as pd
 
 pd.DataFrame({
@@ -360,6 +367,11 @@ inf$resample <- function(obs, rng) pg$JointSFS(rng$poisson(obs$data) * 1, pop_na
 inf$n_bootstraps <- 20L
 
 inf$bootstrap()
+```
+
+```{code-cell} r
+:tags: [remove-cell]
+options(width = 200)
 ```
 
 ```{code-cell} r
