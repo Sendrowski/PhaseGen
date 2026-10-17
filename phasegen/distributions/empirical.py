@@ -4726,7 +4726,7 @@ class MsprimeCoalescent(AbstractCoalescent):
             return
 
         # combine the per-replicate statistics across threads
-        res = np.hstack([b['main'] for b in batches])
+        res = self._stack(batches, 'main', axis=1)
 
         # store results
         self.heights = res[0].T
@@ -4738,13 +4738,43 @@ class MsprimeCoalescent(AbstractCoalescent):
         self.jsfs_moments = np.sum([b['jsfs'] for b in batches], axis=0) / n_total if compute_jsfs else None
 
         # combine the per-replicate joint SFS branch lengths across threads for the joint ground truth
-        self.jsfs_samples = np.concatenate([b['jsfs_samples'] for b in batches]) if compute_jsfs else None
+        self.jsfs_samples = self._stack(batches, 'jsfs_samples') if compute_jsfs else None
 
         # combine the per-replicate mutation counts by descendant vector and by deme of residence across threads
         if batches[0]['jsfs_mutations'] is not None:
-            self.jsfs_mutations = np.concatenate([b['jsfs_mutations'] for b in batches])
+            self.jsfs_mutations = self._stack(batches, 'jsfs_mutations')
         if batches[0]['deme_mutations'] is not None:
-            self.deme_mutations = np.concatenate([b['deme_mutations'] for b in batches], axis=2)
+            self.deme_mutations = self._stack(batches, 'deme_mutations', axis=2)
+
+    @staticmethod
+    def _stack(batches: np.ndarray, key: str, axis: int = 0) -> np.ndarray:
+        """
+        Concatenate the arrays under ``key`` of all batches along ``axis`` into one preallocated array, releasing
+        each batch's array once copied.
+
+        :param batches: The per-batch result dictionaries of :meth:`_simulate`.
+        :param key: The key of the arrays to concatenate.
+        :param axis: The axis to concatenate along.
+        :return: The concatenated array.
+        """
+        if len(batches) == 1:
+            out, batches[0][key] = batches[0][key], None
+            return out
+
+        shape = list(batches[0][key].shape)
+        shape[axis] = sum(b[key].shape[axis] for b in batches)
+        out = np.empty_like(batches[0][key], shape=shape)
+
+        start = 0
+        for b in batches:
+            part = b[key]
+            index = [slice(None)] * out.ndim
+            index[axis] = slice(start, start + part.shape[axis])
+            out[tuple(index)] = part
+            start += part.shape[axis]
+            b[key] = None
+
+        return out
 
     @staticmethod
     def _expand_trees(ts: 'tskit.TreeSequence') -> Iterator['tskit.Tree']:

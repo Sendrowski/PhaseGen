@@ -15,6 +15,7 @@ from the current code (``REGENERATE=1 pytest ...`` or delete the file) and the t
 it. The baseline is tied to the installed msprime version; regenerate it if msprime is upgraded.
 """
 import os
+import tracemalloc
 from pathlib import Path
 
 import numpy as np
@@ -110,3 +111,23 @@ def test_per_deme_tree_height_is_undefined_for_several_loci():
 
     ms.tree_height._touch(np.linspace(0, 1, 3))
     ms.tree_height._drop()
+
+
+def test_combining_batches_holds_one_extra_copy_of_the_joint_sfs_samples():
+    """Combining the per-batch statistics across batches allocates at most one extra copy of the per-replicate joint
+    SFS branch lengths beyond the stored results. Regression: the per-batch arrays were concatenated while every
+    batch's arrays were still held, so the traced peak exceeded the stored results by the joint SFS samples plus all
+    per-batch tree statistics (2.15 times the joint SFS samples here, against 1.01)."""
+    coal = MsprimeCoalescent(
+        n={'pop_0': 6, 'pop_1': 6}, num_replicates=4000, seed=3, n_threads=4, parallelize=False,
+        demography=pg.Demography(pop_sizes={'pop_0': {0: 1.0}, 'pop_1': {0: 1.5}},
+                                 migration_rates={('pop_0', 'pop_1'): {0: 1.0}, ('pop_1', 'pop_0'): {0: 1.0}}))
+
+    tracemalloc.start()
+    try:
+        coal.simulate()
+        current, peak = tracemalloc.get_traced_memory()
+    finally:
+        tracemalloc.stop()
+
+    assert peak - current < 1.5 * coal.jsfs_samples.nbytes
