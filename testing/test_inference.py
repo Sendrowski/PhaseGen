@@ -1638,6 +1638,70 @@ def test_log_scale_gradient_is_that_of_the_logarithms():
     np.testing.assert_allclose(g, numeric, rtol=1e-5, atol=1e-8 * np.abs(numeric).max())
 
 
+def _two_epoch_log_scale_inference(bounds: dict, log_scale, **kwargs) -> pg.Inference:
+    """
+    A two-epoch inference of the sizes ``Ne`` and ``r`` of the epochs before and after time 1.
+
+    :param bounds: The bounds of ``Ne`` and ``r``.
+    :param log_scale: The parameters on a logarithmic scale.
+    :param kwargs: Further arguments of the inference.
+    """
+    return pg.Inference(
+        bounds=bounds,
+        x0=dict(Ne=0.2, r=1.0),
+        coal=lambda Ne, r: pg.Coalescent(n=5, demography=pg.Demography(pop_sizes={'pop_0': {0: Ne, 1: r}})),
+        loss=lambda coal, obs: pg.PoissonLikelihood().compute(
+            observed=obs.polymorphic, modelled=100 * coal.sfs.mean.polymorphic
+        ),
+        observation=pg.SFS([0, 180, 95, 70, 52, 0]),
+        n_runs=1,
+        pbar=False,
+        log_scale=log_scale,
+        **kwargs
+    )
+
+
+def test_log_scale_estimate_on_a_bound_is_the_bound(caplog):
+    """An estimate on the logarithmic scale that the optimizer leaves on its upper bound is that bound exactly, so the
+    Fisher information and the trajectory intervals are defined and the on-bound warning is logged. Here
+    exp(log(0.34)) exceeded 0.34 by one ulp, so the estimate lay outside the bounds and the Fisher information raised
+    ``ValueError('x0 violates bound constraints')``."""
+    inf = _two_epoch_log_scale_inference(dict(Ne=(0.1, 0.34), r=(0.1, 5)), True)
+    inf.run()
+
+    assert inf.params_inferred['Ne'] == 0.34
+
+    inf.fisher_information()
+    inf.trajectory_intervals()
+
+    assert 'lie on a bound' in caplog.text
+
+
+def test_log_scale_accepts_a_single_name():
+    """A single parameter name as ``log_scale`` puts that parameter on the logarithmic scale. It was split into its
+    characters, raising ``ValueError`` for the unknown parameters ``['N', 'e']``."""
+    inf = _two_epoch_log_scale_inference(dict(Ne=(0.1, 5), r=(0.1, 5)), 'Ne')
+
+    assert inf.log_scale == ('Ne',)
+
+
+def test_log_scale_result_gradient_is_on_the_original_scale():
+    """The gradient of the optimization result is that of the loss by the parameters on the original scale, and no
+    inverse Hessian is reported. It was the gradient by the logarithms, x dL/dx, with the inverse Hessian in the
+    logarithms."""
+    for log_scale in (True, ['Ne']):
+        inf = _two_epoch_log_scale_inference(dict(Ne=(0.1, 5), r=(0.1, 5)), log_scale)
+        inf.run()
+
+        params = inf.params_inferred
+        assert all(inf.bounds[k][0] < v < inf.bounds[k][1] for k, v in params.items())
+
+        _, expected = pg.Gradient(inf.get_coal, lambda coal: inf.loss(coal, inf.observation)).compute(params)
+
+        np.testing.assert_allclose(inf.result.jac, expected, rtol=1e-8)
+        assert 'hess_inv' not in inf.result
+
+
 def test_trajectory_intervals_by_the_delta_method():
     """The standard error of a population size trajectory is that of the delta method: for an epoch size estimated
     directly, its own standard error; for a time-scaled size, the error propagated through the scaling. The limits

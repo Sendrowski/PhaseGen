@@ -186,6 +186,22 @@ test_that("Inference uses the exact gradient for an R loss", {
   expect_equal(inf$loss_inferred, 0, tolerance = 1e-8)
 })
 
+test_that("Inference accepts a single name as log_scale", {
+  skip_if_not(phasegen_is_installed())
+
+  inf <- pg$Inference(
+    bounds = list(Ne = c(0.1, 5), r = c(0.1, 5)),
+    x0 = list(Ne = 1, r = 1),
+    coal = function(Ne, r) pg$Coalescent(n = 4L, demography = pg$Demography(pop_sizes = list(pop_0 = Ne))),
+    loss = function(coal, obs) (coal$tree_height$mean - 2)^2,
+    n_runs = 1L,
+    pbar = FALSE,
+    log_scale = "Ne"
+  )
+
+  expect_equal(unlist(inf$log_scale), "Ne")
+})
+
 test_that("the trajectory plot draws Fisher intervals", {
   skip_if_not(phasegen_is_installed())
 

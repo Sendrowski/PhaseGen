@@ -183,9 +183,9 @@ class Inference(Serializable):
             of about one evaluation of the moments whatever the number of parameters, which may enter the demography,
             the parameters of the coalescent model or the recombination rate. Any other loss is differentiated by finite
             differences. With ``'finite_differences'``, every gradient is a finite difference of the loss.
-        :param log_scale: The parameters optimized as their logarithms, ``True`` for all of them, which suits
-            population sizes and rates spanning orders of magnitude and often reduces the number of iterations
-            considerably. The estimates, bounds and bootstraps stay on the original scale.
+        :param log_scale: The name or names of the parameters optimized as their logarithms, ``True`` for all of
+            them, which suits population sizes and rates spanning orders of magnitude and often reduces the number of
+            iterations considerably. The estimates, bounds and bootstraps stay on the original scale.
         :raises ValueError: If a lower bound exceeds its upper bound, ``x0`` lies outside the bounds or does not specify
             exactly the parameters in ``bounds``, ``method_mle`` is not one of the supported methods, ``gradient`` is not
             one of the supported values, ``n_runs`` or ``n_bootstraps`` is less than 1, or a parameter on a logarithmic
@@ -209,7 +209,8 @@ class Inference(Serializable):
         if gradient not in ('exact', 'finite_differences'):
             raise ValueError(f"gradient must be 'exact' or 'finite_differences', got {gradient!r}.")
 
-        log_names = tuple(bounds) if log_scale is True else tuple(log_scale or ())
+        log_names = tuple(bounds) if log_scale is True else (
+            (log_scale,) if isinstance(log_scale, str) else tuple(log_scale or ()))
         invalid = [name for name in log_names if name not in bounds or not bounds[name][0] > 0]
         if invalid:
             raise ValueError(f'Parameters on a logarithmic scale must be in bounds with a positive lower bound, got '
@@ -601,7 +602,9 @@ class Inference(Serializable):
         :param logger: Logger.
         :param gradient: How the gradient of the loss is obtained, see :class:`Inference`.
         :param log_scale: The parameters optimized as their logarithms.
-        :return: Result of the optimization procedure, on the original scale.
+        :return: Result of the optimization procedure. The estimates ``x`` and the gradient of the loss (``jac``, or
+            ``grad`` for ``trust-constr``) are on the original scale. With a parameter on a logarithmic scale,
+            ``hess_inv`` is omitted and the other solver diagnostics refer to the logarithms.
         """
         bounds_dict = {key: bounds[key] for key in x0.keys()}
 
@@ -628,11 +631,13 @@ class Inference(Serializable):
             loss = Inference._get_loss_and_gradient(loss, x0, bounds_dict, pbar, get_dist, get_loss, observation, logger)
             jac = True
 
-        # the optimizer sees y = log(x) for the parameters on a logarithmic scale, and dL/dy = x dL/dx
+        # the optimizer sees y = log(x) for the parameters on a logarithmic scale, and dL/dy = x dL/dx, with x clipped
+        # to its bounds
         log = np.array([key in log_scale for key in x0.keys()])
+        lower, upper = np.array(bounds, dtype=float).reshape(-1, 2).T
 
         def to_x(y: np.ndarray) -> np.ndarray:
-            return np.where(log, np.exp(np.where(log, y, 0)), y)
+            return np.where(log, np.clip(np.exp(np.where(log, y, 0)), lower, upper), y)
 
         def fun(y: np.ndarray) -> Any:
             out = loss(to_x(y))
@@ -652,6 +657,13 @@ class Inference(Serializable):
                 options=opts
             )
         result.x = to_x(result.x)
+
+        if log.any():
+            for key in ('jac', 'grad'):
+                if isinstance(result.get(key), np.ndarray) and result[key].shape == result.x.shape:
+                    result[key] = result[key] / np.where(log, result.x, 1)
+
+            result.pop('hess_inv', None)
 
         if show_pbar:
             pbar.close()
