@@ -25,36 +25,8 @@ theta <- 1
 ## Distributed bootstrapping
 For inferences with long runtimes, the bootstrapping process can be distributed by creating bootstrap samples which are {class}`~phasegen.inference.Inference` objects themselves ({meth}`Inference.create_bootstrap() <phasegen.inference.Inference.create_bootstrap>`). These bootstraps can be run in parallel and the results combined afterwards ({meth}`Inference.add_bootstraps() <phasegen.inference.Inference.add_bootstraps>`). Typically, one job sets up the inference and performs the initial run ({meth}`Inference.to_file() <phasegen.inference.Inference.to_file>`), one job per bootstrap loads it ({meth}`Inference.from_file() <phasegen.inference.Inference.from_file>`), creates its bootstrap and runs it, and a final job merges the bootstraps into the main inference object. Below we demonstrate these steps in a single notebook, running the bootstraps in a serial loop.
 
-+++ {"tags": ["python-only"]}
-The `coal`, `loss` and `resample` callbacks may be any Python callables, lambdas included, as {meth}`Inference.to_file() <phasegen.inference.Inference.to_file>` serializes them together with the variables they reference.
-
-+++ {"tags": ["r-only"]}
-From R, the `coal`, `loss` and `resample` callbacks must be Python functions, defined via `reticulate::py_run_string`, because `create_bootstrap` and `to_file` serialize them and R closures do not survive that round-trip.
-
-```{code-cell} r
-# the model, loss and resampling callbacks, defined in Python so they survive serialization
-py <- reticulate::py_run_string('
-import phasegen as pg
-
-def coal(t, Ne):
-    return pg.Coalescent(
-        n=10,
-        demography=pg.Demography(pop_sizes={"pop_0": {0: 1, t: Ne}}),
-    )
-
-def loss(coal, obs):
-    return pg.PoissonLikelihood().compute(
-        observed=obs.normalize().polymorphic,
-        modelled=coal.sfs.mean.normalize().polymorphic,
-    )
-
-def resample(sfs, rng):
-    return sfs.resample(seed=rng)
-')
-```
-
 +++
-We set up the inference object, perform the initial run and save the result to a file. Bootstrapping is disabled here as we perform it manually.
+We set up the inference object, perform the initial run and save the result to a file. Bootstrapping is disabled here as we perform it manually. {meth}`Inference.to_file() <phasegen.inference.Inference.to_file>` serializes the `coal`, `loss` and `resample` callbacks together with the variables they reference, so in Python they may be any callables, lambdas included. From R they must be Python functions, since R closures do not survive serialization.
 
 ```{code-cell} python
 import os
@@ -80,6 +52,28 @@ inf.run()
 
 path = os.path.join(tempfile.gettempdir(), 'inference.json')
 inf.to_file(path)
+```
+
+```{code-cell} r
+# the model, loss and resampling callbacks, defined in Python so they survive serialization
+py <- reticulate::py_run_string('
+import phasegen as pg
+
+def coal(t, Ne):
+    return pg.Coalescent(
+        n=10,
+        demography=pg.Demography(pop_sizes={"pop_0": {0: 1, t: Ne}}),
+    )
+
+def loss(coal, obs):
+    return pg.PoissonLikelihood().compute(
+        observed=obs.normalize().polymorphic,
+        modelled=coal.sfs.mean.normalize().polymorphic,
+    )
+
+def resample(sfs, rng):
+    return sfs.resample(seed=rng)
+')
 ```
 
 ```{code-cell} r
@@ -162,8 +156,10 @@ plot(inf, which = "bootstraps")
 ```
 
 +++
-On a cluster, each of these steps becomes a rule of a [Snakemake](https://snakemake.readthedocs.io/en/stable/) workflow, with one job per bootstrap. Such a workflow, with its scripts written in Python, could look as follows.
+### Example workflow
+On a cluster, these steps are well described by a workflow manager such as [Snakemake](https://snakemake.readthedocs.io/en/stable/), with one rule per step and one job per bootstrap replicate. Such a workflow could look as follows, with each rule running a script in the conda environment ``phasegen.yaml``.
 
++++ {"tags": ["python-only"]}
 ``Snakefile``:
 
 ```python
@@ -206,8 +202,8 @@ rule merge_bootstraps:
         "merge_bootstraps.py"
 ```
 
-+++
-where ``phasegen.yaml`` is a conda environment file with the following content:
+``phasegen.yaml``:
+
 ```yaml
 name: phasegen
 channels:
@@ -219,11 +215,71 @@ dependencies:
       - phasegen
 ```
 
++++ {"tags": ["r-only"]}
+``Snakefile``:
+
+```python
+rule all:
+    input:
+        "results/graphs/inference/demography.png",
+
+# setup inference and perform initial run
+rule setup_inference:
+    output:
+        "results/inference/inference.json"
+    conda:
+        "phasegen.yaml"
+    script:
+        "setup_inference.R"
+
+# create and run bootstrap
+rule run_bootstrap:
+    input:
+        "results/inference/inference.json"
+    output:
+        "results/inference/bootstraps/{i}/inference.json"
+    conda:
+        "phasegen.yaml"
+    script:
+        "run_bootstrap.R"
+
+# merge bootstraps and visualize
+rule merge_bootstraps:
+    input:
+        inference="results/inference/inference.json",
+        bootstraps=expand("results/inference/bootstraps/{i}/inference.json",i=range(100))
+    output:
+        inference="results/inference/inference.bootstrapped.json",
+        demography="results/graphs/inference/demography.png",
+        bootstraps="results/graphs/inference/bootstraps.png",
+    conda:
+        "phasegen.yaml"
+    script:
+        "merge_bootstraps.R"
+```
+
+``phasegen.yaml``, into which the ``phasegen`` R package is installed once from GitHub as described in {ref}`reference.installation`:
+
+```yaml
+name: phasegen
+channels:
+  - conda-forge
+dependencies:
+  - r-base
+  - r-reticulate
+  - r-ggplot2
+  - r-remotes
+```
+
 +++
-In ``setup_inference.py``, we set up the inference object, perform the initial run and save the results to a file. Note that bootstrapping is disabled here as we are doing it manually.
+The first script sets up the inference object, performs the initial run and saves the result to a file. Bootstrapping is disabled here as it is performed by the other rules.
+
++++ {"tags": ["python-only"]}
+``setup_inference.py``:
 
 ```python
 import phasegen as pg
+
 out = snakemake.output[0]
 
 inf = pg.Inference(
@@ -251,8 +307,55 @@ inf.run()
 inf.to_file(out)
 ```
 
++++ {"tags": ["r-only"]}
+``setup_inference.R``:
+
+```r
+library(phasegen)
+pg <- load_phasegen()
+
+out <- snakemake@output[[1]]
+
+# the model, loss and resampling callbacks, defined in Python so they survive serialization
+py <- reticulate::py_run_string('
+import phasegen as pg
+
+def coal(t, Ne):
+    return pg.Coalescent(
+        n=10,
+        demography=pg.Demography(pop_sizes={"pop_0": {0: 1, t: Ne}}),
+    )
+
+def loss(coal, obs):
+    return pg.PoissonLikelihood().compute(
+        observed=obs.normalize().polymorphic,
+        modelled=coal.sfs.mean.normalize().polymorphic,
+    )
+
+def resample(sfs, rng):
+    return sfs.resample(seed=rng)
+')
+
+inf <- pg$Inference(
+    bounds = list(t = c(0, 4), Ne = c(0.1, 1)),
+    observation = pg$SFS(c(177130, 997, 441, 228, 156, 117, 114, 83, 105, 109, 652)),
+    coal = py$coal,
+    loss = py$loss,
+    resample = py$resample,
+    do_bootstrap = FALSE,
+    seed = 42L
+)
+
+inf$run()
+
+inf$to_file(out)
+```
+
 +++
-In ``run_bootstrap.py``, we load the inference object from the file, create the bootstrap sample of this job and run the inference for it.
+The second script loads the inference object, creates the bootstrap replicate of its job and runs it.
+
++++ {"tags": ["python-only"]}
+``run_bootstrap.py``:
 
 ```python
 import phasegen as pg
@@ -269,8 +372,30 @@ bootstrap.run()
 bootstrap.to_file(out)
 ```
 
++++ {"tags": ["r-only"]}
+``run_bootstrap.R``:
+
+```r
+library(phasegen)
+pg <- load_phasegen()
+
+file <- snakemake@input[[1]]
+out <- snakemake@output[[1]]
+
+inf <- pg$Inference$from_file(file)
+
+bootstrap <- inf$create_bootstrap(index = as.integer(snakemake@wildcards[["i"]]))
+
+bootstrap$run()
+
+bootstrap$to_file(out)
+```
+
 +++
-In ``merge_bootstraps.py``, we load the inference object and all bootstraps, merge the bootstraps with the main inference object and visualize the results.
+The third script loads the inference object and all bootstraps, merges the bootstraps into the main inference object and visualizes the results.
+
++++ {"tags": ["python-only"]}
+``merge_bootstraps.py``:
 
 ```python
 import phasegen as pg
@@ -289,4 +414,22 @@ inf.plot_demography(file=out_demography)
 inf.plot_bootstraps(file=out_bootstraps)
 
 inf.to_file(out)
+```
+
++++ {"tags": ["r-only"]}
+``merge_bootstraps.R``:
+
+```r
+library(phasegen)
+library(ggplot2)
+pg <- load_phasegen()
+
+inf <- pg$Inference$from_file(snakemake@input[["inference"]])
+
+inf$add_bootstraps(lapply(snakemake@input[["bootstraps"]], pg$Inference$from_file))
+
+ggsave(snakemake@output[["demography"]], plot(inf))
+ggsave(snakemake@output[["bootstraps"]], plot(inf, which = "bootstraps"))
+
+inf$to_file(snakemake@output[["inference"]])
 ```

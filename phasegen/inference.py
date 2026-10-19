@@ -188,14 +188,15 @@ class Inference(Serializable):
         :param n_runs: Number of independent optimization runs.
         :param n_bootstraps: Number of bootstrap replicates.
         :param do_bootstrap: Whether to perform automatic bootstrapping.
-        :param parallelize: Whether to parallelize the computations across available CPU cores.
-            ``Settings.parallelize = False`` overrides it.
-
-            .. note:: Parallelization across multiple CPU cores is not always faster than single-threaded execution.
-                It can also lead to hanging processes due to pickling issues, depending on how the
-                provided callback function is defined. For more scalable parallelization, consider using the
-                :meth:`create_run` and :meth:`create_bootstrap` methods to create new :class:`Inference` objects that can be
-                run independently, and whose results can be merged subsequently.
+        :param parallelize: Whether to run the optimization runs and the bootstrap replicates in parallel, one worker
+            process per CPU core. ``Settings.parallelize = False`` overrides it. The callbacks are serialized together
+            with the variables they reference, so lambdas and functions defined in scripts or notebooks may be passed.
+            On macOS the workers start by ``spawn``, which re-imports the calling script, so its top-level code must be
+            guarded by ``if __name__ == '__main__':``. For a fast model, starting the workers can cost more than the
+            parallel runs save. To distribute the work across jobs or machines, :meth:`Inference.create_run()
+            <phasegen.inference.Inference.create_run>` and :meth:`Inference.create_bootstrap()
+            <phasegen.inference.Inference.create_bootstrap>` create :class:`Inference` objects that run independently
+            and are merged afterwards.
         :param pbar: Whether to show a progress bar.
         :param seed: Seed for the random number generator.
         :param cache: Whether to reuse the state spaces of :attr:`Coalescent.state_spaces
