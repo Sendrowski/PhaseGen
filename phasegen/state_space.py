@@ -784,7 +784,7 @@ class LineageCountingStateSpace(StateSpace):
 
     ::
 
-        space = pg.Coalescent(n=4).lineage_counting_state_space
+        space = pg.Coalescent(n=4).state_spaces['lineage_counting']
 
         states, S = space.states, space.S
     """
@@ -877,7 +877,7 @@ class BlockCountingStateSpace(StateSpace):
 
     ::
 
-        space = pg.Coalescent(n=4).block_counting_state_space
+        space = pg.Coalescent(n=4).state_spaces['block_counting']
 
         states, S = space.states, space.S
     """
@@ -1016,7 +1016,7 @@ class JointBlockCountingStateSpace(StateSpace):
             pop_sizes={'pop_0': 1, 'pop_1': 1}, migration_rates={('pop_0', 'pop_1'): 0.5, ('pop_1', 'pop_0'): 0.5}
         ))
 
-        k = coal.joint_block_counting_state_space.k
+        k = coal.state_spaces['joint_block_counting'].k
     """
 
     def __init__(
@@ -1153,7 +1153,7 @@ class TwoLocusBlockCountingStateSpace(JointBlockCountingStateSpace):
 
     ::
 
-        space = pg.Coalescent(n=2, loci=2, recombination_rate=1).two_locus_block_counting_state_space
+        space = pg.Coalescent(n=2, loci=2, recombination_rate=1).state_spaces['two_locus_block_counting']
 
         states, S = space.states, space.S
     """

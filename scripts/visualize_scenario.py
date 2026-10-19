@@ -21,6 +21,6 @@ from phasegen.comparison import Comparison
 
 c = Comparison.from_yaml(file)
 
-c.ph.lineage_counting_state_space.plot_rates(out)
+c.ph.state_spaces['lineage_counting'].plot_rates(out)
 
 pass

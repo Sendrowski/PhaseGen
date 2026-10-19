@@ -6,6 +6,7 @@ Changelog
 [Unreleased]
 ^^^^^^^^^^^^
 - Require Python 3.11 or newer and support Python 3.14, pandas 3 and jsonpickle 4.
+- Access the state spaces of a coalescent by key in :attr:`Coalescent.state_spaces <phasegen.distributions.Coalescent.state_spaces>`, which builds each one on first access. The accessor properties such as ``Coalescent.block_counting_state_space`` are deprecated.
 
 [2.1.0] - 2026-10-12
 ^^^^^^^^^^^^^^^^^^^^

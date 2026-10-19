@@ -71,7 +71,7 @@ class ExpmTestCase(TestCase):
         Test that the available matrix exponentiation backends agree on a medium-sized matrix. The optional backends
         (TensorFlow, Jax, PyTorch) are only checked if their underlying package is installed.
         """
-        S = pg.Coalescent(n=10).block_counting_state_space.S
+        S = pg.Coalescent(n=10).state_spaces['block_counting'].S
 
         # SciPy is always available and serves as the reference
         reference = pg.SciPyExpmBackend().compute(S)

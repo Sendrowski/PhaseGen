@@ -308,7 +308,7 @@ def test_jsfs_per_bin_curves_honour_non_unit_reward(symmetric_demography):
 
     reward = pg.DemeReward('pop_0')
     jsfs = JointSFSDistribution(
-        state_space=coal.joint_block_counting_state_space,
+        state_space=coal.state_spaces['joint_block_counting'],
         tree_height=coal.tree_height,
         demography=coal.demography,
         reward=reward

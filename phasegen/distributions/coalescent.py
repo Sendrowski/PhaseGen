@@ -4,7 +4,8 @@ import copy
 import logging
 from abc import ABC, abstractmethod
 from ..caching import cached_property, cache
-from typing import List, Dict, Iterable, Sequence, Tuple, TYPE_CHECKING
+from collections.abc import Mapping
+from typing import List, Dict, Iterable, Iterator, Sequence, Tuple, TYPE_CHECKING
 import numpy as np
 from ..coalescent_models import StandardCoalescent, CoalescentModel
 from ..demography import Demography, PopSizeChanges
@@ -13,6 +14,7 @@ from ..lineage import LineageConfig
 from ..locus import LocusConfig
 from ..rewards import Reward, TreeHeightReward
 from ..serialization import Serializable
+from ..settings import Settings
 from ..state_space import StateSpace, BlockCountingStateSpace, LineageCountingStateSpace, JointBlockCountingStateSpace, TwoLocusBlockCountingStateSpace
 
 from ._common import N_EMPIRICAL_SAMPLES, _make_hashable, _validate_order, _validate_reward, _validate_rewards
@@ -27,13 +29,113 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger('phasegen')
 
-#: Attribute names of the state spaces a :class:`Coalescent` can build.
-_STATE_SPACE_NAMES = (
-    'lineage_counting_state_space',
-    'block_counting_state_space',
-    'joint_block_counting_state_space',
-    'two_locus_block_counting_state_space',
-)
+#: Suffix of the deprecated state space keys and accessor properties.
+_DEPRECATED_SUFFIX = '_state_space'
+
+
+class _StateSpaces(Mapping):
+    """
+    The state spaces a :class:`Coalescent` supports, keyed by name. A state space is built on first access and kept
+    by the coalescent. Its states and rate matrix are constructed only when they are used.
+    """
+
+    #: State space class by key.
+    types: Dict[str, type] = {
+        'lineage_counting': LineageCountingStateSpace,
+        'block_counting': BlockCountingStateSpace,
+        'joint_block_counting': JointBlockCountingStateSpace,
+        'two_locus_block_counting': TwoLocusBlockCountingStateSpace,
+    }
+
+    def __init__(self, coal: 'Coalescent') -> None:
+        """
+        :param coal: The coalescent whose state spaces are mapped.
+        """
+        self._coal = coal
+
+    def _key(self, name: str) -> str:
+        """
+        Map a deprecated key ending in ``_state_space`` to its current form, logging a warning.
+
+        :param name: Key.
+        :return: Current key.
+        """
+        key = name.removesuffix(_DEPRECATED_SUFFIX)
+
+        if key != name and key in self.types:
+            self._coal._logger.warning("The state space key '%s' is deprecated, use '%s'.", name, key)
+            return key
+
+        return name
+
+    @classmethod
+    def _rename_deprecated(cls, spaces: dict) -> dict:
+        """
+        Rename the state spaces stored under deprecated keys, as in payloads of version 2.1.0 and earlier.
+
+        :param spaces: Dictionary that may hold state spaces under deprecated keys.
+        :return: Dictionary with current keys.
+        """
+        return {
+            k.removesuffix(_DEPRECATED_SUFFIX) if k.removesuffix(_DEPRECATED_SUFFIX) in cls.types else k: v
+            for k, v in spaces.items()
+        }
+
+    def __getitem__(self, name: str) -> StateSpace:
+        """
+        Get a state space, building it on first access.
+
+        :param name: Key of the state space.
+        :return: State space.
+        :raises KeyError: If the key is unknown.
+        :raises ValueError: If the configuration does not support the state space.
+        :raises NotImplementedError: If the configuration does not support the state space.
+        """
+        key = self._key(name)
+
+        if key not in self.types:
+            raise KeyError(name)
+
+        built = self._coal.__dict__.setdefault('_built_state_spaces', {})
+
+        if key in built:
+            return built[key]
+
+        space = self.types[key](
+            lineage_config=self._coal._lineages,
+            locus_config=self._coal._loci,
+            model=self._coal.model,
+            epoch=self._coal.demography.get_epoch(0)
+        )
+
+        if Settings.cache:
+            built[key] = space
+
+        return space
+
+    def __contains__(self, name: object) -> bool:
+        """
+        :param name: Key of the state space.
+        :return: Whether the configuration supports the state space.
+        """
+        try:
+            self[name]
+        except (KeyError, ValueError, NotImplementedError):
+            return False
+
+        return True
+
+    def __iter__(self) -> Iterator[str]:
+        """
+        :return: Iterator over the keys of the supported state spaces.
+        """
+        return (key for key in self.types if key in self)
+
+    def __len__(self) -> int:
+        """
+        :return: Number of supported state spaces.
+        """
+        return sum(1 for _ in self)
 
 
 class AbstractCoalescent(ABC):
@@ -452,41 +554,35 @@ class Coalescent(AbstractCoalescent, Serializable):
         #: Time when to start accumulating moments
         self.start_time: float = start_time
 
-    @cached_property
+    @property
     def lineage_counting_state_space(self) -> LineageCountingStateSpace:
         """
         The lineage-counting state space.
-        """
-        return LineageCountingStateSpace(
-            lineage_config=self._lineages,
-            locus_config=self._loci,
-            model=self.model,
-            epoch=self.demography.get_epoch(0)
-        )
 
-    @cached_property
+        .. deprecated:: 2.2.0
+            Use :attr:`state_spaces` with key ``'lineage_counting'``.
+        """
+        return self._deprecated_state_space('lineage_counting')
+
+    @property
     def block_counting_state_space(self) -> BlockCountingStateSpace:
         """
         The block-counting state space.
-        """
-        return BlockCountingStateSpace(
-            lineage_config=self._lineages,
-            locus_config=self._loci,
-            model=self.model,
-            epoch=self.demography.get_epoch(0)
-        )
 
-    @cached_property
+        .. deprecated:: 2.2.0
+            Use :attr:`state_spaces` with key ``'block_counting'``.
+        """
+        return self._deprecated_state_space('block_counting')
+
+    @property
     def joint_block_counting_state_space(self) -> JointBlockCountingStateSpace:
         """
-        The joint block-counting state space (tracks the deme-of-origin composition of each lineage).
+        The joint block-counting state space.
+
+        .. deprecated:: 2.2.0
+            Use :attr:`state_spaces` with key ``'joint_block_counting'``.
         """
-        return JointBlockCountingStateSpace(
-            lineage_config=self._lineages,
-            locus_config=self._loci,
-            model=self.model,
-            epoch=self.demography.get_epoch(0)
-        )
+        return self._deprecated_state_space('joint_block_counting')
 
     @cached_property
     def tree_height(self) -> TreeHeightDistribution:
@@ -501,7 +597,7 @@ class Coalescent(AbstractCoalescent, Serializable):
         decouple (:math:`\rho \to \infty`).
         """
         return TreeHeightDistribution(
-            state_space=self.lineage_counting_state_space,
+            state_space=self.state_spaces['lineage_counting'],
             demography=self.demography,
             start_time=self.start_time,
             end_time=self.end_time
@@ -516,7 +612,7 @@ class Coalescent(AbstractCoalescent, Serializable):
         """
         return TotalBranchLengthDistribution(
             tree_height=self.tree_height,
-            state_space=self.lineage_counting_state_space,
+            state_space=self.state_spaces['lineage_counting'],
             demography=self.demography
         )
 
@@ -545,7 +641,7 @@ class Coalescent(AbstractCoalescent, Serializable):
         self._require_single_locus('sfs')
 
         return UnfoldedSFSDistribution(
-            state_space=self.block_counting_state_space,
+            state_space=self.state_spaces['block_counting'],
             tree_height=self.tree_height,
             demography=self.demography
         )
@@ -559,7 +655,7 @@ class Coalescent(AbstractCoalescent, Serializable):
         self._require_single_locus('fsfs')
 
         return FoldedSFSDistribution(
-            state_space=self.block_counting_state_space,
+            state_space=self.state_spaces['block_counting'],
             tree_height=self.tree_height,
             demography=self.demography
         )
@@ -583,36 +679,57 @@ class Coalescent(AbstractCoalescent, Serializable):
             )
 
         return JointSFSDistribution(
-            state_space=self.joint_block_counting_state_space,
+            state_space=self.state_spaces['joint_block_counting'],
             tree_height=self.tree_height,
             demography=self.demography
         )
 
-    @cached_property
+    @property
     def two_locus_block_counting_state_space(self) -> TwoLocusBlockCountingStateSpace:
         """
-        The two-locus block-counting state space (tracks each lineage's descendant counts at both loci and the
-        recombination/linkage history). Requires exactly two loci and a single population.
+        The two-locus block-counting state space.
+
+        .. deprecated:: 2.2.0
+            Use :attr:`state_spaces` with key ``'two_locus_block_counting'``.
         """
-        return TwoLocusBlockCountingStateSpace(
-            lineage_config=self._lineages,
-            locus_config=self._loci,
-            model=self.model,
-            epoch=self.demography.get_epoch(0)
-        )
+        return self._deprecated_state_space('two_locus_block_counting')
 
     @property
-    def state_spaces(self) -> Dict[str, StateSpace]:
+    def state_spaces(self) -> Mapping[str, StateSpace]:
         """
-        The state spaces this configuration supports, keyed by attribute name.
+        The state spaces this configuration supports, keyed by name. A state space is built on first access, and its
+        states and rate matrix when they are used.
+
+        - ``'lineage_counting'``: :class:`~phasegen.state_space.LineageCountingStateSpace`, the number of lineages
+          per deme and locus.
+        - ``'block_counting'``: :class:`~phasegen.state_space.BlockCountingStateSpace`, the number of lineages
+          subtending each number of samples. It requires one locus.
+        - ``'joint_block_counting'``: :class:`~phasegen.state_space.JointBlockCountingStateSpace`, the deme-of-origin
+          composition of each lineage. It requires one locus.
+        - ``'two_locus_block_counting'``: :class:`~phasegen.state_space.TwoLocusBlockCountingStateSpace`, the
+          descendant counts of each lineage at both loci. It requires two loci and one deme.
+
+        ::
+
+            coal = pg.Coalescent(n=4)
+
+            space = coal.state_spaces['block_counting']
+            list(coal.state_spaces)  # ['lineage_counting', 'block_counting', 'joint_block_counting']
         """
-        spaces = {}
-        for name in _STATE_SPACE_NAMES:
-            try:
-                spaces[name] = getattr(self, name)
-            except (NotImplementedError, ValueError):
-                pass
-        return spaces
+        return _StateSpaces(self)
+
+    def _deprecated_state_space(self, key: str) -> StateSpace:
+        """
+        Get a state space through a deprecated accessor property, logging a warning.
+
+        :param key: Key of the state space in :attr:`state_spaces`.
+        :return: State space.
+        """
+        self._logger.warning(
+            "Coalescent.%s%s is deprecated, use Coalescent.state_spaces['%s'].", key, _DEPRECATED_SUFFIX, key
+        )
+
+        return self.state_spaces[key]
 
     @cached_property
     def _two_locus_tree_height(self) -> TreeHeightDistribution:
@@ -620,7 +737,7 @@ class Coalescent(AbstractCoalescent, Serializable):
         Tree height of the two-locus process, absorbed once *both* loci have reached their MRCA.
         """
         return TreeHeightDistribution(
-            state_space=self.two_locus_block_counting_state_space,
+            state_space=self.state_spaces['two_locus_block_counting'],
             demography=self.demography,
             start_time=self.start_time,
             end_time=self.end_time
@@ -637,7 +754,7 @@ class Coalescent(AbstractCoalescent, Serializable):
             The two-locus state space grows quickly with the sample size, so this is only practical for small ``n``.
         """
         return TwoLocusSFSDistribution(
-            state_space=self.two_locus_block_counting_state_space,
+            state_space=self.state_spaces['two_locus_block_counting'],
             tree_height=self._two_locus_tree_height,
             demography=self.demography
         )
@@ -702,15 +819,15 @@ class Coalescent(AbstractCoalescent, Serializable):
                     f"{[r.__class__.__name__ for r in rewards]}. A joint-SFS reward can only be combined with "
                     "rewards that also support the joint state space."
                 )
-            return self.joint_block_counting_state_space
+            return self.state_spaces['joint_block_counting']
 
         if Reward.support(LineageCountingStateSpace, rewards):
-            return self.lineage_counting_state_space
+            return self.state_spaces['lineage_counting']
 
         two_locus = self.locus_config.n == 2 and self.lineage_config.n_pops == 1
 
         if two_locus and Reward.support(TwoLocusBlockCountingStateSpace, rewards):
-            return self.two_locus_block_counting_state_space
+            return self.state_spaces['two_locus_block_counting']
 
         if self.locus_config.n != 1 or not Reward.support(BlockCountingStateSpace, rewards):
             raise ValueError(
@@ -718,7 +835,7 @@ class Coalescent(AbstractCoalescent, Serializable):
                 f"{[r.__class__.__name__ for r in rewards]}."
             )
 
-        return self.block_counting_state_space
+        return self.state_spaces['block_counting']
 
     @_make_hashable
     @cache
@@ -900,10 +1017,9 @@ class Coalescent(AbstractCoalescent, Serializable):
         """
         epoch = self.demography.get_epoch(0)
 
-        for name in _STATE_SPACE_NAMES:
-            if name in spaces:
-                spaces[name].drop_cache()
-                spaces[name].epoch = epoch
+        for space in spaces.get('_built_state_spaces', {}).values():
+            space.drop_cache()
+            space.epoch = epoch
 
     def __getstate__(self) -> dict:
         """
@@ -917,6 +1033,19 @@ class Coalescent(AbstractCoalescent, Serializable):
         self._drop_state_space_caches(other)
 
         return other
+
+    def __setstate__(self, state: dict) -> None:
+        """
+        Restore the state of the object from a serialized state.
+
+        :param state: State of the object.
+        """
+        spaces = {k: v for k, v in state.items() if k.endswith(_DEPRECATED_SUFFIX)}
+
+        self.__dict__.update({k: v for k, v in state.items() if k not in spaces})
+
+        if spaces:
+            self.__dict__.setdefault('_built_state_spaces', {}).update(_StateSpaces._rename_deprecated(spaces))
 
     def to_json(self) -> str:
         """

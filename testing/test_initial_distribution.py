@@ -118,9 +118,9 @@ def test_mixture_state_space_is_not_reused_for_other_weights():
     b = pg.Coalescent(n=pg.InitialDistribution([(1, [2, 1]), (2, [1, 2])]))
     c = pg.Coalescent(n=pg.InitialDistribution([(2, [2, 1]), (2, [1, 2])]))
 
-    assert a.lineage_counting_state_space != b.lineage_counting_state_space
-    assert a.lineage_counting_state_space == c.lineage_counting_state_space
-    assert a.lineage_counting_state_space != pg.Coalescent(n=[2, 1]).lineage_counting_state_space
+    assert a.state_spaces['lineage_counting'] != b.state_spaces['lineage_counting']
+    assert a.state_spaces['lineage_counting'] == c.state_spaces['lineage_counting']
+    assert a.state_spaces['lineage_counting'] != pg.Coalescent(n=[2, 1]).state_spaces['lineage_counting']
 
 
 def test_serialization_round_trip():

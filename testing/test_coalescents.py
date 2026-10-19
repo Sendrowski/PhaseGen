@@ -6,6 +6,8 @@ from typing import cast
 from testing import TestCase
 from unittest.mock import patch
 
+import logging
+
 import numpy as np
 import pytest
 from matplotlib import pyplot as plt
@@ -878,7 +880,7 @@ class CoalescentTestCase(TestCase):
             demography=pg.Demography(pop_sizes={'pop_0': {0: 1e40}})
         )
 
-        lamb = coal.tree_height._get_regularization_factor(coal.lineage_counting_state_space.S)
+        lamb = coal.tree_height._get_regularization_factor(coal.state_spaces['lineage_counting'].S)
 
         self.assertTrue(1e39 <= lamb <= 1e41)
 
@@ -893,7 +895,7 @@ class CoalescentTestCase(TestCase):
             demography=pg.Demography(pop_sizes={'pop_0': {0: 1e-40}})
         )
 
-        lamb = coal.tree_height._get_regularization_factor(coal.lineage_counting_state_space.S)
+        lamb = coal.tree_height._get_regularization_factor(coal.state_spaces['lineage_counting'].S)
 
         self.assertTrue(1e-41 <= lamb <= 1e-39)
 
@@ -1243,9 +1245,9 @@ class CoalescentTestCase(TestCase):
 
         coal = pg.Coalescent(n=4)
 
-        self.assertEqual(1, coal.tree_height._get_regularization_factor(coal.lineage_counting_state_space.S))
-        self.assertEqual(1, coal.total_branch_length._get_regularization_factor(coal.lineage_counting_state_space.S))
-        self.assertEqual(1, coal.sfs._get_regularization_factor(coal.block_counting_state_space.S))
+        self.assertEqual(1, coal.tree_height._get_regularization_factor(coal.state_spaces['lineage_counting'].S))
+        self.assertEqual(1, coal.total_branch_length._get_regularization_factor(coal.state_spaces['lineage_counting'].S))
+        self.assertEqual(1, coal.sfs._get_regularization_factor(coal.state_spaces['block_counting'].S))
 
         pg.Settings.regularize = True
 
@@ -1257,11 +1259,11 @@ class CoalescentTestCase(TestCase):
 
         coal = pg.Coalescent(n=4)
 
-        self.assertNotEqual(1, coal.tree_height._get_regularization_factor(coal.lineage_counting_state_space.S))
+        self.assertNotEqual(1, coal.tree_height._get_regularization_factor(coal.state_spaces['lineage_counting'].S))
         self.assertNotEqual(
-            1, coal.total_branch_length._get_regularization_factor(coal.lineage_counting_state_space.S)
+            1, coal.total_branch_length._get_regularization_factor(coal.state_spaces['lineage_counting'].S)
         )
-        self.assertNotEqual(1, coal.sfs._get_regularization_factor(coal.block_counting_state_space.S))
+        self.assertNotEqual(1, coal.sfs._get_regularization_factor(coal.state_spaces['block_counting'].S))
 
     def test_fewer_than_2_lineages_raises_error(self):
         """
@@ -1303,16 +1305,16 @@ class CoalescentTestCase(TestCase):
         Test rate matrix rescaling for Kingman coalescent with a single population.
         """
         coal = pg.Coalescent(n=6)
-        self.assertFalse('S' in coal.block_counting_state_space.__dict__)
+        self.assertFalse('S' in coal.state_spaces['block_counting'].__dict__)
 
-        _ = coal.block_counting_state_space.S
-        coal.block_counting_state_space.update_epoch(pg.Epoch(pop_sizes={'pop_0': 3}))
+        _ = coal.state_spaces['block_counting'].S
+        coal.state_spaces['block_counting'].update_epoch(pg.Epoch(pop_sizes={'pop_0': 3}))
 
         np.testing.assert_array_almost_equal(
-            coal.block_counting_state_space.S * 3,
-            pg.Coalescent(n=6).block_counting_state_space.S
+            coal.state_spaces['block_counting'].S * 3,
+            pg.Coalescent(n=6).state_spaces['block_counting'].S
         )
-        self.assertTrue('S' in coal.block_counting_state_space.__dict__)
+        self.assertTrue('S' in coal.state_spaces['block_counting'].__dict__)
 
     def test_rescale_S_beta(self):
         """
@@ -1322,14 +1324,14 @@ class CoalescentTestCase(TestCase):
         coal2 = pg.Coalescent(n=6, model=pg.BetaCoalescent(alpha=1.7),
                               demography=pg.Demography(pop_sizes={'pop_0': {0: 3}}))
 
-        r = coal2.block_counting_state_space._get_scaling_factor(
+        r = coal2.state_spaces['block_counting']._get_scaling_factor(
             epoch_prev=next(coal1.demography.epochs),
             epoch_next=next(coal2.demography.epochs)
         )
 
         np.testing.assert_array_almost_equal(
-            coal1.block_counting_state_space.S * r,
-            coal2.block_counting_state_space.S
+            coal1.state_spaces['block_counting'].S * r,
+            coal2.state_spaces['block_counting'].S
         )
 
     def test_rescale_S_dirac(self):
@@ -1340,14 +1342,14 @@ class CoalescentTestCase(TestCase):
         coal2 = pg.Coalescent(n=6, model=pg.DiracCoalescent(psi=0.4, c=5),
                               demography=pg.Demography(pop_sizes={'pop_0': {0: 3}}))
 
-        r = coal2.block_counting_state_space._get_scaling_factor(
+        r = coal2.state_spaces['block_counting']._get_scaling_factor(
             epoch_prev=next(coal1.demography.epochs),
             epoch_next=next(coal2.demography.epochs)
         )
 
         np.testing.assert_array_almost_equal(
-            coal1.block_counting_state_space.S * r,
-            coal2.block_counting_state_space.S
+            coal1.state_spaces['block_counting'].S * r,
+            coal2.state_spaces['block_counting'].S
         )
 
     def test_rescale_S_multi_pop(self):
@@ -1355,10 +1357,10 @@ class CoalescentTestCase(TestCase):
         Test that rescaling does not cache S for multiple populations.
         """
         coal = pg.Coalescent(n={'pop_0': 2, 'pop_1': 2})
-        _ = coal.block_counting_state_space.S
-        coal.block_counting_state_space.update_epoch(pg.Epoch(pop_sizes={'pop_0': 3}))
+        _ = coal.state_spaces['block_counting'].S
+        coal.state_spaces['block_counting'].update_epoch(pg.Epoch(pop_sizes={'pop_0': 3}))
 
-        self.assertFalse('S' in coal.block_counting_state_space.__dict__)
+        self.assertFalse('S' in coal.state_spaces['block_counting'].__dict__)
 
     def test_flattened_block_counting_standard_coalescent_2_epochs(self):
         """
@@ -1376,14 +1378,14 @@ class CoalescentTestCase(TestCase):
 
         # the monomorphic corner (bin 0, here over range(10)) falls back to the block-counting traversal, which
         # builds the state probabilities; the polymorphic bins use the closed-form Kingman weights
-        self.assertTrue('_state_probs' in coal_flattened.block_counting_state_space.__dict__)
+        self.assertTrue('_state_probs' in coal_flattened.state_spaces['block_counting'].__dict__)
 
         pg.Settings.flatten_block_counting = False
         coal_original = pg.Coalescent(n=n, demography=demography)
         original = np.array([coal_original.sfs.get_accumulation(1, i, times) for i in range(10)])
 
         # make sure state probabilities are not cached
-        self.assertFalse('_state_probs' in coal_original.block_counting_state_space.__dict__)
+        self.assertFalse('_state_probs' in coal_original.state_spaces['block_counting'].__dict__)
 
         np.testing.assert_array_almost_equal(original, flattened, decimal=14)
         pg.Settings.flatten_block_counting = True
@@ -1565,16 +1567,16 @@ class CoalescentTestCase(TestCase):
         pg.Settings.closed_form_last_epoch = False
 
         coal = pg.Coalescent(n=10)
-        transient = np.where(~coal.block_counting_state_space.absorbing)[0]
+        transient = np.where(~coal.state_spaces['block_counting'].absorbing)[0]
 
         pg.Settings.flatten_block_counting = True
         flattened = [coal.moment(1, rewards=(pg.StateReward(i),)) for i in transient]
-        self.assertTrue('_state_probs' in coal.block_counting_state_space.__dict__)
+        self.assertTrue('_state_probs' in coal.state_spaces['block_counting'].__dict__)
 
         coal = pg.Coalescent(n=10)
         pg.Settings.flatten_block_counting = False
         original = [coal.moment(1, rewards=(pg.StateReward(i),)) for i in transient]
-        self.assertFalse('_state_probs' in coal.block_counting_state_space.__dict__)
+        self.assertFalse('_state_probs' in coal.state_spaces['block_counting'].__dict__)
 
         np.testing.assert_array_almost_equal(flattened, original)
         pg.Settings.flatten_block_counting = True
@@ -1591,7 +1593,7 @@ class CoalescentTestCase(TestCase):
         _ = coal_original.sfs.mean.data
 
         # make sure state probabilities were not accessed
-        self.assertFalse('_state_probs' in coal_original.block_counting_state_space.__dict__)
+        self.assertFalse('_state_probs' in coal_original.state_spaces['block_counting'].__dict__)
 
     def test_beta_coalescent_state_props(self):
         """
@@ -1605,7 +1607,7 @@ class CoalescentTestCase(TestCase):
 
         samples, probs_empirical = coal.sfs._sample(10000, record_visits=True)
 
-        probs = coal.block_counting_state_space._state_probs
+        probs = coal.state_spaces['block_counting']._state_probs
 
         self.assertLess((np.abs(probs_empirical - probs) / probs).mean(), 0.08)
 
@@ -1616,7 +1618,7 @@ class CoalescentTestCase(TestCase):
         starts deterministically in the all-singletons state, so its recorded frequency must be ~1.
         """
         coal = pg.Coalescent(n=6, demography=pg.Demography(pop_sizes={'pop_0': 1}))
-        ss = coal.block_counting_state_space
+        ss = coal.state_spaces['block_counting']
 
         _, probs = coal.sfs._sample(5000, record_visits=True)
 
@@ -1798,12 +1800,59 @@ def test_epoch_extension_keeps_consuming_while_a_later_epoch_would_misplace_the_
 
 def test_state_spaces_lists_the_spaces_the_configuration_supports():
     """Spaces a configuration cannot build are left out rather than raising."""
-    assert list(pg.Coalescent(n=3).state_spaces) == [
-        'lineage_counting_state_space', 'block_counting_state_space', 'joint_block_counting_state_space'
-    ]
-    assert list(pg.Coalescent(n=3, loci=2).state_spaces) == [
-        'lineage_counting_state_space', 'two_locus_block_counting_state_space'
-    ]
+    assert list(pg.Coalescent(n=3).state_spaces) == ['lineage_counting', 'block_counting', 'joint_block_counting']
+    assert list(pg.Coalescent(n=3, loci=2).state_spaces) == ['lineage_counting', 'two_locus_block_counting']
+    assert 'block_counting' not in pg.Coalescent(n=3, loci=2).state_spaces
+
+
+def test_state_spaces_builds_only_the_space_accessed():
+    """Accessing one state space builds it once and leaves the others unbuilt."""
+    coal = pg.Coalescent(n=3)
+
+    space = coal.state_spaces['block_counting']
+
+    assert coal.state_spaces['block_counting'] is space
+    assert list(coal.__dict__['_built_state_spaces']) == ['block_counting']
+
+
+def test_state_spaces_unknown_key_raises_key_error():
+    """An unknown key raises KeyError, an unsupported one the error of the state space."""
+    coal = pg.Coalescent(n=3)
+
+    with pytest.raises(KeyError):
+        coal.state_spaces['tree_height']
+
+    with pytest.raises(ValueError):
+        coal.state_spaces['two_locus_block_counting']
+
+
+def test_deprecated_state_space_accessors_warn_and_return_the_mapped_space(caplog):
+    """The accessor properties and the keys ending in '_state_space' log a warning and return the mapped space."""
+    coal = pg.Coalescent(n=3)
+
+    with caplog.at_level(logging.WARNING, logger='phasegen'):
+        assert coal.block_counting_state_space is coal.state_spaces['block_counting']
+        assert coal.state_spaces['lineage_counting_state_space'] is coal.state_spaces['lineage_counting']
+
+    messages = [r.getMessage() for r in caplog.records]
+    assert any('block_counting_state_space is deprecated' in m for m in messages)
+    assert any("'lineage_counting_state_space' is deprecated" in m for m in messages)
+
+
+def test_state_spaces_restore_from_deprecated_keys():
+    """A payload of version 2.1.0 holds the state spaces under the names of the accessor properties, which have no
+    setter. Restoring it maps them to the current keys."""
+    coal = pg.Coalescent(n=3)
+    expected = coal.sfs.mean.data
+
+    state = coal.__getstate__()
+    state['block_counting_state_space'] = state.pop('_built_state_spaces')['block_counting']
+
+    restored = pg.Coalescent.__new__(pg.Coalescent)
+    restored.__setstate__(state)
+
+    assert restored.state_spaces['block_counting'] is state['block_counting_state_space']
+    np.testing.assert_allclose(restored.sfs.mean.data, expected)
 
 
 @pytest.mark.parametrize('pop_sizes, n_epochs', [({0: 1}, 1), ({0: 1, 0.3: 0.2, 1.0: 3}, 3)])

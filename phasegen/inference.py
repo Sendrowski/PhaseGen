@@ -18,6 +18,7 @@ from tqdm import tqdm
 
 from .demography import Demography
 from .distributions import Coalescent
+from .distributions.coalescent import _StateSpaces
 from .errors import ModelError
 from .serialization import Serializable
 from .settings import Settings
@@ -315,6 +316,9 @@ class Inference(Serializable):
         """
         self.__dict__.update(state)
 
+        if '_state_spaces' in self.__dict__:
+            self._state_spaces = _StateSpaces._rename_deprecated(self._state_spaces)
+
         # jsonpickle restores the instance dictionary of an encoded OptimizeResult as an item named '__dict__'
         if self.result is not None:
             self.result = OptimizeResult({k: v for k, v in dict(self.result).items() if k != '__dict__'})
@@ -340,15 +344,15 @@ class Inference(Serializable):
                 spaces = self._state_spaces
             except ModelError:
                 # the model is invalid at x0, so the state spaces of this coalescent are the ones reused
-                spaces = coal.state_spaces
+                spaces = dict(coal.state_spaces)
 
                 if Settings.cache:
                     self.__dict__['_state_spaces'] = spaces
 
             for name, cached in spaces.items():
-                if getattr(coal, name) == cached:
+                if coal.state_spaces[name] == cached:
                     cached.update_epoch(coal.demography.get_epoch(0))
-                    coal.__dict__[name] = cached
+                    coal.__dict__.setdefault('_built_state_spaces', {})[name] = cached
 
         return coal
 
@@ -359,7 +363,7 @@ class Inference(Serializable):
         rate matrices are recomputed per evaluation. If the model is invalid at ``x0``, :meth:`get_coal` sets them to
         those of the first coalescent it builds.
         """
-        return self.coal(**self.x0).state_spaces
+        return dict(self.coal(**self.x0).state_spaces)
 
     @staticmethod
     def _get_loss_function(

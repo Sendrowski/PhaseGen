@@ -177,7 +177,7 @@ class RewardsTestCase(TestCase):
 
         # the reward vector of the restricted branch length is the lineage count of the focal locus alone
         c = pg.Coalescent(n=3, loci=2, recombination_rate=1.0)
-        s = c.lineage_counting_state_space
+        s = c.state_spaces['lineage_counting']
 
         testing.assert_array_equal(
             pg.CombinedReward([pg.TotalBranchLengthReward(), pg.LocusReward(1)])._get(s),
@@ -337,8 +337,8 @@ def test_state_reward_on_an_absorbing_state_is_rejected():
     rejected rather than having its absorbing entry dropped, while a transient state reward is accumulated as before.
     """
     c = pg.Coalescent(n=4)
-    absorbing = np.where(c.block_counting_state_space.absorbing)[0]
-    transient = np.where(~c.block_counting_state_space.absorbing)[0]
+    absorbing = np.where(c.state_spaces['block_counting'].absorbing)[0]
+    transient = np.where(~c.state_spaces['block_counting'].absorbing)[0]
 
     with pytest.raises(ValueError, match="does not define an accumulation until absorption"):
         c.moment(1, rewards=[pg.StateReward(int(absorbing[0]))])
@@ -383,7 +383,7 @@ def test_reward_non_zero_on_absorbing_states_is_rejected_over_a_window(k, end_ti
         c.moment(k, rewards=[pg.rewards.UnitReward()] * k, end_time=end_time, center=False)
 
     with pytest.raises(ValueError, match="does not define an accumulation until absorption"):
-        c.moment(k, rewards=[pg.StateReward(int(np.where(c.block_counting_state_space.absorbing)[0][0]))] * k,
+        c.moment(k, rewards=[pg.StateReward(int(np.where(c.state_spaces['block_counting'].absorbing)[0][0]))] * k,
                  end_time=end_time, center=False)
 
 
@@ -509,7 +509,7 @@ def test_per_deme_joint_sfs_counts_the_lineages_residing_in_the_deme():
     """
     c = pg.Coalescent(n={'pop_0': 2, 'pop_1': 2}, demography=_asymmetric_slow_migration())
     pops = c.lineage_config.pop_names
-    ss = c.joint_block_counting_state_space
+    ss = c.state_spaces['joint_block_counting']
 
     for config in [(1, 0), (0, 1), (1, 1), (2, 0)]:
         block = ss.block_index[config]
@@ -907,7 +907,7 @@ def test_rewards_evaluated_on_the_single_locus_block_counting_space_route_there(
     assert coal.moment(1, rewards=[pg.CombinedReward([pg.LocusReward(0), sfs])]) == pytest.approx(expected, rel=1e-12)
     assert np.isfinite(coal.moment(2, rewards=[pg.LineageReward(2), sfs]))
 
-    transient = np.where(~coal.block_counting_state_space.absorbing)[0]
+    transient = np.where(~coal.state_spaces['block_counting'].absorbing)[0]
     assert coal.moment(1, rewards=[pg.StateReward(int(transient[0]))]) > 0
 
 

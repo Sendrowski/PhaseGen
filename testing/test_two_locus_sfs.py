@@ -466,7 +466,7 @@ def test_reward_state_space_guards():
         joint._get(ss)
 
     # and a two-locus reward must reject a non-two-locus space
-    single = pg.Coalescent(n=3).block_counting_state_space
+    single = pg.Coalescent(n=3).state_spaces['block_counting']
     with pytest.raises(NotImplementedError):
         two._get(single)
 

@@ -41,13 +41,13 @@ def benchmark(callback: Callable) -> float:
 
 c = Comparison.from_yaml(file)
 
-time_lineage_counting = benchmark(lambda: c.ph.lineage_counting_state_space.S)
-k_lineage_counting = c.ph.lineage_counting_state_space.k
+time_lineage_counting = benchmark(lambda: c.ph.state_spaces['lineage_counting'].S)
+k_lineage_counting = c.ph.state_spaces['lineage_counting'].k
 mean_tree_height = benchmark(lambda: c.ph.tree_height.mean)
 
 try:
-    time_block_counting = benchmark(lambda: c.ph.block_counting_state_space.S)
-    k_block_counting = c.ph.block_counting_state_space.k
+    time_block_counting = benchmark(lambda: c.ph.state_spaces['block_counting'].S)
+    k_block_counting = c.ph.state_spaces['block_counting'].k
     mean_sfs = benchmark(lambda: c.ph.sfs.mean)
 except NotImplementedError:
     time_block_counting = None
