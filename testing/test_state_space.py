@@ -420,11 +420,11 @@ class StateSpaceTestCase(TestCase):
                     n=pg.LineageConfig({'pop_0': n} | {f'pop_{i}': 0 for i in range(1, d)}),
                 )
 
-                size['lineage_counting.observed'][(n, d)] = coal.lineage_counting_state_space.k
-                size['block_counting.observed'][(n, d)] = coal.block_counting_state_space.k
+                size['lineage_counting.observed'][(n, d)] = coal.state_spaces['lineage_counting'].k
+                size['block_counting.observed'][(n, d)] = coal.state_spaces['block_counting'].k
 
-                size['lineage_counting.theoretical'][(n, d)] = build_old(coal.lineage_counting_state_space).get_k()
-                size['block_counting.theoretical'][(n, d)] = build_old(coal.block_counting_state_space).get_k()
+                size['lineage_counting.theoretical'][(n, d)] = build_old(coal.state_spaces['lineage_counting']).get_k()
+                size['block_counting.theoretical'][(n, d)] = build_old(coal.state_spaces['block_counting']).get_k()
 
                 self.assertEqual(size['lineage_counting.observed'][(n, d)], size['lineage_counting.theoretical'][(n, d)])
                 self.assertEqual(size['block_counting.observed'][(n, d)], size['block_counting.theoretical'][(n, d)])
@@ -801,8 +801,8 @@ class StateSpaceTestCase(TestCase):
         joint = pg.Coalescent(
             n={'a': 2, 'b': 2},
             demography=pg.Demography(pop_sizes={'a': 1, 'b': 1}, migration_rates={('a', 'b'): 1, ('b', 'a'): 1})
-        ).joint_block_counting_state_space
-        two_locus = pg.Coalescent(n=3, loci=2, recombination_rate=1).two_locus_block_counting_state_space
+        ).state_spaces['joint_block_counting']
+        two_locus = pg.Coalescent(n=3, loci=2, recombination_rate=1).state_spaces['two_locus_block_counting']
 
         for ss in (joint, two_locus):
             self.assertIsInstance(ss.block_configs, tuple)
@@ -929,12 +929,12 @@ def test_large_state_space_warns_once_at_the_highest_level(n_states, level, capl
     import phasegen.state_space
 
     monkeypatch.setattr(phasegen.state_space, '_WARNED_SIZES', set())
-    ss = pg.Coalescent(n=3).block_counting_state_space
+    ss = pg.Coalescent(n=3).state_spaces['block_counting']
     caplog.clear()
 
     with caplog.at_level('WARNING'):
         ss._warn_if_large(n_states)
-        pg.Coalescent(n=3).block_counting_state_space._warn_if_large(n_states)
+        pg.Coalescent(n=3).state_spaces['block_counting']._warn_if_large(n_states)
 
     records = [r for r in caplog.records if 'State space is large' in r.getMessage()]
 

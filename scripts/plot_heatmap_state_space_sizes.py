@@ -94,7 +94,7 @@ plot_heatmap(
     ax=ax[0],
     N=np.arange(2, 18, 2),
     D=np.arange(1, 6),
-    state_space=lambda coal: coal.lineage_counting_state_space,
+    state_space=lambda coal: coal.state_spaces['lineage_counting'],
     locus_config=pg.LocusConfig(1),
     title="Lineage-counting state space, one locus"
 )
@@ -103,7 +103,7 @@ plot_heatmap(
     ax=ax[1],
     N=np.arange(2, 14, 2),
     D=np.arange(1, 4),
-    state_space=lambda coal: coal.block_counting_state_space,
+    state_space=lambda coal: coal.state_spaces['block_counting'],
     locus_config=pg.LocusConfig(1),
     title="Block-counting state space, one locus"
 )
@@ -112,7 +112,7 @@ plot_heatmap(
     ax=ax[2],
     N=np.arange(2, 7, 1),
     D=np.arange(1, 4),
-    state_space=lambda coal: coal.lineage_counting_state_space,
+    state_space=lambda coal: coal.state_spaces['lineage_counting'],
     locus_config=pg.LocusConfig(2),
     title="Lineage-counting state space, two loci"
 )
@@ -122,7 +122,7 @@ plot_heatmap(
     ax=ax[3],
     N=np.arange(2, 8, 1),
     D=np.arange(1, 2),
-    state_space=lambda coal: coal.two_locus_block_counting_state_space,
+    state_space=lambda coal: coal.state_spaces['two_locus_block_counting'],
     locus_config=pg.LocusConfig(2),
     title="Block-counting state space, two loci"
 )

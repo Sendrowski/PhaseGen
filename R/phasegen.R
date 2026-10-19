@@ -39,13 +39,13 @@ py_requirement <- function(version = NULL) {
 
 
 .onLoad <- function(libname, pkgname) {
-  reticulate::py_require(py_requirement(), python_version = ">=3.10,<3.14")
+  reticulate::py_require(py_requirement(), python_version = ">=3.11,<3.15")
 }
 
 
 #' Declare the `phasegen` Python module requirement
 #'
-#' Loading the package declares `phasegen>=2.0` on Python 3.10 to 3.13. This function declares a pinned version. The requirement is resolved
+#' Loading the package declares `phasegen>=2.0` on Python 3.11 to 3.14. This function declares a pinned version. The requirement is resolved
 #' when Python is first initialised, at which point reticulate provisions an environment satisfying it.
 #'
 #' @param version A character string specifying the version of the `phasegen` module

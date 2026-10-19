@@ -308,7 +308,7 @@ class DistributionTestCase(TestCase):
             loci=pg.LocusConfig(n=2, recombination_rate=1)
         )
 
-        _ = coal.lineage_counting_state_space.S
+        _ = coal.state_spaces['lineage_counting'].S
 
         pass
 
@@ -940,8 +940,8 @@ def test_dropped_cache_rebuilds_rate_matrix_as_fresh(round_trip):
 
     fresh = build()
     first = fresh.demography.get_epoch(0)
-    fresh.block_counting_state_space.update_epoch(first)
-    S_fresh = np.array(fresh.block_counting_state_space.S, copy=True)
+    fresh.state_spaces['block_counting'].update_epoch(first)
+    S_fresh = np.array(fresh.state_spaces['block_counting'].S, copy=True)
     std_fresh = fresh.sfs.joint(1, 2).marginal('a').std
 
     coal = build()
@@ -953,10 +953,10 @@ def test_dropped_cache_rebuilds_rate_matrix_as_fresh(round_trip):
     else:
         coal.drop_cache()
 
-    assert coal.block_counting_state_space.epoch == first
+    assert coal.state_spaces['block_counting'].epoch == first
 
-    coal.block_counting_state_space.update_epoch(first)
-    np.testing.assert_array_equal(coal.block_counting_state_space.S, S_fresh)
+    coal.state_spaces['block_counting'].update_epoch(first)
+    np.testing.assert_array_equal(coal.state_spaces['block_counting'].S, S_fresh)
     assert coal.sfs.joint(1, 2).marginal('a').std == std_fresh
 
 

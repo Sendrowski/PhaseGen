@@ -50,8 +50,8 @@ _ = pg.Coalescent(
 
 for n_epochs in [1]:
     for stat_label, stat in {
-        'tree height': lambda coal: coal.lineage_counting_state_space.k,
-        'SFS': lambda coal: coal.block_counting_state_space.k
+        'tree height': lambda coal: coal.state_spaces['lineage_counting'].k,
+        'SFS': lambda coal: coal.state_spaces['block_counting'].k
     }.items():
         # 1 deme
         plot_line(

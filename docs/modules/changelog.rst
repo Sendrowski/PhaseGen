@@ -5,6 +5,7 @@ Changelog
 
 [Unreleased]
 ^^^^^^^^^^^^
+- Require Python 3.11 or newer and support Python 3.14, pandas 3 and jsonpickle 4.
 - Differentiate inference losses exactly with respect to the parameters of the demography, the coalescent model and the recombination rate, at a cost independent of the number of parameters (:attr:`Inference.gradient <phasegen.inference.Inference.gradient>`), and expose the derivatives of first moments through :meth:`PhaseTypeDistribution.gradient() <phasegen.distributions.PhaseTypeDistribution.gradient>`, :meth:`Coalescent.gradient() <phasegen.distributions.Coalescent.gradient>` and :class:`~phasegen.gradient.Gradient`.
 - Add standard errors from the observed Fisher information with :meth:`Inference.fisher_information() <phasegen.inference.Inference.fisher_information>`, :meth:`Inference.covariance() <phasegen.inference.Inference.covariance>` and :meth:`Inference.standard_errors() <phasegen.inference.Inference.standard_errors>`, or from the Godambe sandwich covariance with ``method='godambe'``, which holds for linked sites, and propagate them to the population size and migration rate trajectories with :meth:`Inference.trajectory_intervals() <phasegen.inference.Inference.trajectory_intervals>` and ``interval='fisher'`` or ``interval='godambe'`` in the trajectory plots, where ``interval`` replaces ``include_bootstraps``.
 - Add a penalty on the parameters to the loss with :attr:`Inference.penalty <phasegen.inference.Inference.penalty>`, which keeps the exact gradient, and compare models with :meth:`Inference.aic() <phasegen.inference.Inference.aic>` and :meth:`Inference.likelihood_ratio_test() <phasegen.inference.Inference.likelihood_ratio_test>`.
@@ -13,6 +14,7 @@ Changelog
 - Speed up variances and higher moments by up to about 1.5x by evaluating the dense epoch exponentials in stacks, and the large ones block-wise, and models with very fast rates, such as a Beta coalescent with ``alpha`` close to 2, by orders of magnitude by ending matrix-exponential actions once the state distribution is stationary.
 - Bin each parameter of :meth:`Inference.plot_bootstraps() <phasegen.inference.Inference.plot_bootstraps>` over its own range.
 - Run functions defined in scripts and notebooks in parallel workers started by ``spawn``, as on macOS, keep every sample of the empirical joint SFS, warn about a large state space once per type and size, and limit the BLAS threads while moments, their gradients and inferences are evaluated (:attr:`Settings.blas_threads <phasegen.settings.Settings.blas_threads>`), since the NumPy and SciPy wheels each load an OpenBLAS whose thread pools stall each other. This makes `threadpoolctl <https://github.com/joblib/threadpoolctl>`__ a required dependency.
+- Access the state spaces of a coalescent by key in :attr:`Coalescent.state_spaces <phasegen.distributions.Coalescent.state_spaces>`, which builds each one on first access. The accessor properties such as ``Coalescent.block_counting_state_space`` are deprecated.
 
 [2.1.0] - 2026-10-12
 ^^^^^^^^^^^^^^^^^^^^

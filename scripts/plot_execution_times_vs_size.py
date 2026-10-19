@@ -85,42 +85,42 @@ sizes += compute(
     N=np.arange(2, 13, 1),
     D=np.arange(1, 4),
     stat=lambda coal: coal.tree_height.mean,
-    size=lambda coal: coal.lineage_counting_state_space.k * 2,
+    size=lambda coal: coal.state_spaces['lineage_counting'].k * 2,
 )
 
 sizes += compute(
     N=np.arange(2, 13, 1),
     D=np.arange(1, 4),
     stat=lambda coal: coal.tree_height.var,
-    size=lambda coal: coal.lineage_counting_state_space.k * 3,
+    size=lambda coal: coal.state_spaces['lineage_counting'].k * 3,
 )
 
 sizes += compute(
     N=np.arange(2, 13, 1),
     D=np.arange(1, 4),
     stat=lambda coal: coal.total_branch_length.mean,
-    size=lambda coal: coal.lineage_counting_state_space.k * 2,
+    size=lambda coal: coal.state_spaces['lineage_counting'].k * 2,
 )
 
 sizes += compute(
     N=np.arange(2, 8, 1),
     D=np.arange(1, 3),
     stat=lambda coal: coal.moment(1, rewards=[pg.UnfoldedSFSReward(1)]),
-    size=lambda coal: coal.lineage_counting_state_space.k * 2,
+    size=lambda coal: coal.state_spaces['lineage_counting'].k * 2,
 )
 
 sizes += compute(
     N=np.arange(3, 8, 1),
     D=np.arange(1, 3),
     stat=lambda coal: coal.moment(1, rewards=[pg.UnfoldedSFSReward(2)]),
-    size=lambda coal: coal.lineage_counting_state_space.k * 2,
+    size=lambda coal: coal.state_spaces['lineage_counting'].k * 2,
 )
 
 sizes += compute(
     N=np.arange(3, 8, 1),
     D=np.arange(1, 3),
     stat=lambda coal: coal.moment(2, rewards=(pg.UnfoldedSFSReward(2), pg.UnfoldedSFSReward(1))),
-    size=lambda coal: coal.lineage_counting_state_space.k * 3,
+    size=lambda coal: coal.state_spaces['lineage_counting'].k * 3,
 )
 
 # scatter plot

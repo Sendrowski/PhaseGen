@@ -117,7 +117,7 @@ def test_two_loci_uses_numba_path():
     """The 2-locus (recombination) lineage-counting space is numba-accelerated (kernel kind 3), and the numba and
     pure-Python constructions agree -- validated end-to-end on the tree height (its generator is identical up to a
     state permutation, so the moments match to floating-point tolerance)."""
-    assert pg.Coalescent(n=4, loci=2, recombination_rate=1.0).lineage_counting_state_space._use_numba()
+    assert pg.Coalescent(n=4, loci=2, recombination_rate=1.0).state_spaces['lineage_counting']._use_numba()
 
     Settings.use_numba = True
     mean_numba = pg.Coalescent(n=4, loci=2, recombination_rate=1.0).tree_height.mean
@@ -160,7 +160,7 @@ def test_model_subclass_uses_the_python_construction():
 
     coal = pg.Coalescent(n=2, model=_DoubledRateCoalescent())
     np.testing.assert_allclose(coal.tree_height.mean, 0.5)
-    assert not coal.lineage_counting_state_space._use_numba()
+    assert not coal.state_spaces['lineage_counting']._use_numba()
 
 
 @pytest.mark.parametrize('first', [True, False])
@@ -178,14 +178,14 @@ def test_toggling_use_numba_after_the_states_keeps_their_order(first):
             pop_sizes={'a': {0: 1, 0.5: 3}, 'b': {0: 2}}, migration_rates={('a', 'b'): 1, ('b', 'a'): 0.5}))
 
     for make, space, stat in [
-        (two_loci, 'lineage_counting_state_space', lambda c: c.tree_height.mean),
-        (two_demes, 'joint_block_counting_state_space', lambda c: c.jsfs.mean.data),
+        (two_loci, 'lineage_counting', lambda c: c.tree_height.mean),
+        (two_demes, 'joint_block_counting', lambda c: c.jsfs.mean.data),
     ]:
         Settings.use_numba = first
         expected = np.asarray(stat(make()))
 
         coal = make()
-        _ = getattr(coal, space).states
+        _ = coal.state_spaces[space].states
         Settings.use_numba = not first
 
         np.testing.assert_allclose(np.asarray(stat(coal)), expected, rtol=1e-10, atol=1e-12)

@@ -11,10 +11,12 @@ from unittest import TestCase as BaseTestCase
 # (the suite takes 21:30 instead of 5:20). This must happen before numpy is imported, because BLAS reads the
 # variables when its shared library loads; the root ``conftest`` gets there first, and this repeats it for the case
 # where the suite is run with a rootdir that does not pick that conftest up. ``blas_pinned_late`` records the case
-# the variables cannot fix -- numpy already resident, so its pool is already sized -- which ``conftest`` reports.
-blas_pinned_late = 'numpy' in sys.modules and not os.environ.get('PHASEGEN_ALLOW_THREADS')
+# the variables cannot fix -- numpy already resident with a pool sized before they were all 1 -- which ``conftest``
+# reports.
+_THREAD_VARS = ('OMP_NUM_THREADS', 'MKL_NUM_THREADS', 'OPENBLAS_NUM_THREADS', 'NUMBA_NUM_THREADS')
+blas_pinned_late = 'numpy' in sys.modules and any(os.environ.get(v) != '1' for v in _THREAD_VARS)
 
-for _var in ('OMP_NUM_THREADS', 'MKL_NUM_THREADS', 'OPENBLAS_NUM_THREADS', 'NUMBA_NUM_THREADS'):
+for _var in _THREAD_VARS:
     os.environ.setdefault(_var, '1')
 
 import matplotlib

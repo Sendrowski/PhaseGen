@@ -252,7 +252,7 @@ def test_closed_form_finite_epochs_take_action_below_sparse_lu_threshold():
     coal = pg.Coalescent(n={'pop_0': 4, 'pop_1': 3}, demography=pg.Demography(
         pop_sizes={'pop_0': {t: 1 + 0.5 * np.sin(t) for t in times}, 'pop_1': {t: 1.5 for t in times}},
         migration_rates={pr: 0.5 for pr in pairs}))
-    assert coal.block_counting_state_space.k < Settings.closed_form_sparse_min_states
+    assert coal.state_spaces['block_counting'].k < Settings.closed_form_sparse_min_states
 
     with patch('phasegen.distributions._moments.spla.expm_multiply', side_effect=sp.linalg.expm_multiply) as action:
         mean = coal.sfs.mean.data
