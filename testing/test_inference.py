@@ -2332,3 +2332,119 @@ def test_trajectory_intervals_of_all_trajectories_at_another_level():
     np.testing.assert_allclose(ratio, norm.ppf(0.95) / norm.ppf(0.975), rtol=1e-12)
     np.testing.assert_allclose(np.log(narrow['estimate'] / narrow['lower'])[fitted],
                                np.log(narrow['upper'] / narrow['estimate'])[fitted], rtol=1e-12)
+
+
+def _quadratic_penalty(Ne: float) -> float:
+    """A penalty of 5 (Ne - 1)^2, whose second derivative is 10."""
+    return 5 * (Ne - 1) ** 2
+
+
+@pytest.mark.parametrize('gradient', ['exact', 'finite_differences'])
+def test_penalty_is_minimised_with_the_loss(gradient):
+    """With a penalty, the estimate minimises the loss plus the penalty: the stationarity condition of the linear
+    model, sum(k) / Ne - 100 sum(s) + 10 (Ne - 1) = 0, holds at the estimate, and the reported loss includes the
+    penalty."""
+    inf = _linear_poisson_inference(gradient)
+    inf.penalty = _quadratic_penalty
+    inf.run()
+
+    ne = inf.params_inferred['Ne']
+    s = pg.Coalescent(n=5).sfs.mean.polymorphic.sum()
+    k = 180 + 95 + 70 + 52
+
+    assert -k / ne + 100 * s + 10 * (ne - 1) == pytest.approx(0, abs=1e-3 * k)
+    np.testing.assert_allclose(
+        inf.loss_inferred, inf.loss(inf.dist_inferred, inf.observation) + _quadratic_penalty(ne), rtol=1e-12
+    )
+
+
+def test_penalty_keeps_the_exact_gradient(caplog):
+    """A penalty is differentiated without the coalescent, so the loss keeps its exact gradient."""
+    import logging
+    caplog.set_level(logging.INFO, logger='phasegen')
+
+    inf = _linear_poisson_inference('exact')
+    inf.penalty = _quadratic_penalty
+    inf.run()
+
+    assert 'Using the exact gradient of the loss.' in caplog.text
+    assert 'finite differences' not in caplog.text
+
+
+def test_information_includes_the_hessian_of_the_penalty():
+    """The information of a penalized fit is the Hessian sum(k) / Ne^2 of the loss at its estimate plus the second
+    derivative 10 of the penalty."""
+    inf = _linear_poisson_inference('exact')
+    inf.penalty = _quadratic_penalty
+    inf.run()
+
+    ne = inf.params_inferred['Ne']
+
+    np.testing.assert_allclose(inf.fisher_information().loc['Ne', 'Ne'], (180 + 95 + 70 + 52) / ne ** 2 + 10,
+                               rtol=1e-5)
+
+
+def test_penalty_survives_serialization():
+    """The penalty is serialized with the other callables, and a payload without it restores no penalty."""
+    inf = _linear_poisson_inference('exact')
+    inf.penalty = _quadratic_penalty
+
+    assert pg.Inference.from_json(inf.to_json()).penalty(Ne=2) == 5
+
+    state = inf.__getstate__()
+    state.pop('penalty_pickled')
+    restored = object.__new__(pg.Inference)
+    restored.__setstate__(state)
+
+    assert restored.penalty is None
+
+
+def test_aic_counts_the_free_parameters():
+    """The AIC is twice the loss plus twice the number of parameters whose bounds differ."""
+    inf = _two_epoch_log_scale_inference(dict(Ne=(0.1, 5), r=(1, 1)), ())
+    inf.run()
+
+    assert inf.aic() == pytest.approx(2 * inf.loss_inferred + 2)
+
+
+def test_aic_and_likelihood_ratio_test_reject_a_penalty_and_a_missing_run():
+    """A penalized loss is not a negative log-likelihood, and neither criterion exists before a run."""
+    inf = _linear_poisson_inference('exact')
+
+    with pytest.raises(RuntimeError, match='run'):
+        inf.aic()
+
+    inf.penalty = _quadratic_penalty
+    inf.run()
+
+    with pytest.raises(ValueError, match='penalty'):
+        inf.aic()
+
+
+def test_likelihood_ratio_test_of_a_fixed_epoch_size():
+    """The likelihood-ratio test of the two-epoch model against a null model fixing the size of the second epoch has
+    one degree of freedom, the statistic twice the difference of the losses and the chi-squared tail as p-value."""
+    from scipy.stats import chi2
+
+    alt = _two_epoch_log_scale_inference(dict(Ne=(0.1, 5), r=(0.1, 5)), ())
+    null = _two_epoch_log_scale_inference(dict(Ne=(0.1, 5), r=(1, 1)), ())
+    alt.run()
+    null.run()
+
+    test = alt.likelihood_ratio_test(null)
+    statistic = 2 * (null.loss_inferred - alt.loss_inferred)
+
+    assert test['df'] == 1
+    assert test['statistic'] == pytest.approx(statistic, rel=1e-12)
+    assert statistic >= 0
+    assert test['p-value'] == pytest.approx(chi2.sf(statistic, 1), rel=1e-12)
+
+    with pytest.raises(ValueError, match='fewer free parameters'):
+        null.likelihood_ratio_test(alt)
+
+    other = _two_epoch_log_scale_inference(dict(Ne=(0.1, 5), r=(1, 1)), ())
+    other.observation = pg.SFS([0, 170, 95, 70, 52, 0])
+    other.run()
+
+    with pytest.raises(ValueError, match='different observation'):
+        alt.likelihood_ratio_test(other)

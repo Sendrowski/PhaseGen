@@ -970,7 +970,7 @@ class BlockCountingStateSpace(StateSpace):
 
         :param start_state: Index of the starting state.
         :param start_p: Probability of starting in the starting state.
-        :param S: Transition matrix.
+        :param S: Intensity matrix.
         :param absorbing_states: Indices of absorbing states.
         :param lineage_counts: Number of lineages in each state.
         :return: State probabilities conditioned on the number of lineages.

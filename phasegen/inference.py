@@ -129,6 +129,10 @@ class Inference(Serializable):
     #: lack the attribute.
     log_scale: Tuple[str, ...] = ()
 
+    #: The penalty added to the loss. Static for backward compatibility with serialized objects that lack the
+    #: attribute.
+    penalty: Callable[..., float] | None = None
+
     #: The key of the inputs the Fisher information was last computed from, holding the ``loss`` and ``coal`` callables
     #: themselves, and the information. It is not serialized. Static for backward compatibility with serialized objects
     #: that lack the attribute.
@@ -156,7 +160,8 @@ class Inference(Serializable):
             opts: Dict = None,
             method_mle: str = 'L-BFGS-B',
             gradient: Literal['exact', 'finite_differences'] = 'exact',
-            log_scale: bool | Iterable[str] = False
+            log_scale: bool | Iterable[str] = False,
+            penalty: Callable[..., float] = None
     ) -> None:
         """
         Configure the inference.
@@ -201,20 +206,26 @@ class Inference(Serializable):
             See https://docs.scipy.org/doc/scipy/reference/optimize.minimize-lbfgsb.html#optimize-minimize-lbfgsb
         :param method_mle: Method to use for optimization, a method of `scipy.optimize.minimize` that honours bounds
             without an analytic Jacobian: Nelder-Mead, Powell, L-BFGS-B, TNC, SLSQP, COBYLA or COBYQA.
-        :param gradient: How the gradient-based methods (L-BFGS-B, TNC and SLSQP) obtain the gradient of the
-            loss. With ``'exact'``, a loss that reads only the first moments listed at
-            :class:`~phasegen.gradient.Gradient` is differentiated exactly, as described in
+        :param gradient: How the gradient-based methods (L-BFGS-B, TNC and SLSQP) obtain the gradient of the loss. With
+            ``'exact'``, a loss that reads only the first moments listed at :class:`~phasegen.gradient.Gradient` is
+            differentiated exactly, by one forward pass through the epochs and one backward pass as described in
             :meth:`PhaseTypeDistribution.gradient() <phasegen.distributions.PhaseTypeDistribution.gradient>`, at a cost
             of about one evaluation of the moments whatever the number of parameters, which may enter the demography,
             the parameters of the coalescent model or the recombination rate. Any other loss is differentiated by finite
             differences. With ``'finite_differences'``, every gradient is a finite difference of the loss. The finite
             differences are central, with a step of ``1e-6`` times the magnitude of each parameter (at least 1), or
-            times its value on a logarithmic scale, at two evaluations of the loss per parameter. At a bound or next
-            to parameters at which the model raises or the loss is not finite they are one-sided of second order.
+            times its value on a logarithmic scale, at two evaluations of the loss per parameter. At a bound or next to
+            parameters at which the model raises or the loss is not finite they are one-sided of second order.
         :param log_scale: The name or names of the parameters optimized as their logarithms, ``True`` for all of
             them, which suits population sizes and rates spanning orders of magnitude and often reduces the number of
             iterations considerably. Their sampled start points are log-uniform within the bounds. The estimates,
             bounds and bootstraps stay on the original scale.
+        :param penalty: A penalty :math:`P(\\theta)` added to the loss, which receives the parameters as keyword
+            arguments and returns a number, such as a smoothness penalty on the population sizes of successive epochs.
+            The optimization then minimises :math:`L + P`, and :attr:`Inference.loss_inferred
+            <phasegen.inference.Inference.loss_inferred>` and the information of :meth:`Inference.fisher_information()
+            <phasegen.inference.Inference.fisher_information>` include it. Its gradient is a central difference with
+            the steps of the loss, which needs no moments, so the loss keeps its exact gradient.
         :raises ValueError: If a lower bound exceeds its upper bound, ``x0`` lies outside the bounds or does not specify
             exactly the parameters in ``bounds``, ``method_mle`` is not one of the supported methods, ``gradient`` is not
             one of the supported values, ``n_runs`` or ``n_bootstraps`` is less than 1, or a parameter on a logarithmic
@@ -311,6 +322,9 @@ class Inference(Serializable):
         #: How the gradient of the loss is obtained.
         self.gradient: Literal['exact', 'finite_differences'] = gradient
 
+        #: The penalty added to the loss.
+        self.penalty: Callable[..., float] | None = penalty
+
         #: Optimization result
         self.result: OptimizeResult | None = None
 
@@ -375,7 +389,7 @@ class Inference(Serializable):
         """
         Get the state of the object for serialization.
 
-        The ``coal``, ``loss`` and ``resample`` callables are serialized with ``dill`` (they are typically
+        The ``coal``, ``loss``, ``resample`` and ``penalty`` callables are serialized with ``dill`` (they are typically
         lambdas/closures that the standard pickler and ``copy.deepcopy`` cannot handle reliably, especially
         once they have themselves been restored from a previous ``dill`` round-trip). They are dumped
         directly from ``self`` without a prior deep copy. Only the remaining state is deep-copied, so the live object
@@ -388,7 +402,7 @@ class Inference(Serializable):
 
         :return: State of the object.
         """
-        callables = ['coal', 'loss', 'resample']
+        callables = ['coal', 'loss', 'resample', 'penalty']
 
         state = copy.deepcopy({
             key: value for key, value in self.__dict__.items() if key not in callables + ['_fisher_information', '_score_covariance_cache']
@@ -415,9 +429,10 @@ class Inference(Serializable):
         if self.result is not None:
             self.result = OptimizeResult({k: v for k, v in dict(self.result).items() if k != '__dict__'})
 
-        for key in ['coal', 'loss', 'resample']:
-            setattr(self, key, dill.loads(state[f'{key}_pickled']))
-            self.__dict__.pop(f'{key}_pickled')
+        for key in ['coal', 'loss', 'resample', 'penalty']:
+            if f'{key}_pickled' in state:
+                setattr(self, key, dill.loads(state[f'{key}_pickled']))
+                self.__dict__.pop(f'{key}_pickled')
 
     def get_coal(self, **kwargs) -> Coalescent:
         """
@@ -465,7 +480,8 @@ class Inference(Serializable):
             get_dist: Callable[..., Coalescent],
             get_loss: Callable[[Coalescent, Any], float],
             logger: logging.Logger = logger,
-            smooth: bool = False
+            smooth: bool = False,
+            penalty: Callable[..., float] = None
     ) -> '_PenalizedLoss':
         """
         Get the loss function that accepts a list as an argument, with a finite penalty where the model raises or the
@@ -479,9 +495,35 @@ class Inference(Serializable):
         :param logger: Logger.
         :param smooth: Whether the penalty lies just above the loss of the current iterate, for a gradient-based
             optimizer.
+        :param penalty: The penalty added to the loss, see :class:`Inference`.
         :return: Loss function.
         """
-        return _PenalizedLoss(observation, x0, pbar, get_dist, get_loss, logger, smooth)
+        return _PenalizedLoss(observation, x0, pbar, get_dist, get_loss, logger, smooth, penalty)
+
+    @staticmethod
+    def _penalty_gradient(
+            penalty: Callable[..., float],
+            params: Dict[str, float],
+            bounds: Dict[str, Tuple[float, float]],
+            log_scale: Iterable[str] = ()
+    ) -> np.ndarray:
+        """
+        The gradient of a penalty by the differences of :meth:`Gradient._stencil()
+        <phasegen.gradient.Gradient._stencil>`, with the steps of the loss.
+
+        :param penalty: The penalty, see :class:`Inference`.
+        :param params: The parameters.
+        :param bounds: Their bounds.
+        :param log_scale: The parameters optimized as their logarithms, whose steps are relative to their values.
+        :return: The gradient, in the order of ``params``.
+        """
+        names = list(params)
+        x = np.array(list(params.values()), dtype=float)
+        log = np.array([name in log_scale for name in names], dtype=bool)
+        steps = _DIFFERENCE_STEP * np.where(log, np.abs(x), np.maximum(np.abs(x), 1))
+
+        return Gradient._differences(lambda y: penalty(**dict(zip(names, y))), x, [bounds[name] for name in names],
+                                     steps)
 
     @staticmethod
     def _report(params: Dict[str, float], loss: float, pbar: tqdm | None, logger: logging.Logger) -> None:
@@ -532,7 +574,8 @@ class Inference(Serializable):
             observation: Any,
             logger: logging.Logger = logger,
             exact: bool = True,
-            log_scale: Iterable[str] = ()
+            log_scale: Iterable[str] = (),
+            penalty: Callable[..., float] = None
     ) -> Callable[[np.ndarray], Tuple[float, np.ndarray]]:
         """
         The loss with its gradient, exact where ``exact`` is set and :class:`~phasegen.gradient.Gradient` supports the
@@ -551,6 +594,7 @@ class Inference(Serializable):
         :param logger: Logger.
         :param exact: Whether to try the exact gradient.
         :param log_scale: The parameters optimized as their logarithms.
+        :param penalty: The penalty added to the loss, see :class:`Inference`, which ``loss`` includes.
         :return: Function returning the loss and its gradient.
         """
         gradient = Gradient(get_dist, lambda coal: get_loss(coal, observation))
@@ -569,6 +613,10 @@ class Inference(Serializable):
                     out = gradient._exact(params_dict, bounds)
                 except Exception as e:
                     logger.debug('Exact gradient unavailable at %s (%s), using finite differences', params_dict, e)
+
+            if out is not None and penalty is not None:
+                out = (out[0] + penalty(**params_dict),
+                       out[1] + Inference._penalty_gradient(penalty, params_dict, bounds, log_scale))
 
             if out is not None and np.isfinite(out[0]) and np.isfinite(out[1]).all():
                 failures = 0
@@ -607,7 +655,8 @@ class Inference(Serializable):
             method_mle: str = 'L-BFGS-B',
             logger: logging.Logger = logger,
             gradient: Literal['exact', 'finite_differences'] = 'exact',
-            log_scale: Iterable[str] = ()
+            log_scale: Iterable[str] = (),
+            penalty: Callable[..., float] = None
     ) -> OptimizeResult:
         """
         Perform the optimization over the parameters whose bounds differ, holding the others fixed.
@@ -623,6 +672,7 @@ class Inference(Serializable):
         :param logger: Logger.
         :param gradient: How the gradient of the loss is obtained, see :class:`Inference`.
         :param log_scale: The parameters optimized as their logarithms.
+        :param penalty: The penalty added to the loss, see :class:`Inference`.
         :return: Result of the optimization procedure. The estimates ``x`` and the gradient of the loss ``jac``, zero for
             a fixed parameter, are on the original scale. With a parameter on a logarithmic scale or a fixed one,
             ``hess_inv`` is omitted, and the other solver diagnostics refer to the free parameters and the logarithms.
@@ -644,13 +694,14 @@ class Inference(Serializable):
             get_dist=get_dist,
             get_loss=get_loss,
             logger=logger,
-            smooth=smooth
+            smooth=smooth,
+            penalty=penalty
         )
 
         if smooth:
             exact = gradient == 'exact' and Gradient(get_dist, lambda coal: get_loss(coal, observation)).supported(x0)
             loss = Inference._get_loss_and_gradient(loss, x0, bounds_dict, pbar, get_dist, get_loss, observation, logger,
-                                                    exact, log_scale)
+                                                    exact, log_scale, penalty)
 
         # the optimizer sees the free parameters, with y = log(x) for those on a logarithmic scale, and dL/dy = x dL/dx,
         # with x clipped to its bounds
@@ -710,6 +761,7 @@ class Inference(Serializable):
         method_mle = self.method_mle
         gradient = self.gradient
         log_scale = self.log_scale
+        penalty = self.penalty
         logger = self._logger
 
         self._announce_gradient(self.x0, observation)
@@ -738,7 +790,8 @@ class Inference(Serializable):
                     method_mle=method_mle,
                     logger=logger,
                     gradient=gradient,
-                    log_scale=log_scale
+                    log_scale=log_scale,
+                    penalty=penalty
                 )
             except Exception as e:
                 logger.warning(f'Optimization run from x0={x0} failed and was skipped: {e}')
@@ -910,6 +963,7 @@ class Inference(Serializable):
         method_mle = self.method_mle
         gradient = self.gradient
         log_scale = self.log_scale
+        penalty = self.penalty
         logger = self._logger
 
         self._announce_gradient(x0, self.observation)
@@ -933,7 +987,8 @@ class Inference(Serializable):
                     method_mle=method_mle,
                     logger=logger,
                     gradient=gradient,
-                    log_scale=log_scale
+                    log_scale=log_scale,
+                    penalty=penalty
                 )
             except Exception as e:
                 logger.warning('Bootstrap replicate failed and its parameters are NaN: %s', e)
@@ -1033,8 +1088,10 @@ class Inference(Serializable):
         :attr:`Inference.params_inferred <phasegen.inference.Inference.params_inferred>`. Where :math:`L` is a negative
         log-likelihood, :math:`I` is the observed Fisher information. The Hessian is a central difference of the
         gradient of :meth:`Gradient.compute() <phasegen.gradient.Gradient.compute>`, which is exact where
-        :attr:`Inference.gradient <phasegen.inference.Inference.gradient>` asks for it and the loss supports it. The
-        differences stay within the bounds, and a parameter whose bounds coincide has no curvature.
+        :attr:`Inference.gradient <phasegen.inference.Inference.gradient>` asks for it and the loss supports it. With a
+        penalty :math:`P(\theta)` configured as :attr:`Inference.penalty <phasegen.inference.Inference.penalty>`, it is
+        the Hessian of :math:`L + P`, with the gradient of :math:`P` taken by central differences. The differences stay
+        within the bounds, and a parameter whose bounds coincide has no curvature.
 
         :return: The information, with the parameter names as index and columns.
         :raises RuntimeError: If :meth:`Inference.run() <phasegen.inference.Inference.run>` has not been called.
@@ -1045,7 +1102,7 @@ class Inference(Serializable):
         names = self.param_names
         x = np.array([self.params_inferred[name] for name in names], dtype=float)
         key = (tuple(x), self._observation_key(), self.loss, self.coal, tuple(self.bounds[n] for n in names),
-               self.gradient)
+               self.gradient, self.penalty)
 
         if self._fisher_information is not None and self._fisher_information[0] == key:
             return self._fisher_information[1]
@@ -1054,7 +1111,10 @@ class Inference(Serializable):
         gradient = Gradient(self.get_coal, lambda coal: self.loss(coal, self.observation))
 
         def grad(params: np.ndarray) -> np.ndarray:
-            return gradient.compute(dict(zip(names, params)), self.bounds, exact=self.gradient == 'exact')[1]
+            g = gradient.compute(dict(zip(names, params)), self.bounds, exact=self.gradient == 'exact')[1]
+            if self.penalty is None:
+                return g
+            return g + Inference._penalty_gradient(self.penalty, dict(zip(names, params)), self.bounds)
 
         hessian = Gradient._differences(grad, x, bounds, _HESSIAN_STEP * np.where(x != 0, np.abs(x), 1))
         info = pd.DataFrame((hessian + hessian.T) / 2, index=names, columns=names)
@@ -1217,6 +1277,102 @@ class Inference(Serializable):
             less than 2.
         """
         return pd.Series(np.sqrt(np.diag(self.covariance(method, n).to_numpy())), index=self.param_names)
+
+    @property
+    def _n_free(self) -> int:
+        """
+        The number of free parameters, those whose bounds differ.
+        """
+        return sum(lower < upper for lower, upper in self.bounds.values())
+
+    def _check_likelihood(self) -> None:
+        """
+        Check that the loss of the estimate can be read as a negative log-likelihood.
+
+        :raises RuntimeError: If :meth:`Inference.run() <phasegen.inference.Inference.run>` has not been called.
+        :raises ValueError: If a penalty is added to the loss.
+        """
+        if self.loss_inferred is None:
+            raise RuntimeError('The main optimization must be run first (call run()).')
+
+        if self.penalty is not None:
+            raise ValueError('The loss includes a penalty, so it is not a negative log-likelihood.')
+
+    def aic(self) -> float:
+        r"""
+        The Akaike information criterion of the estimate,
+
+        .. math::
+            \mathrm{AIC} = 2 k + 2 \hat{L},
+
+        where :math:`k` is the number of free parameters, those whose bounds differ, and :math:`\hat{L}` the loss of
+        the estimate, :attr:`Inference.loss_inferred <phasegen.inference.Inference.loss_inferred>`, read as a
+        negative log-likelihood. Of models fitted to the same observation with the same likelihood, the one with the
+        lowest criterion is preferred.
+
+        ::
+
+            inf.run()
+            inf.aic()
+
+        :return: The criterion.
+        :raises RuntimeError: If :meth:`Inference.run() <phasegen.inference.Inference.run>` has not been called.
+        :raises ValueError: If a penalty is added to the loss.
+        """
+        self._check_likelihood()
+
+        return 2 * self._n_free + 2 * float(self.loss_inferred)
+
+    def likelihood_ratio_test(self, null: 'Inference') -> pd.Series:
+        r"""
+        The likelihood-ratio test of a null model nested in this one, fitted to the same observation with the same
+        likelihood. With :math:`\hat{L}_0` and :math:`\hat{L}_1` the losses of the null model and of this one, read
+        as negative log-likelihoods, the statistic
+
+        .. math::
+            D = 2 \big(\hat{L}_0 - \hat{L}_1\big)
+
+        is asymptotically :math:`\chi^2_d`-distributed under the null model, with :math:`d = k_1 - k_0` the
+        difference of their numbers of free parameters, and the p-value is :math:`P(\chi^2_d \geq D)`. Where the null
+        model fixes a parameter on a bound of this one, such as a migration rate of zero, the distribution is a mixture
+        of :math:`\chi^2` distributions with fewer degrees of freedom, so the p-value is conservative. For linked sites,
+        whose likelihood is composite, the statistic is not :math:`\chi^2`-distributed.
+
+        ::
+
+            alt.run()
+            null.run()
+            alt.likelihood_ratio_test(null)
+
+        :param null: The null model, an inference that has been run.
+        :return: The statistic :math:`D` (``statistic``), the degrees of freedom :math:`d` (``df``) and the p-value
+            (``p-value``).
+        :raises RuntimeError: If either inference has not been run.
+        :raises ValueError: If either loss includes a penalty, the observations differ or the null model has no fewer
+            free parameters than this one.
+        """
+        from scipy.stats import chi2
+
+        self._check_likelihood()
+        null._check_likelihood()
+
+        if null._observation_key() != self._observation_key():
+            raise ValueError('The null model was fitted to a different observation.')
+
+        df = self._n_free - null._n_free
+        if df < 1:
+            raise ValueError(f'The null model must have fewer free parameters than this one, got {null._n_free} and '
+                             f'{self._n_free}.')
+
+        statistic = 2 * (float(null.loss_inferred) - float(self.loss_inferred))
+
+        if statistic < -2 * _RESTART_LOSS_RTOL * max(abs(float(self.loss_inferred)), 1):
+            self._logger.warning(
+                'The loss of this model exceeds that of the null model by %.4g, so the models are not nested or this '
+                'optimization did not reach its optimum.', -statistic / 2
+            )
+
+        return pd.Series({'statistic': statistic, 'df': df, 'p-value': chi2.sf(max(statistic, 0), df)})
 
     def _trajectory_times(self, t: np.ndarray = None) -> np.ndarray:
         """
@@ -1821,7 +1977,8 @@ class _PenalizedLoss:
             get_dist: Callable[..., Coalescent],
             get_loss: Callable[[Coalescent, Any], float],
             logger: logging.Logger,
-            smooth: bool = False
+            smooth: bool = False,
+            penalty: Callable[..., float] = None
     ) -> None:
         """
         Configure the loss.
@@ -1834,6 +1991,7 @@ class _PenalizedLoss:
         :param logger: Logger.
         :param smooth: Whether the penalty lies just above the loss of the current iterate, rather than at
             :data:`_LOSS_PENALTY`, for a gradient-based optimizer.
+        :param penalty: The penalty added to the loss, see :class:`Inference`.
         """
         self.observation = observation
         self.names = list(x0.keys())
@@ -1842,6 +2000,7 @@ class _PenalizedLoss:
         self.get_loss = get_loss
         self.logger = logger
         self.smooth = smooth
+        self.regularization = penalty
 
         #: The loss of the current iterate, that of the first evaluation until
         #: :meth:`_PenalizedLoss.update() <phasegen.inference._PenalizedLoss.update>` reports an iterate.
@@ -1874,7 +2033,7 @@ class _PenalizedLoss:
 
     def evaluate(self, params: list) -> float | None:
         """
-        Evaluate the loss without a penalty.
+        Evaluate the loss with the penalty of :class:`Inference` but without that of an invalid point.
 
         :param params: The parameters, in the order of ``x0``.
         :return: The loss, or ``None`` where the model raises or the loss is not finite.
@@ -1888,6 +2047,9 @@ class _PenalizedLoss:
         except (ModelError, np.linalg.LinAlgError) as e:
             self.logger.warning('The model raised "%s" for %s; substituting a finite penalty', e, params_dict)
             return None
+
+        if self.regularization is not None and np.ndim(loss) == 0:
+            loss = loss + self.regularization(**params_dict)
 
         # a non-finite loss (NaN or +/-inf) fed to the optimizer poisons its gradient and steps it to invalid
         # parameters, so it is penalized as well

@@ -276,23 +276,41 @@ class PhaseTypeDistribution(CallableDistributionFunctions, MomentEvaluator, Mome
         The first moment is the expected occupation time :math:`\mathbf{m}` of the transient states contracted with the
         reward vector :math:`\mathbf{r}`, :math:`\mu = \mathbf{m}\, \mathbf{r}`. In the last epoch :math:`E`, which
         lasts until absorption, :math:`\mathbf{m}_E = \mathbf{p}_E (-\mathbf{T}_E)^{-1}`, where :math:`\mathbf{p}_E` is
-        the state distribution at its start and :math:`\mathbf{T}_E` its transient generator, so that a quantity
+        the state distribution at its start and :math:`\mathbf{T}_E` its sub-intensity matrix, so that a quantity
         :math:`\theta` of that epoch enters as
 
         .. math::
             \frac{\partial \mu}{\partial \theta} = \mathbf{p}_E (-\mathbf{T}_E)^{-1}
             \frac{\partial \mathbf{T}_E}{\partial \theta} (-\mathbf{T}_E)^{-1} \mathbf{r}.
 
-        The finite epochs before it carry :math:`\mathbf{p}` and :math:`\mathbf{m}` forward through the exponential of
-        an augmented generator, and their derivatives follow by passing the vector :math:`(-\mathbf{T}_E)^{-1}
-        \mathbf{r}` backwards through the epochs, by the Fréchet derivative of the exponential for dense rate matrices
-        and by reversing the truncated Taylor action for sparse ones. The generator is affine in the inverse coalescent
-        time scales and the migration rates, so that :math:`\partial \mathbf{T} / \partial \theta` is a fixed matrix
-        for these quantities. For the recombination rate and the rate ``c`` of a Dirac coalescent, in which the
-        generator is also affine, it is an exact difference of two generators, and for the other model parameters a
-        central difference. The cost is a few moment evaluations per entry, whatever the number of quantities, and the
-        result is cached as moments are, and a copy returned. :class:`~phasegen.inference.Inference` differentiates losses with these
-        derivatives, and :class:`~phasegen.gradient.Gradient` chains them through a coalescent callback.
+        In a forward pass, the finite epochs before it carry :math:`\mathbf{p}` and :math:`\mathbf{m}` through the
+        exponential of the Van Loan matrix of :meth:`PhaseTypeDistribution.moment()
+        <phasegen.distributions.PhaseTypeDistribution.moment>` in its occupation form. With :math:`\mathbf{T}` the
+        sub-intensity matrix of the epoch, :math:`\mathbf{I}` the identity and :math:`\Delta` the duration,
+
+        .. math::
+            \mathbf{V} = \begin{pmatrix} \mathbf{T} & \mathbf{I} \\ & \mathbf{0} \end{pmatrix}, \qquad
+            e^{\mathbf{V} \Delta} = \begin{pmatrix} e^{\mathbf{T} \Delta} & \int_0^\Delta e^{\mathbf{T} u}\, \mathrm{d}u
+            \\ & \mathbf{I} \end{pmatrix},
+
+        whose top-left block carries :math:`\mathbf{p}` across the epoch and whose top-right block gives the expected
+        occupation times within it. In a backward pass, the derivatives of the finite epochs follow by passing
+        :math:`(-\mathbf{T}_E)^{-1} \mathbf{r}` backwards through them, with the Fréchet derivative of the exponential
+        for dense rate matrices and the reversed Taylor action for sparse ones. With
+        :math:`\mathbf{A} = \mathbf{V} \Delta`, the Fréchet derivative of :math:`e^{\mathbf{A}}` in the direction
+        :math:`\mathbf{E} = (\partial \mathbf{V} / \partial \theta)\, \Delta` is
+
+        .. math::
+            L(\mathbf{A}, \mathbf{E}) = \int_0^1 e^{s \mathbf{A}}\, \mathbf{E}\, e^{(1 - s) \mathbf{A}}\, \mathrm{d}s
+            = \frac{\partial e^{\mathbf{A}}}{\partial \theta}.
+
+        The integral sums a rate change at each fraction :math:`s` of the epoch, with the unperturbed rates acting
+        before and after it. The entries of the generator change linearly with the inverse coalescent time scales, the
+        migration rates, the recombination rate and the rate ``c`` of a Dirac coalescent, so :math:`\partial \mathbf{T}
+        / \partial \theta` is exact for these, and a central difference for the other model parameters. The cost is a
+        few moment evaluations per entry, whatever the number of quantities, and the result is cached as moments are,
+        and a copy returned. :class:`~phasegen.inference.Inference` differentiates losses with these derivatives, and
+        :class:`~phasegen.gradient.Gradient` chains them through a coalescent callback.
 
         ::
 

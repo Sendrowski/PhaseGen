@@ -43,13 +43,6 @@ coal = pg.Coalescent(
 )
 
 grad = coal.tree_height.gradient()
-
-# derivatives by the population size of each deme, one row per epoch
-pd.DataFrame(grad.pop_sizes, columns=grad.pops)
-```
-
-```{code-cell} python
-grad.parameters
 ```
 
 ```{code-cell} r
@@ -67,8 +60,20 @@ coal <- pg$Coalescent(
 )
 
 grad <- coal$tree_height$gradient()
+```
 
-# derivatives by the population size of each deme, one row per epoch
++++
+The derivatives by the population sizes form a table with one row per epoch, here before and after the size change of ``pop_0`` at time 0.5, and one column per deme. Each entry is the change in the expected tree height per unit increase of that population size within that epoch.
+
+```{code-cell} python
+pd.DataFrame(grad.pop_sizes, columns=grad.pops)
+```
+
+```{code-cell} python
+grad.parameters
+```
+
+```{code-cell} r
 setNames(as.data.frame(grad$pop_sizes), unlist(grad$pops))
 ```
 

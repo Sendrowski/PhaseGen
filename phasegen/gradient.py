@@ -211,29 +211,49 @@ class Gradient:
     .. math::
         J_{j i} = \frac{\partial s_j\big(\mathrm{coal}(\theta)\big)}{\partial \theta_i},
 
-    where :math:`\theta` are the parameters, :math:`\mathrm{coal}(\theta)` the coalescent returned by the ``coal``
-    callback and :math:`s_j` the entries of the statistic. The statistic may be any function of first moments of the
-    coalescent: the means and first moments of :attr:`Coalescent.sfs <phasegen.distributions.Coalescent.sfs>`,
+    where :math:`s` is the statistic, a function of the coalescent returning a number or an array, such as the
+    negative log-likelihood of :class:`~phasegen.norms.PoissonLikelihood` of an observed SFS given the mean of
+    :attr:`Coalescent.sfs <phasegen.distributions.Coalescent.sfs>`, or that mean normalized to sum to one with
+    :meth:`Spectrum.normalize() <sfsutils.spectrum.Spectrum.normalize>`. :math:`s_j` is its :math:`j`-th element, a
+    single one for a number, :math:`\theta_i` the :math:`i`-th parameter, :math:`\mathrm{coal}(\theta)` the coalescent
+    returned by the ``coal`` callback and :math:`J_{j i}` the entry of the Jacobian in row :math:`j` and column
+    :math:`i`. The statistic may read first moments of the coalescent only:
+    the means and first moments of :attr:`Coalescent.sfs <phasegen.distributions.Coalescent.sfs>`,
     :attr:`Coalescent.fsfs <phasegen.distributions.Coalescent.fsfs>`, :attr:`Coalescent.jsfs
     <phasegen.distributions.Coalescent.jsfs>`, :attr:`Coalescent.tree_height
     <phasegen.distributions.Coalescent.tree_height>` and :attr:`Coalescent.total_branch_length
     <phasegen.distributions.Coalescent.total_branch_length>`, and :meth:`Coalescent.moment()
-    <phasegen.distributions.Coalescent.moment>` of order one, each with at most one reward and no time window, such
-    as a normalized SFS or the loss of an :class:`~phasegen.inference.Inference`. By the chain rule,
+    <phasegen.distributions.Coalescent.moment>` of order one, each with at most one reward and no time window. The
+    loss of an :class:`~phasegen.inference.Inference` is such a statistic. As a function of the parameters, the
+    statistic is the composition
+
+    .. math::
+        s_j(\theta) = s_j\big(\mu(q(\theta))\big),
+
+    where :math:`q` are the quantities that define the coalescent: the population size of each deme and the migration
+    rate between each pair of demes in each epoch, the start time of each epoch, the parameters of the coalescent
+    model and the recombination rate. The :math:`\mu` are the entries of all moments the statistic reads, such as the
+    bins of a mean SFS. By the chain rule,
 
     .. math::
         J_{j i} = \sum_l \frac{\partial s_j}{\partial \mu_l} \sum_k \frac{\partial \mu_l}{\partial q_k}
         \frac{\partial q_k}{\partial \theta_i},
 
-    where :math:`\mu_l` are the entries of the moments the statistic reads and :math:`q_k` the population sizes,
-    migration rates and start times of the epochs, the parameters of the coalescent model and the recombination rate.
-    The derivatives :math:`\partial \mu_l / \partial q_k` are those of :meth:`PhaseTypeDistribution.gradient()
-    <phasegen.distributions.PhaseTypeDistribution.gradient>`, :math:`\partial s_j / \partial \mu_l` are central
-    differences of the statistic over the computed moments, and :math:`\partial q_k / \partial \theta_i` differences
-    of the coalescent the callback builds, central or, at a bound or next to a value at which the callback raises,
-    one-sided of second order. The Jacobian costs about one evaluation of the moments, whatever the number of
-    parameters. A parameter that changes the coalescent otherwise is differentiated by such a difference of the
-    statistic, and a statistic without an exact gradient by such differences altogether, as noted in the log.
+    where :math:`l` runs over the entries :math:`\mu_l` of the moments and :math:`k` over the quantities :math:`q_k`.
+    The factor :math:`\partial \mu_l / \partial q_k` is exact, from :meth:`PhaseTypeDistribution.gradient()
+    <phasegen.distributions.PhaseTypeDistribution.gradient>`. The other two are central differences of a function
+    :math:`f` of one variable :math:`x` with step :math:`h`,
+
+    .. math::
+        f'(x) \approx \frac{f(x + h) - f(x - h)}{2 h},
+
+    which are one-sided of second order at a bound or next to a value at which :math:`f` is invalid. For
+    :math:`\partial s_j / \partial \mu_l`, the statistic is evaluated on the computed moments with one entry shifted,
+    which needs no further moments. For :math:`\partial q_k / \partial \theta_i`, the callback builds the coalescent at
+    shifted parameters, and only its quantities :math:`q_k` are read. The Jacobian costs about one evaluation of the
+    moments, whatever the number of parameters. A parameter that changes the coalescent otherwise is differentiated by
+    such a difference of the statistic, and a statistic without an exact gradient by such differences altogether, as
+    noted in the log.
 
     ::
 
