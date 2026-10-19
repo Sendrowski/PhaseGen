@@ -22,7 +22,7 @@ theta <- 1
 ```
 
 +++
-## Distributed bootstrapping
+## Distributed execution
 For inferences with long runtimes, the bootstrapping process can be distributed by creating bootstrap samples which are {class}`~phasegen.inference.Inference` objects themselves ({meth}`Inference.create_bootstrap() <phasegen.inference.Inference.create_bootstrap>`). These bootstraps can be run in parallel and the results combined afterwards ({meth}`Inference.add_bootstraps() <phasegen.inference.Inference.add_bootstraps>`). Typically, one job sets up the inference and performs the initial run ({meth}`Inference.to_file() <phasegen.inference.Inference.to_file>`), one job per bootstrap loads it ({meth}`Inference.from_file() <phasegen.inference.Inference.from_file>`), creates its bootstrap and runs it, and a final job merges the bootstraps into the main inference object. Below we demonstrate these steps in a single notebook, running the bootstraps in a serial loop.
 
 +++
