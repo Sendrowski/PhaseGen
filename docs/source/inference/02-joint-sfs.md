@@ -314,8 +314,9 @@ options(repr.plot.width = 4.4, repr.plot.height = 3.3)
 ```
 
 +++
-### Bootstrapping
-As in {ref}`single-deme-sfs`, a parametric bootstrap resamples each bin of the observed joint SFS from a Poisson distribution and reruns the inference from the estimate. It captures asymmetric uncertainty and bounds, at one optimization per replicate. The Fisher standard errors need only the curvature of the loss at the estimate and are far cheaper, but, like the Poisson resampling, assume independent bins, as for unlinked loci and the observation simulated here. The Godambe standard errors (``method='godambe'`` in {meth}`Inference.standard_errors() <phasegen.inference.Inference.standard_errors>`) add the scores of resampled observations without refitting and also hold for linked sites when the callback draws a block bootstrap.
+(bootstrapping)=
+## Bootstrapping
+As in {ref}`single-deme-sfs`, a parametric bootstrap resamples each bin of the observed joint SFS of the two-deme inference above from a Poisson distribution and reruns the inference from the estimate. It captures asymmetric uncertainty and bounds, at one optimization per replicate. The Fisher standard errors need only the curvature of the loss at the estimate and are far cheaper, but, like the Poisson resampling, assume independent bins, as for unlinked loci and the observation simulated here. The Godambe standard errors (``method='godambe'`` in {meth}`Inference.standard_errors() <phasegen.inference.Inference.standard_errors>`) add the scores of resampled observations without refitting and also hold for linked sites when the callback draws a block bootstrap.
 
 ```{code-cell} python
 :tags: [remove-output]

@@ -214,8 +214,7 @@ stopifnot(max(abs(fitted / observation$polymorphic - 1)) < 0.05)
 ```
 
 +++
-### Bootstrapping
-We may also wish to perform parametric bootstrapping. In order to do this, we provide a callback function that resamples the observation passed to {class}`~phasegen.inference.Inference`, here by drawing each bin from a Poisson distribution, and enable ``do_bootstrap``.
+A parametric bootstrap estimates the uncertainty of the estimate by refitting the model to resampled observations. It needs a callback that resamples the observation passed to {class}`~phasegen.inference.Inference`, here by drawing each bin from a Poisson distribution, and ``do_bootstrap`` enabled.
 
 ```{code-cell} python
 inf = pg.Inference(
