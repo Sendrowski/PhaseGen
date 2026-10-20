@@ -167,7 +167,7 @@ rule all:
     input:
         "results/graphs/inference/demography.png",
 
-# setup inference and perform initial run
+# set up inference and perform initial run
 rule setup_inference:
     output:
         "results/inference/inference.json"
@@ -223,7 +223,7 @@ rule all:
     input:
         "results/graphs/inference/demography.png",
 
-# setup inference and perform initial run
+# set up inference and perform initial run
 rule setup_inference:
     output:
         "results/inference/inference.json"

@@ -499,7 +499,7 @@ class DiracCoalescent(MultipleMergerCoalescent):
         :param psi: The fraction of the population replaced by offspring in one large reproduction event.
         :param c: The rate of potential multiple merger events.
         :param scale_time: Whether to scale coalescence time as described in
-            :class:`msprime.DiracCoalescent`. If `False`, the timescale is set to N.
+            :class:`msprime.DiracCoalescent`. If ``False``, the timescale is set to N.
         :raises ValueError: If ``psi`` is not strictly between 0 and 1, or if ``c`` is not positive and finite.
         """
         super().__init__()

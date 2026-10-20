@@ -1569,7 +1569,7 @@ class Inference(Serializable):
 
         :param title: Title or list of titles.
         :param show: Whether to show the plot.
-        :param file: File to save the plot.
+        :param file: File to save the plot to.
         :param subplots: Whether to plot subplots.
         :param kind: Kind of plot. Either 'hist' or 'kde'.
         :param ax: Axes or list of axes.
@@ -1659,7 +1659,7 @@ class Inference(Serializable):
             :meth:`Inference.trajectory_intervals() <phasegen.inference.Inference.trajectory_intervals>` with that
             covariance, or ``None``.
         :param show: Whether to show the plot.
-        :param file: File to save the plot.
+        :param file: File to save the plot to.
         :param kwargs: Additional keyword arguments passed to the plot function.
         :param ax: Axes to plot on.
         :return: Axes.
@@ -1697,7 +1697,7 @@ class Inference(Serializable):
             bootstrap replicate, ``'fisher'`` or ``'godambe'`` for the 95% intervals of
             :meth:`Inference.trajectory_intervals() <phasegen.inference.Inference.trajectory_intervals>` with that
             covariance, or ``None``.
-        :param file: File to save the plot.
+        :param file: File to save the plot to.
         :param kwargs: Additional keyword arguments passed to the plot function.
         :param ax: Axes to plot on.
         :return: Axes.
@@ -1731,7 +1731,7 @@ class Inference(Serializable):
             :attr:`Settings.plot_inference_quantile <phasegen.settings.Settings.plot_inference_quantile>` quantile of
             the inferred tree height, or up to the end time of a windowed coalescent.
         :param show: Whether to show the plot.
-        :param file: File to save the plot.
+        :param file: File to save the plot to.
         :param interval: The uncertainty drawn with the estimate: ``'bootstrap'`` for the trajectory of each
             bootstrap replicate, ``'fisher'`` or ``'godambe'`` for the 95% intervals of
             :meth:`Inference.trajectory_intervals() <phasegen.inference.Inference.trajectory_intervals>` with that
@@ -1773,7 +1773,7 @@ class Inference(Serializable):
             covariance, or ``None``.
         :param ax: Axes to plot on.
         :param kind: The trajectories to include.
-        :param file: File to save the plot.
+        :param file: File to save the plot to.
         :param kwargs: Additional keyword arguments passed to the plot function.
         :return: Axes.
         """

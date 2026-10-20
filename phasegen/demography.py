@@ -1128,7 +1128,7 @@ class DiscreteDemographicEvent(DemographicEvent, ABC):
     """
     Base class for discrete demographic events.
     """
-    #: Time at which the events occur in ascending order.
+    #: Times at which the events occur, in ascending order.
     times: np.ndarray
 
     def _broadcast(self, epoch: Epoch) -> None:

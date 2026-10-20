@@ -954,7 +954,7 @@ class MomentEvaluator:
         Evaluate the kth (non-central) moment at different end times.
 
         :param k: The order of the moment.
-        :param end_times: Sequence of ends times or end time when to evaluate the moment. A NaN end time gives a NaN
+        :param end_times: Sequence of end times or end time when to evaluate the moment. A NaN end time gives a NaN
             moment.
         :param rewards: Sequence of k rewards. By default, the reward of the underlying distribution.
         :param start_time: Time from which to start accumulation. By default, ``0`` (accumulation from the origin).

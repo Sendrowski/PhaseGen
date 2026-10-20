@@ -43,8 +43,7 @@ class TqdmLoggingHandler(logging.Handler):
         try:
             msg = self.format(record)
 
-            # we write to stderr to avoid as the progress bar
-            # to make the two work together
+            # we write to stderr through tqdm to avoid breaking the progress bar
             tqdm.write(msg, file=sys.stderr)
             self.flush()
         except Exception:

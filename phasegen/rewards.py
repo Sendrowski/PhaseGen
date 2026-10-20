@@ -315,7 +315,7 @@ class JointSFSReward(JointBlockCountingReward):
 
         :param state_space: state space
         :return: reward vector
-        :raises: NotImplementedError if the state space is not supported
+        :raises NotImplementedError: If the state space is not supported.
         """
         # the two-locus space subclasses the joint one but its block axis encodes loci, not populations, so reject it
         if isinstance(state_space, JointBlockCountingStateSpace) and not isinstance(
@@ -336,7 +336,7 @@ class JointSFSReward(JointBlockCountingReward):
 
         :param state_space: state space
         :return: reward parts
-        :raises: NotImplementedError if the state space is not supported
+        :raises NotImplementedError: If the state space is not supported.
         """
         if isinstance(state_space, JointBlockCountingStateSpace) and not isinstance(
                 state_space, TwoLocusBlockCountingStateSpace):
@@ -414,7 +414,7 @@ class TwoLocusSFSReward(TwoLocusBlockCountingReward):
 
         :param state_space: state space
         :return: reward vector
-        :raises: NotImplementedError if the state space is not supported
+        :raises NotImplementedError: If the state space is not supported.
         """
         if isinstance(state_space, TwoLocusBlockCountingStateSpace):
             return state_space.lineages[:, :, :, self._mask(state_space)].sum(axis=(1, 2, 3))
@@ -430,7 +430,7 @@ class TwoLocusSFSReward(TwoLocusBlockCountingReward):
 
         :param state_space: state space
         :return: reward parts
-        :raises: NotImplementedError if the state space is not supported
+        :raises NotImplementedError: If the state space is not supported.
         """
         if isinstance(state_space, TwoLocusBlockCountingStateSpace):
             parts = state_space.lineages[:, :, :, self._mask(state_space)].sum(axis=3).astype(float)
@@ -495,7 +495,7 @@ class TreeHeightReward(_LocusHeightReward, LineageCountingReward, BlockCountingR
 
         :param state_space: state space
         :return: reward vector
-        :raises: NotImplementedError if the state space is not supported
+        :raises NotImplementedError: If the state space is not supported.
         """
         # the two-locus state space is absorbed once both loci have reached their MRCA, so it is non-absorbing while
         # either locus still has more than one ancestral lineage (must precede the JointBlockCountingStateSpace
@@ -538,7 +538,7 @@ class TotalTreeHeightReward(_LocusHeightReward, LineageCountingReward, BlockCoun
 
         :param state_space: state space
         :return: reward vector
-        :raises: NotImplementedError if the state space is not supported
+        :raises NotImplementedError: If the state space is not supported.
         """
         # the two-locus state space encodes its loci in the blocks, not on the locus axis
         if (
@@ -577,7 +577,7 @@ class TotalBranchLengthReward(LineageCountingReward, BlockCountingReward, JointB
 
         :param state_space: state space
         :return: reward vector
-        :raises: NotImplementedError if the state space is not supported
+        :raises NotImplementedError: If the state space is not supported.
         """
         # the two-locus state space collapses the locus axis into the block vector, so the per-locus lineage counts
         # below do not exist there (must precede the JointBlockCountingStateSpace branch, which it subclasses)
@@ -651,7 +651,7 @@ class SFSReward(BlockCountingReward, ABC):
 
         :param state_space: state space
         :return: reward vector
-        :raises: NotImplementedError if the state space is not supported
+        :raises NotImplementedError: If the state space is not supported.
         :raises ValueError: if the index lies outside ``0, ..., n``
         """
         if isinstance(state_space, BlockCountingStateSpace):
@@ -673,7 +673,7 @@ class SFSReward(BlockCountingReward, ABC):
 
         :param state_space: state space
         :return: reward parts
-        :raises: NotImplementedError if the state space is not supported
+        :raises NotImplementedError: If the state space is not supported.
         """
         if isinstance(state_space, BlockCountingStateSpace):
             blocks = np.array(self._block_sizes(state_space.lineage_config.n), dtype=int) - 1
@@ -1013,7 +1013,7 @@ class CompositeReward(Reward, ABC):
         """
         Initialize the composite reward.
 
-        :param rewards: Rewards to composite
+        :param rewards: Rewards to compose
         :raises ValueError: If no reward is given.
         :raises TypeError: If a member is not a :class:`Reward`.
         """

@@ -230,7 +230,7 @@ plot_accumulation(coal$sfs, k = 1L)
 
 +++
 ## Adjusting start and end times of reward accumulation
-By default, rewards are accumulated from time 0 until time of almost sure absorption. We can adjust the start and end times of reward accumulation by specifying the `start_time` and `end_time` arguments to
+By default, rewards are accumulated from time 0 until the time of almost sure absorption. We can adjust the start and end times of reward accumulation by specifying the `start_time` and `end_time` arguments to
 {class}`~phasegen.distributions.Coalescent` or {class}`~phasegen.distributions.PhaseTypeDistribution`'s {meth}`PhaseTypeDistribution.moment() <phasegen.distributions.PhaseTypeDistribution.moment>`.
 
 ```{code-cell} python

@@ -881,7 +881,7 @@ class SFSDistribution(SpectrumDistribution, ABC):
 
     def get_cov(self, i: int, j: int) -> float:
         """
-        Get the covariance between the ith and jth site-frequency.
+        Get the covariance between the ith and jth site-frequency counts.
 
         :param i: The ith frequency count
         :param j: The jth frequency count
@@ -922,7 +922,7 @@ class SFSDistribution(SpectrumDistribution, ABC):
 
     def get_corr(self, i: int, j: int) -> float:
         """
-        Get the correlation coefficient between the ith and jth site-frequency.
+        Get the correlation coefficient between the ith and jth site-frequency counts.
 
         :param i: The ith frequency count
         :param j: The jth frequency count

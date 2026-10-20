@@ -1,7 +1,7 @@
 """
 Matrix exponentiation backends.
 
-.. deprecated::
+.. deprecated:: 2.0.0
     The backend registry is deprecated and will be removed. The coalescent statistics issue many small matrix
     exponentials, for which the default SciPy backend is faster than the TensorFlow, Jax and PyTorch ones, whose
     per-call overhead dominates at these sizes.
@@ -368,7 +368,7 @@ class Backend(ABC):
         """
         Register a backend.
 
-        .. deprecated::
+        .. deprecated:: 2.0.0
             The backend registry is deprecated and will be removed; see :mod:`phasegen.expm`.
         """
         logger.warning(

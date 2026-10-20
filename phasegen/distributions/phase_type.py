@@ -1448,7 +1448,7 @@ class TreeHeightDistribution(PhaseTypeDistribution, DensityAwareDistribution):
 
         return MarginalDemeDistributions(self)
 
-    #: Maximum number of time we double the end time when determining time to almost sure absorption.
+    #: Maximum number of times we double the end time when determining time to almost sure absorption.
     max_iter: int = 64
 
     #: Probability of almost sure absorption.
@@ -1890,7 +1890,7 @@ class TreeHeightDistribution(PhaseTypeDistribution, DensityAwareDistribution):
         # unbounded epoch or after the search
         checked = not self.demography._has_finitely_many_epochs
 
-        # multiple time by expansion_factor until we reach p_absorption
+        # multiply time by expansion_factor until we reach p_absorption
         while p < self.p_absorption and i < self.max_iter:
             w = self._sweep_to(w, t, t * expansion_factor, self.demography.get_epoch(t))
             t = t * expansion_factor

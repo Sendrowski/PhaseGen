@@ -536,7 +536,7 @@ class Coalescent(AbstractCoalescent, Serializable):
             locus configurations.
         :param recombination_rate: Recombination rate.
         :param start_time: Time when to start accumulating moments. By default, this is 0.
-        :param end_time: Time when to end the accumulating moments. If ``None``, the end time is taken to
+        :param end_time: Time when to end accumulating moments. If ``None``, the end time is taken to
             be the time of almost sure absorption. Note that unnecessarily long end times can lead to numerical errors.
         :raises ValueError: If the number of unlinked lineages exceeds the number of lineages.
         :raises TypeError: If ``model`` is not a :class:`~phasegen.coalescent_models.CoalescentModel`,
