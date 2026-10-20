@@ -6,6 +6,7 @@ dense/sparse sub-paths — rather than the numeric result (covered by ``test_spa
 ``test_closed_form_last_epoch``). They guard the refactor that split the engine into a mixin and unified the
 dense/sparse Van Loan builder and LU factorization.
 """
+import math
 from unittest.mock import patch
 
 import numpy as np
@@ -548,3 +549,18 @@ def test_phase_type_moment_validates_rewards(rewards, error):
     """
     with pytest.raises(error, match='reward'):
         pg.Coalescent(n=4).tree_height.moment(2, rewards=rewards)
+
+
+@pytest.mark.parametrize('k', [2, 3, 4])
+def test_central_moments_of_one_reward_from_one_closed_form(k):
+    """A central moment of a single reward takes its lower raw moments from the closed form of the highest order, and
+    agrees with the centering by separately evaluated raw moments."""
+    coal = pg.Coalescent(n={'a': 3, 'b': 2}, demography=pg.Demography(
+        pop_sizes={'a': {0: 1, 0.5: 0.3}, 'b': {0: 0.7}}, migration_rates={('a', 'b'): 0.3, ('b', 'a'): 0.6}))
+    dist = coal.total_branch_length
+    raw = [float(dist.moment(i, center=False)) if i else 1.0 for i in range(k + 1)]
+    expected = sum(math.comb(k, i) * raw[i] * (-raw[1]) ** (k - i) for i in range(k + 1))
+
+    assert dist._powers_apply(k, (dist.reward,) * k, (np.inf,))
+    np.testing.assert_allclose(dist._raw_powers(k, dist.reward, 0.0), raw, rtol=1e-12)
+    assert float(dist.moment(k)) == pytest.approx(expected, rel=1e-10)

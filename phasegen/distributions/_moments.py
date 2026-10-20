@@ -367,6 +367,8 @@ class MomentEvaluator:
           <phasegen.settings.Settings.closed_form_last_epoch>`, accumulation until absorption and certain absorption
           from every transient state of the last epoch that can carry mass. Otherwise the last epoch is integrated up to
           :attr:`TreeHeightDistribution.t_max <phasegen.distributions.TreeHeightDistribution.t_max>`.
+        - A central moment of a single reward takes all lower raw moments from the closed form of the highest order,
+          whose extended vector holds in block :math:`j` the moment of the rewards :math:`j + 1, \dots, k`.
         - Spectra share one computation across bins. The expected occupation times :math:`\mathbf{m}` of the
           transient states, which equal :math:`\boldsymbol{\alpha}_T \mathbf{U}` in a single epoch, give every bin
           mean as :math:`\mathbf{m}\, \mathbf{r}_j`, and in a single epoch the two-point occupation
@@ -768,6 +770,14 @@ class MomentEvaluator:
 
         _validate_reward_count(rewards, k)
 
+        # the raw moments of all orders of one reward until absorption come from the closed form of the highest
+        if center and k > 1 and self._powers_apply(k, rewards, end_times):
+            self._logger.debug("accumulate (k=%d): centering with the raw moments of one closed form", k)
+            raw = self._raw_powers(k, rewards[0], start_time)
+            central = sum(comb(k, i) * raw[i] * (-raw[1]) ** (k - i) for i in range(k + 1))
+
+            return np.full(len(end_times), central)
+
         # center moments around the mean
         if center and k > 1:
             self._logger.debug("accumulate (k=%d): centering (subtracting lower-order moment products)", k)
@@ -791,6 +801,46 @@ class MomentEvaluator:
             return np.sum(components, axis=0)
 
         return self._accumulate_raw(k, rewards, end_times, permute, start_time)
+
+    def _powers_apply(self, k: int, rewards: Sequence[Reward], end_times: Sequence[float]) -> bool:
+        """
+        Whether the moments of the orders up to ``k`` of a single reward accumulated until absorption are read from one
+        closed form by :meth:`_raw_powers`.
+
+        :param k: The order.
+        :param rewards: The rewards, which must all be equal.
+        :param end_times: The end times, which must all be infinite.
+        :return: Whether they are.
+        """
+        return (
+                all(r == rewards[0] for r in rewards[1:]) and
+                bool(np.isinf(end_times).all()) and
+                Settings.closed_form_last_epoch and
+                self._absorption_certain_in_last_epoch(k)
+        )
+
+    @_make_hashable
+    @cache
+    def _raw_powers(self, k: int, reward: Reward, start_time: float) -> np.ndarray:
+        """
+        The raw moments :math:`\mathbb{E}[R^i]` for :math:`i = 0, \dots, k` of a reward accumulated from the start time
+        until absorption, from the trailing blocks of the closed form of order ``k``.
+
+        :param k: The highest order.
+        :param reward: The reward.
+        :param start_time: The start time.
+        :return: The moments.
+        :raises ModelError: If a moment is not a number.
+        """
+        Reward._check_accumulable(self.state_space, (reward,) * k)
+        raw = self._accumulate_closed_form(k, (reward,) * k, start_time, suffixes=True)
+
+        if np.isnan(raw).any():
+            raise ModelError(
+                "NaN value encountered when computing moment. This is likely due to an ill-conditioned rate matrix."
+            )
+
+        return raw
 
     def _accumulate_raw(
             self,
@@ -1501,7 +1551,8 @@ class MomentEvaluator:
             rewards: Sequence[Reward],
             start_time: float = 0.0,
             heads: Sequence[Reward] = None,
-            tape: _ClosedFormTape = None
+            tape: _ClosedFormTape = None,
+            suffixes: bool = False
     ) -> np.ndarray:
         """
         Raw moment of a single reward ordering from ``start_time`` to absorption with the closed-form last epoch of
@@ -1519,7 +1570,9 @@ class MomentEvaluator:
         :param heads: Rewards each substituted for the first of ``rewards``. By default, the first of ``rewards``.
         :param tape: If given, receives the record that ``CrossMomentGradient`` differentiates, for a single head and a
             zero start time. The sparse actions are then applied by ``_TapedAction``.
-        :return: The kth moment accumulated until absorption, one per head.
+        :param suffixes: Whether to return, for a single head, the raw moments of the trailing rewards ``rewards[k -
+            i:]`` for ``i = 0, ..., k``, which block ``k - i`` of the extended vector holds, one for ``i = 0``.
+        :return: The kth moment accumulated until absorption, one per head, or the moments of the trailing rewards.
         :raises ValueError: If ``tape`` is given with several heads or a positive start time.
         """
         heads = tuple(rewards[:1]) if heads is None else tuple(heads)
@@ -1672,6 +1725,11 @@ class MomentEvaluator:
 
         if tape is not None:
             tape.alpha_ext, tape.factor = alpha_ext, factorial(k) * lamb ** k
+
+        if suffixes:
+            return np.array([1.0] + [
+                factorial(i) * lamb ** i * float(alpha_ext[:n] @ z[(k - i) * n:(k - i + 1) * n]) for i in range(1, k + 1)
+            ])
 
         return factorial(k) * lamb ** k * np.array([
             float(alpha_ext @ np.concatenate([z[a * n:(a + 1) * n], z[m * n:]])) for a in range(m)

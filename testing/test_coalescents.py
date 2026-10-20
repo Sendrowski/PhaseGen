@@ -983,7 +983,9 @@ class CoalescentTestCase(TestCase):
 
         var = coal.moment(2, rewards, center=True)
 
-        self.assertEqual(var, coal.moment(2, rewards, center=False) - coal.moment(1, rewards[:1], center=False) ** 2)
+        self.assertAlmostEqual(
+            var, coal.moment(2, rewards, center=False) - coal.moment(1, rewards[:1], center=False) ** 2, delta=1e-12 * var
+        )
 
     def test_kurtosis(self):
         """
