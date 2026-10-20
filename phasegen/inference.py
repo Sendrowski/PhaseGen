@@ -1562,7 +1562,8 @@ class Inference(Serializable):
             subplots: bool = True,
             kind: Literal['hist', 'kde'] = 'hist',
             ax: 'plt.Axes' | List['plt.Axes'] = None,
-            kwargs: dict = None
+            kwargs: dict = None,
+            truth: Dict[str, float] = None
     ) -> 'plt.Axes' | List['plt.Axes']:
         """
         Plot bootstrapped parameters.
@@ -1574,18 +1575,29 @@ class Inference(Serializable):
         :param kind: Kind of plot. Either 'hist' or 'kde'.
         :param ax: Axes or list of axes.
         :param kwargs: Additional keyword arguments passed to the pandas plot function.
+        :param truth: True values of some or all parameters, keyed by name, drawn as dashed vertical lines.
         :return: Axes or list of axes.
         :raises RuntimeError: If no bootstraps are available, or if ``kind`` is ``'kde'`` and a parameter has fewer
             than two finite replicates.
-        :raises ValueError: If ``subplots`` is true and fewer axes than parameters are given.
+        :raises ValueError: If ``subplots`` is true and fewer axes than parameters are given, or if ``truth`` names
+            an unknown parameter.
         """
         from .visualization import Visualization
+
+        import matplotlib
 
         if kwargs is None:
             kwargs = {}
 
         if self.bootstraps.empty:
             raise RuntimeError('No bootstraps available.')
+
+        if truth is None:
+            truth = {}
+
+        unknown = set(truth) - set(self.param_names)
+        if unknown:
+            raise ValueError(f"truth names unknown parameters: {', '.join(sorted(unknown))}.")
 
         if kind == 'kde':
             n_finite = np.isfinite(self.bootstraps[self.param_names].to_numpy(dtype=float)).sum(axis=0)
@@ -1618,6 +1630,9 @@ class Inference(Serializable):
                                            **({'color': colors[i % len(colors)]} | kwargs))
                 ax[i].set_ylabel('')
 
+                if name in truth:
+                    ax[i].axvline(truth[name], color='black', linestyle='--')
+
                 if isinstance(title, list):
                     ax[i].set_title(title[i])
 
@@ -1633,6 +1648,13 @@ class Inference(Serializable):
                 **kwargs
             )
 
+            # in the colour pandas gives each parameter
+            colors = matplotlib.rcParams['axes.prop_cycle'].by_key()['color']
+
+            for i, name in enumerate(self.param_names):
+                if name in truth:
+                    ax.axvline(truth[name], color=colors[i % len(colors)], linestyle='--')
+
         # make layout tight
         np.ravel(ax)[0].figure.tight_layout()
 
@@ -1645,7 +1667,8 @@ class Inference(Serializable):
             show: bool = True,
             file: str = None,
             kwargs: dict = None,
-            ax: Optional['plt.Axes'] = None
+            ax: Optional['plt.Axes'] = None,
+            truth: Demography = None
     ) -> 'plt.Axes':
         """
         Plot inferred demography.
@@ -1662,6 +1685,8 @@ class Inference(Serializable):
         :param file: File to save the plot to.
         :param kwargs: Additional keyword arguments passed to the plot function.
         :param ax: Axes to plot on.
+        :param truth: The true demography, whose trajectories are drawn dashed in the colour of the inferred ones with
+            the same label.
         :return: Axes.
         :raises RuntimeError: If :meth:`Inference.run() <phasegen.inference.Inference.run>` has not been called.
         :raises ValueError: If ``interval`` is unknown, or for ``'godambe'``, if ``resample`` is ``None``.
@@ -1673,7 +1698,8 @@ class Inference(Serializable):
             file=file,
             kwargs=kwargs,
             ax=ax,
-            kind='all'
+            kind='all',
+            truth=truth
         )
 
     def plot_pop_sizes(
@@ -1683,7 +1709,8 @@ class Inference(Serializable):
             interval: Literal['bootstrap', 'fisher', 'godambe'] | None = 'bootstrap',
             file: str = None,
             kwargs: dict = None,
-            ax: Optional['plt.Axes'] = None
+            ax: Optional['plt.Axes'] = None,
+            truth: Demography = None
     ) -> 'plt.Axes':
         """
         Plot inferred population sizes.
@@ -1700,6 +1727,8 @@ class Inference(Serializable):
         :param file: File to save the plot to.
         :param kwargs: Additional keyword arguments passed to the plot function.
         :param ax: Axes to plot on.
+        :param truth: The true demography, whose trajectories are drawn dashed in the colour of the inferred ones with
+            the same label.
         :return: Axes.
         :raises RuntimeError: If :meth:`Inference.run() <phasegen.inference.Inference.run>` has not been called.
         :raises ValueError: If ``interval`` is unknown, or for ``'godambe'``, if ``resample`` is ``None``.
@@ -1711,7 +1740,8 @@ class Inference(Serializable):
             file=file,
             kwargs=kwargs,
             ax=ax,
-            kind='pop_sizes'
+            kind='pop_sizes',
+            truth=truth
         )
 
     def plot_migration(
@@ -1721,7 +1751,8 @@ class Inference(Serializable):
             file: str = None,
             interval: Literal['bootstrap', 'fisher', 'godambe'] | None = 'bootstrap',
             kwargs: dict = None,
-            ax: Optional['plt.Axes'] = None
+            ax: Optional['plt.Axes'] = None,
+            truth: Demography = None
     ) -> 'plt.Axes':
         """
         Plot inferred migration rates.
@@ -1738,6 +1769,8 @@ class Inference(Serializable):
             covariance, or ``None``.
         :param kwargs: Additional keyword arguments passed to the plot function.
         :param ax: Axes to plot on.
+        :param truth: The true demography, whose trajectories are drawn dashed in the colour of the inferred ones with
+            the same label.
         :return: Axes.
         :raises RuntimeError: If :meth:`Inference.run() <phasegen.inference.Inference.run>` has not been called.
         :raises ValueError: If ``interval`` is unknown, or for ``'godambe'``, if ``resample`` is ``None``.
@@ -1749,7 +1782,8 @@ class Inference(Serializable):
             file=file,
             kwargs=kwargs,
             ax=ax,
-            kind='migration'
+            kind='migration',
+            truth=truth
         )
 
     def _plot_demography(
@@ -1760,7 +1794,8 @@ class Inference(Serializable):
             ax: Optional['plt.Axes'],
             kind: Literal['pop_sizes', 'migration', 'all'],
             file: str = None,
-            kwargs: dict = None
+            kwargs: dict = None,
+            truth: Demography = None
     ) -> 'plt.Axes':
         """
         Plot the trajectories of :meth:`_plot_demography_data`.
@@ -1775,6 +1810,7 @@ class Inference(Serializable):
         :param kind: The trajectories to include.
         :param file: File to save the plot to.
         :param kwargs: Additional keyword arguments passed to the plot function.
+        :param truth: The true demography, drawn dashed.
         :return: Axes.
         """
         import matplotlib.pyplot as plt
@@ -1801,6 +1837,16 @@ class Inference(Serializable):
             for y, color in zip(data.y, colors):
                 style = {'color': color, 'alpha': 0.3} | kwargs
                 ax.plot(data.x, y, drawstyle='steps-post', label='_nolegend_', **style)
+
+        if truth is not None:
+            true = truth._plot_data(inferred.x, kind)
+
+            for label, y in zip(true.labels, true.y):
+                if label in inferred.labels:
+                    ax.plot(true.x, y, drawstyle='steps-post', linestyle='--',
+                            color=colors[inferred.labels.index(label)], label=f'{label} (true)')
+
+            ax.legend()
 
         return Visualization.show_and_save(ax, show=show, file=file)
 

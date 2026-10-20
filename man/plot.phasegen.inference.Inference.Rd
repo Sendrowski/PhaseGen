@@ -12,6 +12,7 @@
   kind = c("hist", "kde"),
   bins = 20L,
   title = NULL,
+  truth = NULL,
   ...
 )
 }
@@ -32,6 +33,10 @@ or \code{"bootstraps"} for the bootstrapped parameters.}
 \item{bins}{Number of histogram bins. Default is \code{20}.}
 
 \item{title}{Plot title, \code{NULL} for the default.}
+
+\item{truth}{The ground truth, drawn dashed: for the trajectories, the true \code{Demography}, whose trajectories are
+drawn in the colour of the inferred ones with the same label; for \code{which = "bootstraps"}, a named list or
+vector of the true values of some or all parameters.}
 
 \item{...}{Unused.}
 }

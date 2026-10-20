@@ -27,7 +27,8 @@
 
 \item{bins}{SFS bins to draw, \code{NULL} for all polymorphic bins.}
 
-\item{configs}{Joint SFS bins to draw, a list of integer vectors, \code{NULL} for all.}
+\item{configs}{Joint SFS bins to draw, a list of integer vectors or of named lists of counts per population,
+\code{NULL} for all.}
 
 \item{title}{Plot title, \code{NULL} for the default.}
 

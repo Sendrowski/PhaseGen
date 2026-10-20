@@ -1,0 +1,5 @@
+          estimate  standard error
+alpha        1.597           0.006
+N0           0.965           0.073
+N1           2.930           0.109
+t_change     0.483           0.025

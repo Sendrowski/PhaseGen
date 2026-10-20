@@ -17,7 +17,7 @@
 \arguments{
 \item{x}{A \code{JointSFS} object, such as \code{coal$jsfs$mean}.}
 
-\item{pops}{Zero-based indices of the populations on the y-axis and the x-axis.}
+\item{pops}{The populations on the y-axis and the x-axis, as zero-based indices or population names.}
 
 \item{title}{Plot title, \code{NULL} for none.}
 

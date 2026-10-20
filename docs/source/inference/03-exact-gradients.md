@@ -63,10 +63,10 @@ grad <- coal$tree_height$gradient()
 ```
 
 +++
-The derivatives by the population sizes form a table with one row per epoch, here before and after the size change of ``pop_0`` at time 0.5, and one column per deme. Each entry is the change in the expected tree height per unit increase of that population size within that epoch.
+The derivatives by the population sizes form a table with one row per epoch, here before and after the size change of ``pop_0`` at time 0.5, and one column per deme. Each entry is the change in the expected tree height per unit increase of that population size within that epoch. The last column holds the derivatives by the start times of the epochs: zero for the first epoch, which starts at 0, and for the second the change per unit delay of the size change.
 
 ```{code-cell} python
-pd.DataFrame(grad.pop_sizes, columns=grad.pops)
+pd.DataFrame(np.column_stack([grad.pop_sizes, grad.start_times]), columns=grad.pops + ['start time'])
 ```
 
 ```{code-cell} python
@@ -74,7 +74,7 @@ grad.parameters
 ```
 
 ```{code-cell} r
-setNames(as.data.frame(grad$pop_sizes), unlist(grad$pops))
+setNames(as.data.frame(cbind(grad$pop_sizes, grad$start_times)), c(unlist(grad$pops), "start time"))
 ```
 
 ```{code-cell} r
@@ -82,7 +82,7 @@ grad$parameters
 ```
 
 +++
-For a spectrum, every array of the gradient carries the bins as leading axes, and {meth}`Coalescent.gradient() <phasegen.distributions.Coalescent.gradient>` returns the same derivatives for the expected value of any reward. The parameters of a model, such as those of an inference, usually define these quantities only indirectly, for instance through the time of a size change. {class}`~phasegen.gradient.Gradient` returns the derivatives of a statistic built from first moments, such as a normalized SFS, with respect to the parameters of a coalescent callback, by chaining the derivatives above through the callback, as {class}`~phasegen.inference.Inference` does for its loss. Here we take the derivatives of each bin of the normalized SFS of a two-epoch demography with respect to the time of the size change and the population size after it.
+For a spectrum, every array of the gradient carries the bins as leading axes, and {meth}`Coalescent.gradient() <phasegen.distributions.Coalescent.gradient>` returns the same derivatives for the expected value of any reward. The parameters of a model, such as those of an inference, usually define these quantities only indirectly, for instance through the time of a size change. {class}`~phasegen.gradient.Gradient` returns the derivatives of a statistic built from first moments, such as a normalized SFS, with respect to the parameters of a coalescent callback, by chaining the derivatives above through the callback, as {class}`~phasegen.inference.Inference` does for its loss. Here we take the derivatives of each bin of the normalized SFS of a two-epoch demography with respect to the time of the size change and the population size after it. The first moments the statistic reads, here the mean SFS, are detected automatically, and a statistic that also reads another quantity, such as a variance, a density or a moment over a time window, is differentiated by finite differences.
 
 ```{code-cell} python
 gradient = pg.Gradient(

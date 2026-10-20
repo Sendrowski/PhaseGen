@@ -162,22 +162,14 @@ inf <- pg$Inference(
 ```
 
 +++
-Upon construction, the inference object is ready to be optimized. We then compare the inferred population size trajectory with the true one.
+Upon construction, the inference object is ready to be optimized. We then compare the inferred population size trajectory with the true one, drawn dashed.
 
 ```{code-cell} python
 inf.run()
 ```
 
 ```{code-cell} python
-t = np.linspace(0, 1.5, 301)
-
-for label, demography in [('true', true), ('inferred', inf.dist_inferred.demography)]:
-    sizes = [demography.get_epoch(u).pop_sizes['pop_0'] for u in t]
-    plt.plot(t, sizes, drawstyle='steps-post', label=label)
-
-plt.xlabel('t')
-plt.ylabel('population size')
-plt.legend();
+inf.plot_pop_sizes(t=np.linspace(0, 1.5, 301), truth=true);
 ```
 
 ```{code-cell} python
@@ -191,20 +183,7 @@ inf$run()
 ```
 
 ```{code-cell} r
-library(ggplot2)
-
-t <- seq(0, 1.5, length.out = 301)
-trajectory <- function(demography, label) data.frame(
-    t = t,
-    size = sapply(t, function(u) demography$get_epoch(u)$pop_sizes$pop_0),
-    label = label
-)
-sizes <- rbind(trajectory(true, "true"), trajectory(inf$dist_inferred$demography, "inferred"))
-sizes$label <- factor(sizes$label, levels = c("true", "inferred"))
-
-ggplot(sizes, aes(t, size, colour = label)) +
-    geom_step() +
-    labs(y = "population size", colour = NULL)
+plot(inf, which = "pop_sizes", t = seq(0, 1.5, length.out = 301), truth = true)
 ```
 
 ```{code-cell} r

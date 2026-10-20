@@ -1062,6 +1062,47 @@ if __name__ == '__main__':
         inf.plot_bootstraps(show=False, kind='kde')
         plt.close('all')
 
+    def test_plot_bootstraps_draws_the_truth(self):
+        """The true value of each named parameter is drawn as a dashed vertical line, on its own axis or on the shared
+        one, and an unknown name raises."""
+        import matplotlib.pyplot as plt
+
+        inf = self.get_fast_inference()
+        inf.bootstraps = pd.DataFrame(dict(t=[0.4, 0.6, 0.5], Ne=[0.5, 0.7, 0.6]))
+
+        def dashed(ax):
+            return [line.get_xdata()[0] for line in ax.get_lines() if line.get_linestyle() == '--']
+
+        axes = inf.plot_bootstraps(show=False, truth=dict(t=0.55))
+        self.assertEqual([[0.55], []], [dashed(ax) for ax in axes])
+
+        ax = inf.plot_bootstraps(show=False, subplots=False, truth=dict(t=0.55, Ne=0.65))
+        self.assertEqual([0.55, 0.65], dashed(ax))
+
+        with self.assertRaisesRegex(ValueError, 'unknown parameters: N1'):
+            inf.plot_bootstraps(show=False, truth=dict(N1=1))
+
+        plt.close('all')
+
+    def test_plot_pop_sizes_draws_the_true_trajectory(self):
+        """The true trajectory is drawn dashed in the colour of the inferred one with the same label."""
+        import matplotlib.pyplot as plt
+
+        inf = self.get_fast_inference()
+        inf.run()
+
+        truth = pg.Demography(pop_sizes={'pop_0': {0: 1, 0.5: 0.5}})
+        t = np.linspace(0, 2, 101)
+        ax = inf.plot_pop_sizes(t=t, interval=None, show=False, truth=truth)
+
+        inferred, true = ax.get_lines()
+        self.assertEqual('pop_0 (true)', true.get_label())
+        self.assertEqual('--', true.get_linestyle())
+        self.assertEqual(inferred.get_color(), true.get_color())
+        np.testing.assert_array_equal(np.where(t < 0.5, 1, 0.5), true.get_ydata())
+
+        plt.close('all')
+
     def test_unrun_spawned_objects_are_rejected_when_merged(self):
         """A spawned run or bootstrap starts unfitted. Regression: the copy carried the parent's fitted state, so an
         un-run bootstrap was merged as the parent's point estimate and the documented RuntimeError never fired,

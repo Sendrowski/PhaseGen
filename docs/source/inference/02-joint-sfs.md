@@ -205,29 +205,12 @@ stopifnot(inf$loss_inferred <= loss(do.call(coal, setNames(as.list(rep(1, length
 The inferred population size trajectories approximate the true ones, drawn dashed, in both demes. The shaded bands are approximate 95% confidence intervals from the Fisher information, which {meth}`Inference.plot_pop_sizes() <phasegen.inference.Inference.plot_pop_sizes>` draws with ``interval='fisher'`` and {meth}`Inference.trajectory_intervals() <phasegen.inference.Inference.trajectory_intervals>` returns as a table. The Fisher information is the curvature of the loss at the estimate, and its inverse approximates the covariance of the parameters, at a cost of two exact gradients per parameter (see {ref}`exact-gradients`). The intervals describe the uncertainty locally only. They do not account for other optima, and they understate the uncertainty of weakly identified parameters, such as the ancient population sizes, for which the parametric bootstrap below is more reliable.
 
 ```{code-cell} python
-t = np.linspace(0, 2, 401)
-ax = inf.plot_pop_sizes(t=t, interval='fisher', show=False)
-
-# the true trajectories, dashed in the colour of each deme
-for line, pop in zip(list(ax.lines), ['A', 'B']):
-    ax.plot(t, [true.get_epoch(u).pop_sizes[pop] for u in t], drawstyle='steps-post', linestyle='--',
-            color=line.get_color(), label=f'{pop} (true)')
-
-ax.legend()
+ax = inf.plot_pop_sizes(t=np.linspace(0, 2, 401), interval='fisher', truth=true, show=False)
 ax.set_ylim(0, 5);
 ```
 
 ```{code-cell} r
-t <- seq(0, 2, length.out = 401)
-
-# the true trajectories, dashed in the colour of each deme
-truth <- do.call(rbind, lapply(c("A", "B"), function(pop) data.frame(
-    x = t, y = sapply(t, function(u) true$get_epoch(u)$pop_sizes[[pop]]), series = pop
-)))
-
-plot(inf, which = "pop_sizes", t = t, interval = "fisher") +
-    geom_step(data = truth, aes(x, y, colour = series, group = series, linetype = "true"), inherit.aes = FALSE) +
-    scale_linetype_manual(values = c(true = "dashed"), name = NULL) +
+plot(inf, which = "pop_sizes", t = seq(0, 2, length.out = 401), interval = "fisher", truth = true) +
     coord_cartesian(ylim = c(0, 5))
 ```
 
@@ -352,7 +335,8 @@ matplotlib.rcParams['figure.figsize'] = [7, 7]
 ```
 
 ```{code-cell} python
-inf.plot_bootstraps();
+# only the migration rates are parameters of the true demography
+inf.plot_bootstraps(truth=dict(m_AB=0.3, m_BA=0.6));
 ```
 
 ```{code-cell} python
@@ -395,7 +379,8 @@ options(repr.plot.width = 7, repr.plot.height = 7)
 ```
 
 ```{code-cell} r
-plot(inf, which = "bootstraps")
+# only the migration rates are parameters of the true demography
+plot(inf, which = "bootstraps", truth = list(m_AB = 0.3, m_BA = 0.6))
 ```
 
 ```{code-cell} r
@@ -579,48 +564,12 @@ stopifnot(inf$loss_inferred <= loss(do.call(coal, setNames(as.list(rep(1, length
 ```
 
 +++
-The inferred population size trajectories of the three demes.
+The inferred population size trajectories of the three demes, with the true ones drawn dashed.
 
 ```{code-cell} python
-:tags: [full-width]
-fig, axes = plt.subplots(1, 3, figsize=(7, 2.6), sharey=True)
-t = np.linspace(0, 2, 401)
-epoch = np.searchsorted(times, t, side='right') - 1
-
-for ax, pop in zip(axes, pops):
-    ax.plot(t, [true.get_epoch(u).pop_sizes[pop] for u in t], drawstyle='steps-post', label='true')
-    ax.plot(t, [inf.params_inferred[f'{pop}{i}'] for i in epoch], drawstyle='steps-post', label='inferred')
-    ax.set_title(pop)
-    ax.set_xlabel('t')
-
-axes[0].set_ylabel('population size')
-axes[0].legend();
+inf.plot_pop_sizes(t=np.linspace(0, 2, 401), truth=true);
 ```
 
 ```{code-cell} r
-:tags: [remove-cell]
-options(repr.plot.width = 7, repr.plot.height = 2.6)
-```
-
-```{code-cell} r
-:tags: [full-width]
-t <- seq(0, 2, length.out = 401)
-epoch <- findInterval(t, times)
-sizes <- do.call(rbind, lapply(pops, function(pop) rbind(
-    data.frame(pop = pop, t = t, label = "true",
-               size = sapply(t, function(u) true$get_epoch(u)$pop_sizes[[pop]])),
-    data.frame(pop = pop, t = t, label = "inferred",
-               size = unlist(inf$params_inferred[paste0(pop, epoch - 1)]))
-)))
-sizes$label <- factor(sizes$label, levels = c("true", "inferred"))
-
-ggplot(sizes, aes(t, size, colour = label)) +
-    geom_step() +
-    facet_wrap(~pop) +
-    labs(y = "population size", colour = NULL)
-```
-
-```{code-cell} r
-:tags: [remove-cell]
-options(repr.plot.width = 4.4, repr.plot.height = 3.3)
+plot(inf, which = "pop_sizes", t = seq(0, 2, length.out = 401), truth = true)
 ```

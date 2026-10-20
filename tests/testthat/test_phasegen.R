@@ -224,6 +224,39 @@ test_that("the trajectory plot draws Fisher intervals", {
   expect_true(any(vapply(built$data, function(layer) "ymin" %in% names(layer), logical(1))))
 })
 
+test_that("the inference plots draw the ground truth dashed", {
+  skip_if_not(phasegen_is_installed())
+
+  inf <- pg$Inference(
+    bounds = list(N = c(0.1, 5)),
+    x0 = list(N = 1),
+    coal = function(N) pg$Coalescent(n = 5L, demography = pg$Demography(pop_sizes = list(pop_0 = N))),
+    loss = function(coal, obs) pg$PoissonLikelihood()$compute(
+      observed = obs$polymorphic, modelled = 100 * coal$sfs$mean$polymorphic
+    ),
+    observation = pg$SFS(c(0, 180, 95, 70, 52, 0)),
+    resample = function(obs, rng) pg$SFS(rng$poisson(obs$data) * 1),
+    n_bootstraps = 3L,
+    n_runs = 1L,
+    seed = 1L,
+    pbar = FALSE
+  )
+  inf$run()
+  inf$bootstrap()
+
+  truth <- pg$Demography(pop_sizes = list(pop_0 = 2))
+  built <- ggplot2::ggplot_build(plot(inf, which = "pop_sizes", interval = NULL, truth = truth))
+  dashed <- Filter(function(layer) "linetype" %in% names(layer) && any(layer$linetype == "dashed"), built$data)
+  expect_length(dashed, 1)
+  expect_true(all(dashed[[1]]$y == 2))
+
+  built <- ggplot2::ggplot_build(plot(inf, which = "bootstraps", truth = list(N = 1.5)))
+  expect_true(any(vapply(built$data, function(layer) "xintercept" %in% names(layer) && any(layer$xintercept == 1.5),
+                         logical(1))))
+
+  expect_error(plot(inf, which = "bootstraps", truth = list(M = 1)), "unknown parameters: M")
+})
+
 test_that("Godambe standard errors agree with Fisher ones on Poisson bins and draw intervals", {
   skip_if_not(phasegen_is_installed())
 

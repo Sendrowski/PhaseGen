@@ -1292,6 +1292,9 @@ accumulation_plot <- function(source, k, end_times, rewards, center, permute, ti
 #' @param kind For `which = "bootstraps"`, `"hist"` for histograms or `"kde"` for kernel density estimates.
 #' @param bins Number of histogram bins. Default is `20`.
 #' @param title Plot title, `NULL` for the default.
+#' @param truth The ground truth, drawn dashed: for the trajectories, the true `Demography`, whose trajectories are
+#'        drawn in the colour of the inferred ones with the same label; for `which = "bootstraps"`, a named list or
+#'        vector of the true values of some or all parameters.
 #' @param ... Unused.
 #'
 #' @return A ggplot object.
@@ -1328,13 +1331,13 @@ accumulation_plot <- function(source, k, end_times, rewards, center, permute, ti
 #' @export
 plot.phasegen.inference.Inference <- function(x, which = c("demography", "pop_sizes", "migration", "bootstraps"),
                                               t = NULL, interval = "bootstrap", kind = c("hist", "kde"),
-                                              bins = 20L, title = NULL, ...) {
+                                              bins = 20L, title = NULL, truth = NULL, ...) {
 
   check_unused(...)
   which <- match.arg(which)
 
   if (which == "bootstraps") {
-    return(plot_bootstraps(x, match.arg(kind), bins, title))
+    return(plot_bootstraps(x, match.arg(kind), bins, title, truth))
   }
 
   result <- x$`_plot_demography_data`(np_or_null(t), if (which == "demography") "all" else which, interval)
@@ -1374,15 +1377,35 @@ plot.phasegen.inference.Inference <- function(x, which = c("demography", "pop_si
     under <- ggplot2::geom_step(data = boots, direction = "hv", alpha = 0.3)
   }
 
-  line_plot(data, xlab = curves$xlabel, ylab = curves$ylabel, title = if (is.null(title)) curves$title else title,
-            step = TRUE, under = under)
+  p <- line_plot(data, xlab = curves$xlabel, ylab = curves$ylabel,
+                 title = if (is.null(title)) curves$title else title, step = TRUE, under = under)
+
+  if (is.null(truth)) {
+    return(p)
+  }
+
+  # the true trajectories with a label of the inferred ones, dashed in their colour
+  true <- curve_frame(truth$`_plot_data`(curves$x, if (which == "demography") "all" else which))
+  true <- true[true$series %in% levels(data$series), ]
+  true$series <- factor(true$series, levels = levels(data$series))
+
+  p +
+    ggplot2::geom_step(data = true, ggplot2::aes(x = .data$x, y = .data$y, colour = .data$series,
+                                                 group = .data$series, linetype = "true"),
+                       direction = "hv", inherit.aes = FALSE) +
+    ggplot2::scale_linetype_manual(values = c(true = "dashed"), name = NULL)
 }
 
 
 # histograms or density estimates of the bootstrapped parameters, one panel per parameter
-plot_bootstraps <- function(x, kind, bins, title) {
+plot_bootstraps <- function(x, kind, bins, title, truth = NULL) {
 
   names <- as.character(unlist(x$param_names))
+  unknown <- setdiff(names(truth), names)
+
+  if (length(unknown) > 0) {
+    stop("truth names unknown parameters: ", paste(unknown, collapse = ", "), ".", call. = FALSE)
+  }
   values <- matrix(as.numeric(x$`_bootstrap_values`), ncol = length(names))
 
   if (nrow(values) == 0) {
@@ -1400,6 +1423,13 @@ plot_bootstraps <- function(x, kind, bins, title) {
     ggplot2::geom_histogram(bins = as.integer(bins), alpha = 0.8, linewidth = 0.2)
   } else {
     ggplot2::geom_density(alpha = 0.4)
+  }
+
+  if (length(truth) > 0) {
+    p <- p + ggplot2::geom_vline(
+      data = data.frame(parameter = factor(names(truth), levels = names), value = as.numeric(unlist(truth))),
+      ggplot2::aes(xintercept = .data$value), linetype = "dashed"
+    )
   }
 
   p +
