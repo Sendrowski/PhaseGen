@@ -1724,7 +1724,7 @@ class MomentEvaluator:
                                                   use_action)
 
         if tape is not None:
-            tape.alpha_ext, tape.factor = alpha_ext, factorial(k) * lamb ** k
+            tape.alpha_ext, tape.z, tape.lamb_end, tape.factor = alpha_ext, z, lamb, factorial(k) * lamb ** k
 
         if suffixes:
             return np.array([1.0] + [

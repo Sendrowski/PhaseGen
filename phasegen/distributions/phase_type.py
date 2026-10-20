@@ -318,7 +318,8 @@ class PhaseTypeDistribution(CallableDistributionFunctions, MomentEvaluator, Mome
             rewards: Sequence[Reward] = None,
             center: bool = True,
             permute: bool = True,
-            value: Any = None
+            value: Any = None,
+            checked: bool = True
     ) -> List[Tuple[Tuple[int, ...], List[Tuple[float, Tuple[np.ndarray, ...]]], float, float]]:
         """
         The entries of the :math:`k`-th moment accumulated until absorption, each with the ordered raw moments whose
@@ -329,12 +330,14 @@ class PhaseTypeDistribution(CallableDistributionFunctions, MomentEvaluator, Mome
         :param center: Whether the moment is central.
         :param permute: Whether it averages over the orderings of the rewards.
         :param value: The moment, if known, from which the raw moment of all rewards is recovered.
+        :param checked: Whether to evaluate the weighted values, zero otherwise.
         :return: The position of each entry, an empty tuple for a scalar, with its terms, their weighted value and the
             sum of the moduli of the weighted values.
         """
         rewards = (self.reward,) * k if rewards is None else tuple(rewards)
 
-        return [((),) + self._moment_terms(rewards, center, permute, value=None if value is None else float(value))]
+        return [((),) + self._moment_terms(rewards, center, permute, value=None if value is None else float(value),
+                                           checked=checked)]
 
     def _moment_terms(
             self,
@@ -342,7 +345,8 @@ class PhaseTypeDistribution(CallableDistributionFunctions, MomentEvaluator, Mome
             center: bool,
             permute: bool,
             means: Sequence[float] = None,
-            value: float = None
+            value: float = None,
+            checked: bool = True
     ) -> Tuple[List[Tuple[float, Tuple[np.ndarray, ...]]], float, float]:
         r"""
         The derivative of a moment of order :math:`k = |\{R_1, \dots, R_k\}|` accumulated until absorption as a
@@ -357,12 +361,15 @@ class PhaseTypeDistribution(CallableDistributionFunctions, MomentEvaluator, Mome
         :param permute: Whether it averages over the orderings of the rewards.
         :param means: The means of the rewards, if known.
         :param value: The moment, if known, from which the raw moment of all rewards is recovered.
+        :param checked: Whether to evaluate the weighted values, zero otherwise.
         :return: The coefficients with the reward vectors of each ordering, the sum of the coefficients times the
             values of their orderings, against which the backward passes are checked, and the sum of its moduli.
         """
         k = len(rewards)
         vectors = [np.asarray(r._get(self.state_space), dtype=float) for r in rewards]
         known = {(j,): float(m) for j, m in enumerate(means or [])}
+
+        powers = []
 
         def raw(S: Tuple[int, ...]) -> float:
             if S not in known:
@@ -373,6 +380,11 @@ class PhaseTypeDistribution(CallableDistributionFunctions, MomentEvaluator, Mome
                         known[S] -= sum((-1) ** (k - len(P)) * (raw(P) if P else 1.0) *
                                         float(np.prod([raw((j,)) for j in range(k) if j not in P]))
                                         for size in range(k) for P in itertools.combinations(range(k), size))
+                elif powers or self._powers_apply(k, rewards, (np.inf,)):
+                    # the raw moments of one reward are those of the closed form of the highest order
+                    if not powers:
+                        powers.append(self._raw_powers(k, rewards[0], 0.0))
+                    known[S] = float(powers[0][len(S)])
                 else:
                     known[S] = float(
                         self._accumulate_raw(len(S), tuple(rewards[j] for j in S), (np.inf,), permute, 0.0)[0]
@@ -388,8 +400,9 @@ class PhaseTypeDistribution(CallableDistributionFunctions, MomentEvaluator, Mome
             if permute and any(rewards[j] != rewards[S[0]] for j in S[1:]):
                 orderings = list(itertools.permutations(S))
             terms.extend((coefficient / len(orderings), tuple(vectors[j] for j in o)) for o in orderings)
-            check += coefficient * raw(S)
-            scale += abs(coefficient * raw(S))
+            if checked:
+                check += coefficient * raw(S)
+                scale += abs(coefficient * raw(S))
 
         if not center or k == 1:
             add(tuple(range(k)), 1.0)
@@ -400,11 +413,10 @@ class PhaseTypeDistribution(CallableDistributionFunctions, MomentEvaluator, Mome
             for S in itertools.combinations(range(k), size):
                 sign = (-1) ** (k - size)
                 rest = [j for j in range(k) if j not in S]
-                raw_S = raw(S) if S else 1.0
                 if S:
                     add(S, sign * float(np.prod([means[j] for j in rest])))
                 for j in rest:
-                    add((j,), sign * raw_S * float(np.prod([means[i] for i in rest if i != j])))
+                    add((j,), sign * (raw(S) if S else 1.0) * float(np.prod([means[i] for i in rest if i != j])))
 
         return terms, check, scale
 
@@ -558,7 +570,7 @@ class PhaseTypeDistribution(CallableDistributionFunctions, MomentEvaluator, Mome
             out = MeanGradient(host).compute_columns(R)
             gradients = None if out is None else [g for _, g in out]
         else:
-            entries = self._moment_entries(k, rewards, center, permute)
+            entries = self._moment_entries(k, rewards, center, permute, checked=False)
             positions = [entry[0] for entry in entries]
             out = [_terms_gradient(self, entry[1]) for entry in entries]
             gradients = None if any(o is None for o in out) else [g for _, g in out]

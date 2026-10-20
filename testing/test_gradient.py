@@ -343,6 +343,7 @@ def test_loss_gradient_unsupported_moments(loss):
     lambda coal, obs: float(np.sum(coal.sfs.cov.data ** 2) + np.sum(coal.sfs.corr.data) + np.sum(coal.sfs.var.data)),
     lambda coal, obs: float(np.sum(np.asarray(coal.jsfs.cov) ** 2) + np.sum(coal.jsfs.var.data)),
     lambda coal, obs: float(coal.fsfs.cov.data[1, 2] + coal.sfs.moment(2, center=False).data[1]),
+    lambda coal, obs: float(np.sum(coal.jsfs.corr) + np.sum(coal.jsfs.std.data) + np.sum(coal.fsfs.corr.data)),
 ])
 def test_loss_gradient_higher_moments(loss):
     """Losses reading variances, standard deviations, raw and cross moments of higher order, and the covariances and
@@ -380,16 +381,17 @@ def test_loss_gradient_two_locus_spectrum():
 
 def test_loss_gradient_of_a_covariance_takes_one_backward_pass_per_bin(monkeypatch):
     """A scalar loss on the covariance of the SFS takes one backward pass per bin, the orderings that share their
-    second bin being summed over the first."""
+    second bin being summed over the first, and the means of the centering being read from the same passes."""
     from phasegen.distributions._gradient import CrossMomentGradient
 
     calls = []
     compute = CrossMomentGradient.compute
-    monkeypatch.setattr(CrossMomentGradient, 'compute', lambda self, heads, tail: calls.append(heads.shape[1]) or
-                        compute(self, heads, tail))
+    monkeypatch.setattr(CrossMomentGradient, 'compute', lambda self, heads, tail, seeds=None:
+                        calls.append(heads.shape[1]) or compute(self, heads, tail, seeds))
+    monkeypatch.setattr(MeanGradient, 'compute_columns', lambda self, rewards: pytest.fail('a separate mean pass'))
 
     coal = lambda N: pg.Coalescent(n=6, demography=pg.Demography(pop_sizes={'pop_0': {0: 1, 0.5: N}}))
-    Gradient(coal, lambda c: float(np.sum(c.sfs.cov.data ** 2)))._exact({'N': 1.2}, {'N': (0.1, 5)})
+    assert Gradient(coal, lambda c: float(np.sum(c.sfs.cov.data ** 2)))._exact({'N': 1.2}, {'N': (0.1, 5)}) is not None
 
     assert calls == [1] * 5
 
@@ -1003,6 +1005,69 @@ def test_parameter_jacobian_across_regimes(regime, closed_form, caplog):
     for i, key in enumerate(params):
         numeric = _richardson(lambda x: gradient._entries(coal(**(params | {key: x}))), params[key])
         np.testing.assert_allclose(jacobian[..., i], numeric, rtol=1e-6, atol=1e-8 * np.abs(numeric).max())
+
+
+def _higher_moments(coal: pg.Coalescent, spectrum: bool = True) -> Callable[[pg.Coalescent], np.ndarray]:
+    """A statistic of a variance, a raw moment of order three and a spectrum read through second moments, as the
+    configuration of ``coal`` supports them: the mean two-locus SFS for two loci, the variance of the joint SFS for
+    several demes with a fixed number of lineages each, and that of the SFS otherwise, unless ``spectrum`` is false."""
+    if not spectrum:
+        spectrum = lambda c: 0.0
+    elif coal.locus_config.n == 2:
+        spectrum = lambda c: np.sum(c.sfs2.mean.data ** 2)
+    elif coal.lineage_config.n_pops > 1 and 'joint_block_counting' in coal.state_spaces:
+        spectrum = lambda c: np.sum(c.jsfs.var.data ** 2)
+    elif coal.lineage_config.n_pops > 1:
+        spectrum = lambda c: 0.0
+    else:
+        spectrum = lambda c: np.sum(c.sfs.var.data ** 2)
+
+    return lambda c: np.array([float(c.tree_height.var), float(c.total_branch_length.m3), spectrum(c)])
+
+
+@pytest.mark.parametrize('closed_form', [True, False])
+@pytest.mark.parametrize('regime', list(_REGIMES))
+def test_parameter_jacobian_of_higher_moments_across_regimes(regime, closed_form, caplog):
+    """The exact Jacobian of variances, raw moments of order three and second moments of the spectra, against
+    Richardson-extrapolated central differences through the callback, over the regimes of the first moments."""
+    import logging
+
+    Settings.closed_form_last_epoch = closed_form
+    coal, params, _ = _REGIMES[regime]
+    # the joint spectrum of the sparse space without the closed form takes most of a minute to evaluate
+    gradient = pg.Gradient(coal, _higher_moments(coal(**params), spectrum=closed_form or 'sparse' not in regime))
+
+    with caplog.at_level(logging.INFO, logger='phasegen'):
+        value, jacobian = gradient.compute(params)
+
+    assert not any('no exact gradient' in r.getMessage() or 'differs' in r.getMessage() for r in caplog.records)
+
+    for i, key in enumerate(params):
+        numeric = _richardson(lambda x: gradient._entries(coal(**(params | {key: x}))), params[key])
+        np.testing.assert_allclose(jacobian[..., i], numeric, rtol=1e-6, atol=1e-8 * np.abs(numeric).max())
+
+
+def test_gradient_of_higher_moments_without_the_closed_form_setting():
+    """The gradient of a higher moment depends on certain absorption in the last epoch only, as that of the mean, and
+    not on the setting of the closed form of the moments. Regression: it raised that the last epoch had no closed
+    form."""
+    coal = _three_epochs()
+    expected = coal.tree_height.gradient(2)
+
+    Settings.closed_form_last_epoch = False
+    np.testing.assert_allclose(_three_epochs().tree_height.gradient(2).pop_sizes, expected.pop_sizes, rtol=1e-12)
+
+
+@pytest.mark.parametrize('center', [True, False])
+def test_gradient_of_cross_moments_of_one_ordering(center):
+    """Cross moments of distinct rewards without averaging over their orderings, of orders two and three."""
+    rewards = (pg.TreeHeightReward(), pg.TotalBranchLengthReward(), pg.TreeHeightReward())
+
+    for k in (2, 3):
+        grad = _three_epochs().gradient(k, rewards[:k], center=center, permute=False)
+        numeric = _richardson(lambda x: float(_three_epochs(N1=x).moment(k, rewards[:k], center=center, permute=False)),
+                              0.4)
+        assert grad.pop_sizes[1, grad.pops.index('a')] == pytest.approx(numeric, rel=1e-6)
 
 
 @pytest.mark.parametrize('case', ['lineage weight', 'locus weight', 'custom model'])

@@ -210,7 +210,7 @@ class Inference(Serializable):
             without an analytic Jacobian: Nelder-Mead, Powell, L-BFGS-B, TNC, SLSQP, COBYLA or COBYQA.
         :param gradient: How the gradient-based methods (L-BFGS-B, TNC and SLSQP) obtain the gradient of the loss. With
             ``'exact'``, a loss that reads only the moments listed at :class:`~phasegen.gradient.Gradient` is
-            differentiated exactly, by one forward pass through the epochs and one backward pass as described in
+            differentiated exactly, by forward and backward passes through the epochs as described in
             :meth:`PhaseTypeDistribution.gradient() <phasegen.distributions.PhaseTypeDistribution.gradient>`, at a cost
             of a few evaluations of the moments whatever the number of parameters, which may enter the demography,
             the parameters of the coalescent model or the recombination rate. Any other loss is differentiated by finite

@@ -296,8 +296,11 @@ class _ClosedFormTape:
         #: The finite epochs, latest first, as they are applied.
         self.steps: List[_VanLoanStep] = []
 
-        #: The extended initial distribution and the factor of the moment, which is ``factor * alpha_ext @ z``.
+        #: The extended initial distribution, the extended vector at time zero, the balancing factor its blocks are
+        #: stored against and the factor of the moment, which is ``factor * alpha_ext @ z``.
         self.alpha_ext: Optional[np.ndarray] = None
+        self.z: Optional[np.ndarray] = None
+        self.lamb_end: float = 1.0
         self.factor: float = 1.0
 
 
@@ -686,6 +689,9 @@ class _Contraction:
         self.C = {p: np.asarray(X[self.rows, self.cols]).ravel() for p, X in C.items()}
         self.M = {pair: np.asarray(X[self.rows, self.cols]).ravel() for pair, X in M.items()}
 
+        #: The factors of the coalescence parts and the parameter derivatives at the entries, by epoch.
+        self._epochs: Dict[int, Tuple[Dict[str, float], Dict[str, np.ndarray]]] = {}
+
     def add(self, grad: 'DemographyGradient', e: int, g: np.ndarray, scale: float) -> None:
         """
         Add a derivative by the entries of the generator of an epoch to the gradient.
@@ -696,21 +702,28 @@ class _Contraction:
         :param scale: The factor with which the generator enters.
         """
         epoch = grad.epochs[e]
-        coefficients = self.basis.coefficients(epoch)
+        if id(epoch) not in self._epochs:
+            self._epochs[id(epoch)] = (self.basis.coefficients(epoch), {
+                name: np.asarray(dS[self.rows, self.cols]).ravel()
+                for name, dS in self.basis.parameter_derivatives(epoch, self.idx).items()
+            })
+        coefficients, derivatives = self._epochs[id(epoch)]
+
         for i, pop in enumerate(grad.pops):
             grad.pop_sizes[e, i] += scale * coefficients[pop] * float(self.C[pop] @ g)
         for j, pair in enumerate(grad.pairs):
             grad.migration_rates[e, j] += scale * float(self.M[pair] @ g)
-        for name, dS in self.basis.parameter_derivatives(epoch, self.idx).items():
-            grad.parameters[name] += scale * float(np.asarray(dS[self.rows, self.cols]).ravel() @ g)
+        for name, dS in derivatives.items():
+            grad.parameters[name] += scale * float(dS @ g)
 
 
 class CrossMomentGradient:
     r"""
-    Values and derivatives of the raw cross-moment :math:`k!\, \mathbb{E}_\sigma[R_1 \cdots R_k]` of one ordering of
-    :math:`k \geq 2` rewards, the closed form of ``MomentEvaluator._accumulate_closed_form``, by a backward pass through
-    its record, as described in :meth:`PhaseTypeDistribution.gradient()
-    <phasegen.distributions.PhaseTypeDistribution.gradient>`.
+    Values and derivatives of raw cross-moments of :math:`k \geq 2` rewards accumulated until absorption, from the
+    closed form of ``MomentEvaluator._accumulate_closed_form`` of one ordering, by a backward pass through its record,
+    as described in :meth:`PhaseTypeDistribution.gradient()
+    <phasegen.distributions.PhaseTypeDistribution.gradient>`. Block :math:`k - i` of its extended vector holds the
+    moment of the last :math:`i` rewards, so the backward pass also differentiates these.
     """
 
     def __init__(self, distribution: 'PhaseTypeDistribution') -> None:
@@ -721,44 +734,61 @@ class CrossMomentGradient:
         """
         self.distribution = distribution
 
-    def compute(self, heads: np.ndarray,
-                tail: Sequence[np.ndarray]) -> Optional[List[Tuple[float, 'DemographyGradient']]]:
+    def compute(self, heads: np.ndarray, tail: Sequence[np.ndarray],
+                seeds: Dict[int, np.ndarray] = None) -> Optional[List[Optional[Tuple[float, 'DemographyGradient']]]]:
         """
-        The cross-moments and their gradients of the orderings that start with each column of ``heads``, followed by
-        the rewards of ``tail``.
+        For each column of ``heads``, the moment of the ordering of that column followed by the rewards of ``tail``,
+        plus the moments of the last ``i`` rewards of ``tail`` weighted by ``seeds[i]``, and its gradient.
 
         :param heads: The first reward vectors over the states, one per column.
         :param tail: The following reward vectors.
-        :return: The moment and its gradient of each column, or ``None`` where the last epoch has no closed form.
+        :param seeds: The weights of the moments of the last ``i`` rewards of the tail, one per column, by ``i``.
+        :return: The weighted moment and its gradient of each column, ``None`` for a column without weight, or
+            ``None`` where absorption is not certain in the last epoch.
         :raises ValueError: If the generator is not affine in the inverse time scales and migration rates.
         """
+        from math import factorial
         from ..rewards import CustomReward
-        from ..settings import Settings
         from .phase_type import DemographyGradient
 
         dist = self.distribution
         k = 1 + len(tail)
-        if not (Settings.closed_form_last_epoch and dist._absorption_certain_in_last_epoch(k)):
+        if not dist._absorption_certain_in_last_epoch(k):
             return None
 
+        heads = np.asarray(heads, dtype=float)
+        seeds = {i: np.asarray(w, dtype=float) for i, w in (seeds or {}).items()}
         n = dist.state_space.k
         basis = _generator_basis(dist.state_space)
+        names = [name for name in _rate_parameters(dist.state_space.model, dist.state_space.locus_config)
+                 if basis._stencil(name) is not None]
+        full = _Contraction(basis, np.arange(n))
+        rows = np.concatenate([j * n + full.rows for j in range(k + 1)])
+        cols = np.concatenate([j * n + full.cols for j in range(k + 1)])
         tail = tuple(CustomReward(lambda _, r=np.asarray(r, dtype=float): r) for r in tail)
+        last = None
 
         out = []
-        for head in np.asarray(heads, dtype=float).T:
+        for c, head in enumerate(heads.T):
+            weights = {i: float(w[c]) for i, w in seeds.items() if w[c] != 0}
+            if not head.any() and not weights:
+                out.append(None)
+                continue
+
             tape = _ClosedFormTape()
             value = float(dist._accumulate_closed_form(k, (CustomReward(lambda _, r=head: r),) + tail, tape=tape)[0])
+            grad = DemographyGradient(tape.epochs, basis.pops, basis.pairs, parameters=names)
+            last = last or _Contraction(basis, tape.idx_t)
 
-            names = list(_rate_parameters(dist.state_space.model, dist.state_space.locus_config))
-            grad = DemographyGradient(tape.epochs, basis.pops, basis.pairs,
-                                      parameters=[name for name in names if basis._stencil(name) is not None])
-            full = _Contraction(basis, np.arange(n))
-            rows = np.concatenate([j * n + full.rows for j in range(k + 1)])
-            cols = np.concatenate([j * n + full.cols for j in range(k + 1)])
-
-            # the finite epochs, earliest first, carrying the adjoint row vector of the extended vector forward
+            # the adjoint of the extended vector at time zero, on block 0 for the moment of the whole ordering and on
+            # block k - i for that of the last i rewards
             y = tape.factor * tape.alpha_ext
+            for i, w in weights.items():
+                scale = w * factorial(i) * tape.lamb_end ** i
+                y[(k - i) * n:(k - i + 1) * n] += scale * tape.alpha_ext[:n]
+                value += scale * float(tape.alpha_ext[:n] @ tape.z[(k - i) * n:(k - i + 1) * n])
+
+            # the finite epochs, earliest first, carrying the adjoint row vector forward
             for step in reversed(tape.steps):
                 if step.action is None:
                     G = sla.expm_frechet(step.A.T, np.outer(y, step.z_in), compute_expm=False)
@@ -779,7 +809,6 @@ class CrossMomentGradient:
                 y = y_in * step.rebase
 
             # the last epoch: block j is (-T)^{-1} (r_j * block j + 1) / lamb, the last block the ones vector
-            last = _Contraction(basis, tape.idx_t)
             solve = dist._lu_solver(-tape.T.T, tape.sparse)
             a = y[tape.idx_t]
             g = np.zeros(len(last.rows))
@@ -796,36 +825,75 @@ class CrossMomentGradient:
         return out
 
 
+def _group_terms(
+        terms: Sequence[Tuple[np.ndarray, Tuple[np.ndarray, ...]]]
+) -> Tuple[List[Tuple[Tuple[np.ndarray, ...], np.ndarray, Dict[int, np.ndarray]]], Optional[np.ndarray]]:
+    """
+    Group weighted ordered raw moments of ``PhaseTypeDistribution._moment_terms`` into backward passes. An ordering is
+    linear in its first reward, so the orderings that share their following rewards take one pass with their first
+    rewards summed. An ordering that ends the following rewards of a longer group is read from the trailing blocks of
+    that group's pass, and the remaining means take one pass of ``MeanGradient``.
+
+    :param terms: The weights, one per column, with the reward vectors of each ordering.
+    :return: The following rewards, the first rewards weighted per column and the weights of the trailing moments of
+        each group, and the weighted rewards of the remaining means, ``None`` if there are none.
+    """
+    keys = [tuple(v.tobytes() for v in vectors) for _, vectors in terms]
+    tails = {}
+    for (_, vectors), key in zip(terms, keys):
+        if len(vectors) > 1:
+            tails.setdefault(key[1:], vectors[1:])
+
+    # the longest groups first, which can hold the most trailing moments
+    hosts = sorted(tails, key=len, reverse=True)
+    groups = {tail: [tails[tail], None, {}] for tail in tails}
+    means = None
+    for (w, vectors), key in zip(terms, keys):
+        host = next((t for t in hosts if len(t) >= len(key) and t[len(t) - len(key):] == key), None)
+        if host is not None:
+            seeds = groups[host][2]
+            seeds[len(key)] = seeds.get(len(key), 0) + w
+        elif len(key) > 1:
+            group = groups[key[1:]]
+            group[1] = np.outer(vectors[0], w) + (0 if group[1] is None else group[1])
+        else:
+            means = np.outer(vectors[0], w) + (0 if means is None else means)
+
+    n_columns = len(terms[0][0]) if terms else 0
+    out = []
+    for tail, heads, seeds in groups.values():
+        if heads is not None or seeds:
+            out.append((tail, np.zeros((len(tail[0]), n_columns)) if heads is None else heads, seeds))
+
+    return out, means
+
+
 def _terms_gradient(
         distribution: 'PhaseTypeDistribution',
         terms: Sequence[Tuple[float, Tuple[np.ndarray, ...]]]
 ) -> Optional[Tuple[float, 'DemographyGradient']]:
     """
-    The weighted sum of ordered raw moments of ``PhaseTypeDistribution._moment_terms`` and its gradient. The orderings
-    are linear in their first reward, so the terms that share the following rewards take one backward pass.
+    The weighted sum of ordered raw moments of ``PhaseTypeDistribution._moment_terms`` and its gradient, by the
+    backward passes of :func:`_group_terms`.
 
     :param distribution: The distribution whose state space the reward vectors are defined on.
     :param terms: The coefficients with the reward vectors of each ordering.
-    :return: The sum and its gradient, or ``None`` where the last epoch has no closed form.
+    :return: The sum and its gradient, or ``None`` where absorption is not certain in the last epoch.
     """
     from .phase_type import DemographyGradient
 
-    groups: Dict[Tuple[bytes, ...], list] = {}
-    for coefficient, vectors in terms:
-        group = groups.setdefault(tuple(v.tobytes() for v in vectors[1:]), [vectors[1:], 0.0])
-        group[1] = group[1] + coefficient * vectors[0]
+    groups, means = _group_terms([(np.array([c]), vectors) for c, vectors in terms])
 
-    value, gradients = 0.0, []
-    for tail, head in groups.values():
-        head = np.asarray(head, dtype=float)[:, None]
-        out = (CrossMomentGradient(distribution).compute(head, tail) if tail else
-               MeanGradient(distribution).compute_columns(head))
-        if out is None:
-            return None
-        value += out[0][0]
-        gradients.append(out[0][1])
+    outs = [CrossMomentGradient(distribution).compute(heads, tail, seeds) for tail, heads, seeds in groups]
+    if means is not None:
+        outs.append(MeanGradient(distribution).compute_columns(means))
 
-    return value, DemographyGradient._sum(gradients)
+    if any(o is None for o in outs):
+        return None
+
+    results = [o[0] for o in outs if o[0] is not None]
+
+    return sum(v for v, _ in results), DemographyGradient._sum([g for _, g in results])
 
 
 def _generator_basis(state_space: 'StateSpace') -> _GeneratorBasis:

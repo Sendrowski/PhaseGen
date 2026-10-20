@@ -177,7 +177,51 @@ class SFSQuantileFunction(_SFSAggregateFunction, QuantileFunction):
                                          show=show, clear=clear, label=label, title=title, **kwargs)
 
 
-class SFSDistribution(SpectrumDistribution, ABC):
+class _BinMomentsMixin:
+    """
+    The entries of the moments and of the covariance of the bins of a spectrum, see
+    :meth:`PhaseTypeDistribution._moment_entries() <phasegen.distributions.PhaseTypeDistribution._moment_entries>`,
+    from the position and reward of each polymorphic bin of ``_bins``.
+    """
+
+    def _moment_entries(
+            self,
+            k: int,
+            rewards: Sequence[Reward] = None,
+            center: bool = True,
+            permute: bool = True,
+            value: Union[SFS, JointSFS] = None,
+            checked: bool = True
+    ) -> List[Tuple[Tuple[int, ...], List[Tuple[float, Tuple[np.ndarray, ...]]], float, float]]:
+        """
+        The polymorphic bins of the :math:`k`-th moment, with the rewards multiplied with the bin rewards.
+        """
+        rewards = (self.reward,) * k if rewards is None else tuple(rewards)
+        means = [self.moment(1, (r,)).data for r in rewards]
+
+        return [
+            (pos,) + self._moment_terms(
+                tuple(CombinedReward([r, reward]) for r in rewards), center, permute, means=[m[pos] for m in means],
+                value=None if value is None else float(value.data[pos]), checked=checked
+            )
+            for pos, reward in self._bins()
+        ]
+
+    def _cov_entries(self) -> List[Tuple[Tuple[int, ...], List[Tuple[float, Tuple[np.ndarray, ...]]], float, float]]:
+        """
+        The entries of the covariance of the bins, each a central moment of two bin rewards.
+        """
+        bins = {pos: CombinedReward([self.reward, reward]) for pos, reward in self._bins()}
+        mean, cov = self.mean.data, np.asarray(getattr(self.cov, 'data', self.cov))
+
+        return [
+            (a + b,) + self._moment_terms((bins[a], bins[b]), True, True, means=[mean[a], mean[b]],
+                                          value=float(cov[a + b]))
+            for a in bins for b in bins
+        ]
+
+
+class SFSDistribution(_BinMomentsMixin, SpectrumDistribution, ABC):
     r"""
     Base class for site-frequency spectrum distributions. Bin :math:`i` accumulates the total branch length
     :math:`L_i` subtending :math:`i` of the :math:`n` samples. The spectrum mean is the vector of expected bin branch
@@ -433,44 +477,11 @@ class SFSDistribution(SpectrumDistribution, ABC):
 
         return (self._tree_height if flatten else self), R, [(j + 1,) for j in range(len(bin_rewards))]
 
-    def _moment_entries(
-            self,
-            k: int,
-            rewards: Sequence[Reward] = None,
-            center: bool = True,
-            permute: bool = True,
-            value: SFS = None
-    ) -> List[Tuple[Tuple[int, ...], List[Tuple[float, Tuple[np.ndarray, ...]]], float, float]]:
+    def _bins(self) -> List[Tuple[Tuple[int, ...], Reward]]:
         """
-        The polymorphic bins of the :math:`k`-th moment, see :meth:`PhaseTypeDistribution._moment_entries()
-        <phasegen.distributions.PhaseTypeDistribution._moment_entries>`, with the rewards multiplied with the bin
-        rewards.
+        The position and reward of each polymorphic bin.
         """
-        rewards = (self.reward,) * k if rewards is None else tuple(rewards)
-        means = [self.moment(1, (r,)).data for r in rewards]
-
-        return [
-            ((j + 1,),) + self._moment_terms(
-                tuple(CombinedReward([r, self._get_sfs_reward(i)]) for r in rewards), center, permute,
-                means=[m[j + 1] for m in means], value=None if value is None else float(value.data[j + 1])
-            )
-            for j, i in enumerate(self._get_indices())
-        ]
-
-    def _cov_entries(self) -> List[Tuple[Tuple[int, ...], List[Tuple[float, Tuple[np.ndarray, ...]]], float, float]]:
-        """
-        The entries of :attr:`cov`, each a central moment of two bin rewards, see
-        :meth:`PhaseTypeDistribution._moment_entries() <phasegen.distributions.PhaseTypeDistribution._moment_entries>`.
-        """
-        indices = self._get_indices()
-        bins = {i: CombinedReward([self.reward, self._get_sfs_reward(i)]) for i in indices}
-        mean, cov = self.mean.data, self.cov.data
-
-        return [
-            ((a, b),) + self._moment_terms((bins[a], bins[b]), True, True, means=[mean[a], mean[b]],
-                                           value=float(cov[a, b]))
-            for a in indices for b in indices
-        ]
+        return [((j + 1,), self._get_sfs_reward(i)) for j, i in enumerate(self._get_indices())]
 
     def _moment(
             self,
@@ -1318,7 +1329,7 @@ class JointSFSQuantileFunction(_JointSFSAggregateFunction, QuantileFunction):
                                          file=file, show=show, clear=clear, label=label, title=title, **kwargs)
 
 
-class JointSFSDistribution(SpectrumDistribution):
+class JointSFSDistribution(_BinMomentsMixin, SpectrumDistribution):
     r"""
     Joint (multi-population) site-frequency spectrum distribution.
 
@@ -1762,44 +1773,11 @@ class JointSFSDistribution(SpectrumDistribution):
 
         return self, R, list(configs)
 
-    def _moment_entries(
-            self,
-            k: int,
-            rewards: Sequence[Reward] = None,
-            center: bool = True,
-            permute: bool = True,
-            value: JointSFS = None
-    ) -> List[Tuple[Tuple[int, ...], List[Tuple[float, Tuple[np.ndarray, ...]]], float, float]]:
+    def _bins(self) -> List[Tuple[Tuple[int, ...], Reward]]:
         """
-        The polymorphic bins of the :math:`k`-th moment, see :meth:`PhaseTypeDistribution._moment_entries()
-        <phasegen.distributions.PhaseTypeDistribution._moment_entries>`, with the rewards multiplied with the bin
-        rewards.
+        The position and reward of each polymorphic bin.
         """
-        rewards = (self.reward,) * k if rewards is None else tuple(rewards)
-        means = [self.moment(1, (r,)).data for r in rewards]
-
-        return [
-            (tuple(config),) + self._moment_terms(
-                tuple(CombinedReward([r, JointSFSReward(config)]) for r in rewards), center, permute,
-                means=[m[tuple(config)] for m in means], value=None if value is None else float(value.data[tuple(config)])
-            )
-            for config in self._get_configs()
-        ]
-
-    def _cov_entries(self) -> List[Tuple[Tuple[int, ...], List[Tuple[float, Tuple[np.ndarray, ...]]], float, float]]:
-        """
-        The entries of :attr:`cov`, each a central moment of two bin rewards, see
-        :meth:`PhaseTypeDistribution._moment_entries() <phasegen.distributions.PhaseTypeDistribution._moment_entries>`.
-        """
-        configs = [tuple(c) for c in self._get_configs()]
-        bins = {c: CombinedReward([self.reward, JointSFSReward(c)]) for c in configs}
-        mean, cov = self.mean.data, np.asarray(self.cov)
-
-        return [
-            (a + b,) + self._moment_terms((bins[a], bins[b]), True, True, means=[mean[a], mean[b]],
-                                          value=float(cov[a + b]))
-            for a in configs for b in configs
-        ]
+        return [(tuple(config), JointSFSReward(config)) for config in self._get_configs()]
 
     def _plot_accumulation_data(
             self,

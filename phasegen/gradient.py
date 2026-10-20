@@ -12,7 +12,7 @@ import numpy as np
 from ._blas import BlasThreadLimit
 from .distributions import Coalescent, DemographyGradient
 from .distributions._common import _sqrt_spectrum
-from .distributions._gradient import CrossMomentGradient, MeanGradient, _rate_parameters
+from .distributions._gradient import CrossMomentGradient, MeanGradient, _group_terms, _rate_parameters
 from .spectrum import AbstractSpectrum
 
 #: The distributions of a :class:`~phasegen.distributions.Coalescent` whose moments the gradient supports.
@@ -528,9 +528,9 @@ class Gradient:
         n_entries = value.size
 
         # Each entry of a moment is a weighted sum of ordered raw moments, which are linear in their first reward. The
-        # first rewards, weighted by the derivatives of each entry of the statistic, are summed over the orderings that
-        # share their host and following rewards, so that one backward pass serves each such group.
-        groups: Dict[tuple, list] = {}
+        # orderings, weighted by the derivatives of each entry of the statistic, are grouped per host into backward
+        # passes by _group_terms.
+        hosts: Dict[int, list] = {}
         contraction, magnitude = np.zeros(n_entries), np.zeros(n_entries)
         for i, read in enumerate(list(recorder.reads)):
             host, entries = self._read_entries(read)
@@ -543,33 +543,38 @@ class Gradient:
                     return None
                 raise
 
-            for l, (_, terms, check, scale) in enumerate(entries):
+            terms = hosts.setdefault(id(host), [host, []])[1]
+            for l, (_, entry_terms, check, scale) in enumerate(entries):
                 contraction += D[:, l] * check
                 magnitude += np.abs(D[:, l]) * scale
-                for coefficient, vectors in terms:
-                    key = (id(host),) + tuple(v.tobytes() for v in vectors[1:])
-                    group = groups.setdefault(key, [host, vectors[1:], np.zeros((len(vectors[0]), n_entries))])
-                    group[2] += np.outer(coefficient * vectors[0], D[:, l])
+                terms.extend((coefficient * D[:, l], vectors) for coefficient, vectors in entry_terms)
 
         adjoint = np.zeros(n_entries)
         derivatives = []
-        for host, tail, heads in groups.values():
-            used = np.flatnonzero(np.abs(heads).sum(axis=0))
-            if not len(used):
-                continue
+        for host, terms in hosts.values():
+            groups, means = _group_terms(terms)
+            outs = [CrossMomentGradient(host).compute(heads, tail, seeds) for tail, heads, seeds in groups]
+            if means is not None:
+                used = np.flatnonzero(np.abs(means).sum(axis=0))
+                out = MeanGradient(host).compute_columns(means[:, used])
+                outs.append(None if out is None else [out[list(used).index(j)] if j in used else None
+                                                      for j in range(n_entries)])
 
-            out = (CrossMomentGradient(host).compute(heads[:, used], tail) if tail else
-                   MeanGradient(host).compute_columns(heads[:, used]))
-            if out is None:
-                return None
+            for out in outs:
+                if out is None:
+                    return None
 
-            flat = np.zeros((n_entries, len(out[0][1].flat())))
-            for j, (v, grad) in zip(used, out):
-                adjoint[j] += v
-                flat[j] = grad.flat()
+                results = [(j, r) for j, r in enumerate(out) if r is not None]
+                if not results:
+                    continue
 
-            g = out[0][1]
-            derivatives.append(_Host([e.index for e in g.epochs], g.pops, g.pairs, list(g.parameters), flat))
+                g = results[0][1][1]
+                flat = np.zeros((n_entries, len(g.flat())))
+                for j, (v, grad) in results:
+                    adjoint[j] += v
+                    flat[j] = grad.flat()
+
+                derivatives.append(_Host([e.index for e in g.epochs], g.pops, g.pairs, list(g.parameters), flat))
 
         # the contraction of the derivatives of the statistic with the moments, against its magnitude, which
         # cancellation leaves far above the contraction for a statistic invariant to the scale of the moments
