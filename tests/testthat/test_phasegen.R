@@ -284,3 +284,14 @@ test_that("Godambe standard errors agree with Fisher ones on Poisson bins and dr
 
   expect_true(any(vapply(built$data, function(layer) "ymin" %in% names(layer), logical(1))))
 })
+
+test_that("a loss reading a moment of order two without an integer literal has an exact gradient", {
+  skip_if_not(phasegen_is_installed())
+
+  gradient <- pg$Gradient(
+    coal = function(N) pg$Coalescent(n = 4L, demography = pg$Demography(pop_sizes = list(pop_0 = N))),
+    statistic = function(coal) coal$moment(2, center = TRUE)
+  )
+
+  expect_false(is.null(gradient$`_exact`(list(N = 1.3), list(N = c(0.1, 5)))))
+})

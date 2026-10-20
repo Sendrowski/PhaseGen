@@ -11,7 +11,7 @@ import numpy as np
 
 from ._blas import BlasThreadLimit
 from .distributions import Coalescent, DemographyGradient
-from .distributions._common import _sqrt_spectrum
+from .distributions._common import _sqrt_spectrum, _validate_order
 from .distributions._gradient import CrossMomentGradient, MeanGradient, _group_terms, _rate_parameters
 from .spectrum import AbstractSpectrum
 
@@ -92,15 +92,11 @@ class _DistributionRecorder:
         if attr == 'mean':
             return self._recorder.serve(lambda: _Read(dist, 'mean', None, dist.mean))
 
-        if not dist._higher_moment_gradients:
-            self._recorder.unsupported = True
-            raise _Unsupported(f"{self._name}.{attr}")
-
-        if attr in _MOMENTS:
+        if attr in _MOMENTS and dist._differentiable(_MOMENTS[attr][0]):
             k, center = _MOMENTS[attr]
             return self._recorder.serve(lambda: _Read(dist, 'moment', (k, None, center, True), getattr(dist, attr)))
 
-        if attr == 'std':
+        if attr == 'std' and dist._differentiable(2):
             var = self.var
             return _sqrt_spectrum(var) if isinstance(var, AbstractSpectrum) else max(float(var), 0.0) ** 0.5
 
@@ -116,22 +112,26 @@ class _DistributionRecorder:
     def moment(self, k: int = 1, rewards: Sequence = None, start_time: float = None, end_time: float = None,
                center: bool = True, permute: bool = True) -> Any:
         """
-        Serve a moment, see :meth:`_CoalescentRecorder.served_moment()
-        <phasegen.gradient._CoalescentRecorder.served_moment>`.
+        Serve a moment, see :meth:`_CoalescentRecorder.order()
+        <phasegen.gradient._CoalescentRecorder.order>`.
         """
         dist = self._distribution
+        k = self._recorder.order(k, rewards, start_time, end_time, f"{self._name}.moment")
 
-        if not dist._higher_moment_gradients:
+        if not dist._differentiable(k):
             self._recorder.unsupported = True
-            raise _Unsupported(f"{self._name}.moment")
+            raise _Unsupported(f"{self._name}.moment of order {k}")
 
-        def make(reward: Any) -> _Read:
-            if k == 1:
-                return _Read(dist, 'mean', reward, dist.moment(1, rewards=rewards))
-            return _Read(dist, 'moment', (k, None if rewards is None else tuple(rewards), center, permute),
-                         dist.moment(k, rewards=rewards, center=center, permute=permute))
+        if k == 1:
+            return self._recorder.serve(lambda: _Read(
+                dist, 'mean', None if rewards is None else rewards[0],
+                dist.mean if rewards is None else dist.moment(1, rewards=rewards)
+            ))
 
-        return self._recorder.served_moment(k, rewards, start_time, end_time, f"{self._name}.moment", make)
+        return self._recorder.serve(lambda: _Read(
+            dist, 'moment', (k, None if rewards is None else tuple(rewards), center, permute),
+            dist.moment(k, rewards=rewards, center=center, permute=permute)
+        ))
 
 
 class _CoalescentRecorder:
@@ -177,46 +177,49 @@ class _CoalescentRecorder:
 
         return self.overrides.get(i, self._first[i].value)
 
-    def served_moment(self, k: Any, rewards: Optional[Sequence], start_time: Optional[float],
-                      end_time: Optional[float], name: str, make: Callable[[Any], _Read]) -> Any:
+    def order(self, k: Any, rewards: Optional[Sequence], start_time: Optional[float], end_time: Optional[float],
+              name: str) -> int:
         """
-        Serve a moment after validating its arguments.
+        The order of a moment read, normalised as by :meth:`PhaseTypeDistribution.moment()
+        <phasegen.distributions.PhaseTypeDistribution.moment>`, after validating the arguments of the read.
 
-        :param k: The order, at least one.
+        :param k: The order, at least one, an integer or a float of integral value.
         :param rewards: ``None``, or one reward per order.
         :param start_time: Must be ``None``.
         :param end_time: Must be ``None``.
         :param name: The quantity, for the signal.
-        :param make: Returns the read, given the reward of a first moment, ``None`` for that of the distribution.
-        :return: The moment, possibly overridden.
+        :return: The order.
         :raises _Unsupported: For an order below one, a number of rewards other than the order or a time window.
         """
-        if not isinstance(k, (int, np.integer)) or k < 1 or (rewards is not None and len(rewards) != k) or \
-                start_time is not None or end_time is not None:
+        try:
+            order = _validate_order(k)
+        except (TypeError, ValueError):
+            order = 0
+
+        if order < 1 or (rewards is not None and len(rewards) != order) or start_time is not None or \
+                end_time is not None:
             self.unsupported = True
             raise _Unsupported(f"{name} with k={k}, a time window or a number of rewards other than k")
 
-        reward = None if rewards is None else rewards[0]
-
-        return self.serve(lambda: make(reward))
+        return order
 
     def moment(self, k: int = 1, rewards: Sequence = None, start_time: float = None, end_time: float = None,
                center: bool = True, permute: bool = True) -> Any:
         """
         Serve a moment of :meth:`Coalescent.moment() <phasegen.distributions.Coalescent.moment>`, see
-        :meth:`_CoalescentRecorder.served_moment() <phasegen.gradient._CoalescentRecorder.served_moment>`.
+        :meth:`_CoalescentRecorder.order() <phasegen.gradient._CoalescentRecorder.order>`.
         """
         coal = self._coal
+        k = self.order(k, rewards, start_time, end_time, 'moment')
 
         # the distribution carries the reward of a first moment as its own
-        def make(reward: Any) -> _Read:
-            if k == 1:
-                return _Read(coal._get_dist(1, rewards), 'mean', None, coal.moment(1, rewards=rewards))
-            return _Read(coal._get_dist(k, rewards), 'moment', (k, None if rewards is None else tuple(rewards), center,
-                                                                permute),
-                         coal.moment(k, rewards=rewards, center=center, permute=permute))
+        if k == 1:
+            return self.serve(lambda: _Read(coal._get_dist(1, rewards), 'mean', None, coal.moment(1, rewards=rewards)))
 
-        return self.served_moment(k, rewards, start_time, end_time, 'moment', make)
+        return self.serve(lambda: _Read(
+            coal._get_dist(k, rewards), 'moment', (k, None if rewards is None else tuple(rewards), center, permute),
+            coal.moment(k, rewards=rewards, center=center, permute=permute)
+        ))
 
     def __getattr__(self, attr: str) -> Any:
         """

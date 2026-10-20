@@ -1,5 +1,6 @@
 """Site-frequency-spectrum distributions (SFS, folded, joint, two-locus)."""
 
+import copy
 import logging
 import itertools
 import math
@@ -19,7 +20,7 @@ from ..spectrum import SFS, TwoSFS, JointSFS, TwoLocusSFS
 from ._common import N_EMPIRICAL_SAMPLES, _descendant_config, _frequency_class, _make_hashable, _polymorphic_class, \
     _validate_order
 from .base import CumulativeDistributionFunction, DensityFunction, QuantileFunction
-from .phase_type import PhaseTypeDistribution
+from .phase_type import DemographyGradient, PhaseTypeDistribution
 from .mutation_configs import MutationLayout, SpectrumDistribution
 
 if TYPE_CHECKING:
@@ -2092,8 +2093,15 @@ class TwoLocusSFSDistribution(SpectrumDistribution):
 
     loci = demes = property(_unsupported)
 
-    #: The moments beyond the mean are functions of products of the bin lengths, which the gradient does not expand.
-    _higher_moment_gradients: bool = False
+    def _differentiable(self, k: int) -> bool:
+        """
+        Whether :class:`~phasegen.gradient.Gradient` differentiates the moments of order ``k`` exactly, only the mean,
+        since the higher moments are those of products of the bin lengths.
+
+        :param k: The order, at least one.
+        :return: Whether it does.
+        """
+        return k == 1
 
     def gradient(self, k: int = 1, rewards: Sequence[Reward] = None) -> 'DemographyGradient':
         r"""
@@ -2106,11 +2114,8 @@ class TwoLocusSFSDistribution(SpectrumDistribution):
         :param rewards: Must be ``None``, the rewards being those of the bins.
         :return: The derivatives.
         :raises NotImplementedError: If ``k`` is not one, or the moment is accumulated over a time window.
-        :raises ValueError: If ``rewards`` is given, or the last epoch has no closed form.
+        :raises ValueError: If ``rewards`` is given, or absorption is not certain in the last epoch.
         """
-        from ._gradient import _terms_gradient
-        from .phase_type import DemographyGradient
-
         if _validate_order(k) != 1:
             raise NotImplementedError("The gradient of the two-locus spectrum is available for its mean only.")
 
@@ -2120,12 +2125,44 @@ class TwoLocusSFSDistribution(SpectrumDistribution):
         if self._resolve_window() != (0.0, np.inf):
             raise NotImplementedError('Gradients are available for moments accumulated until absorption only.')
 
-        _, entries = self._mean_entries(None, self.mean)
-        out = [_terms_gradient(self, terms) for _, terms, _, _ in entries]
-        if any(o is None for o in out):
-            raise ValueError('The last epoch has no closed form, so the moment has no exact gradient.')
+        return copy.deepcopy(self._mean_gradient())
 
-        return DemographyGradient._stack([g for _, g in out], [pos for pos, _, _, _ in entries], self.mean.data.shape)
+    @cache
+    @BlasThreadLimit()
+    def _mean_gradient(self) -> 'DemographyGradient':
+        """
+        The derivatives of :meth:`TwoLocusSFSDistribution.gradient()
+        <phasegen.distributions.TwoLocusSFSDistribution.gradient>`, cached. Bin :math:`(i, j)` averages the two
+        orderings of the rewards of classes :math:`i` and :math:`j` at the two loci, and every ordering is
+        differentiated once.
+
+        :return: The derivatives.
+        """
+        from ._gradient import CrossMomentGradient
+
+        indices = self._get_indices()
+        vectors = self._locus_vectors()
+        orderings = {}
+        for j in indices:
+            out = CrossMomentGradient(self).compute(np.column_stack([vectors[0, i] for i in indices]),
+                                                    (vectors[1, j],))
+            if out is None:
+                raise ValueError('Absorption is not certain in the last epoch, so the moment has no exact gradient.')
+            orderings.update({(i, j): g for i, (_, g) in zip(indices, out)})
+
+        gradients = [DemographyGradient._sum([orderings[i, j], orderings[j, i]])._scaled(0.5)
+                     for i in indices for j in indices]
+
+        return DemographyGradient._stack(gradients, [(i, j) for i in indices for j in indices], self.mean.data.shape)
+
+    def _locus_vectors(self) -> Dict[Tuple[int, int], np.ndarray]:
+        """
+        The reward vectors of each polymorphic class at each locus, combined with the reward of the spectrum.
+
+        :return: The vectors by locus and class.
+        """
+        return {(locus, i): np.asarray(CombinedReward([self.reward, TwoLocusSFSReward(locus, i)])._get(
+            self.state_space), dtype=float) for locus in (0, 1) for i in self._get_indices()}
 
     def _mean_entries(
             self,
@@ -2143,8 +2180,7 @@ class TwoLocusSFSDistribution(SpectrumDistribution):
             of each bin.
         """
         indices = self._get_indices()
-        vectors = {(locus, i): np.asarray(CombinedReward([self.reward, TwoLocusSFSReward(locus, i)])._get(
-            self.state_space), dtype=float) for locus in (0, 1) for i in indices}
+        vectors = self._locus_vectors()
 
         entries = []
         for i in indices:

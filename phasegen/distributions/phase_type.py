@@ -21,8 +21,8 @@ from ..settings import Settings
 from ..spectrum import SFS, AbstractSpectrum
 from ..state_space import LineageCountingStateSpace, StateSpace
 
-from ._common import N_EMPIRICAL_SAMPLES, _validate_order, _validate_reward, _validate_rewards, _validate_start_time, \
-    _sqrt_spectrum
+from ._common import N_EMPIRICAL_SAMPLES, _validate_order, _validate_reward, _validate_reward_count, _validate_rewards, \
+    _validate_start_time, _sqrt_spectrum
 from .base import CallableDistributionFunctions, DensityAwareDistribution, DistributionFunction, \
     MarginalDemeDistributions, MarginalLocusDistributions, MomentAwareDistribution, _LogSurvivalGrid, \
     _GridCumulativeDistributionFunction, _GridDensityFunction, _GridQuantileFunction
@@ -134,6 +134,20 @@ class DemographyGradient:
 
         return out
 
+    def _scaled(self, factor: float) -> 'DemographyGradient':
+        """
+        The gradient multiplied by a factor, in place.
+
+        :param factor: The factor.
+        :return: The gradient.
+        """
+        self.pop_sizes *= factor
+        self.migration_rates *= factor
+        self.start_times *= factor
+        self.parameters = {name: value * factor for name, value in self.parameters.items()}
+
+        return self
+
     @staticmethod
     def quantities(epochs: Sequence[Epoch], pops: Sequence[str], pairs: Sequence[Tuple[str, str]],
                    parameters: Dict[str, float], names: Sequence[str]) -> np.ndarray:
@@ -221,8 +235,6 @@ class PhaseTypeDistribution(CallableDistributionFunctions, MomentEvaluator, Mome
         m3 = coal.tree_height.moment(3)
         cov = coal.moment(2, (pg.TreeHeightReward(), pg.TotalBranchLengthReward()))
     """
-    #: Whether :class:`~phasegen.gradient.Gradient` differentiates the moments of the distribution beyond its mean.
-    _higher_moment_gradients: bool = True
 
     def __init__(
             self,
@@ -288,6 +300,15 @@ class PhaseTypeDistribution(CallableDistributionFunctions, MomentEvaluator, Mome
         reward = self.reward if reward is None else reward
 
         return self, np.asarray(reward._get(self.state_space), dtype=float)[:, None], [()]
+
+    def _differentiable(self, k: int) -> bool:
+        """
+        Whether :class:`~phasegen.gradient.Gradient` differentiates the moments of order ``k`` exactly.
+
+        :param k: The order, at least one.
+        :return: Whether it does.
+        """
+        return True
 
     def _mean_entries(
             self,
@@ -540,6 +561,9 @@ class PhaseTypeDistribution(CallableDistributionFunctions, MomentEvaluator, Mome
         """
         k = _validate_order(k)
         _validate_rewards(rewards, k)
+
+        if rewards is not None:
+            _validate_reward_count(rewards, k)
 
         if k == 0:
             raise ValueError('The moment of order zero is constant and has no gradient.')

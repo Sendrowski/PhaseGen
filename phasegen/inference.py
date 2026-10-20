@@ -564,8 +564,9 @@ class Inference(Serializable):
             self._logger.info('Using the exact gradient of the loss.')
         else:
             self._logger.warning(
-                'The loss reads more than the moments of %s or Coalescent.moment, each with one reward per order and no '
-                'time window. Using finite differences for its gradient.', ', '.join(_DISTRIBUTIONS)
+                'The loss reads more than the moments of %s, the mean of sfs2 or Coalescent.moment, each with one reward '
+                'per order and no time window. Using finite differences for its gradient.',
+                ', '.join(d for d in _DISTRIBUTIONS if d != 'sfs2')
             )
 
     @staticmethod

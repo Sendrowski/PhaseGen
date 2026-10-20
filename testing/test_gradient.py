@@ -1070,6 +1070,28 @@ def test_gradient_of_cross_moments_of_one_ordering(center):
         assert grad.pop_sizes[1, grad.pops.index('a')] == pytest.approx(numeric, rel=1e-6)
 
 
+def test_gradient_validates_the_number_of_rewards():
+    """A number of rewards other than the order raises, as for the moment. Regression: the derivative of the moment of
+    the number of rewards given was returned, the mean for one reward at order two."""
+    coal = pg.Coalescent(n=4)
+
+    for k, rewards in [(2, [pg.TreeHeightReward()]), (2, [pg.TreeHeightReward()] * 3), (1, [pg.TreeHeightReward()] * 2)]:
+        with pytest.raises(ValueError, match='Number of specified rewards'):
+            coal.gradient(k, rewards)
+        with pytest.raises(ValueError, match='Number of specified rewards'):
+            coal.tree_height.gradient(k, rewards)
+
+
+def test_loss_gradient_of_moments_of_a_float_order():
+    """An order of integral float value, as every numeric literal of R, is read exactly. Regression: only integer
+    orders were, and the loss fell back to finite differences."""
+    coal = lambda N: pg.Coalescent(n=4, demography=pg.Demography(pop_sizes={'pop_0': {0: 1, 0.5: N}}))
+
+    for k in (1.0, 2.0, np.float64(3)):
+        assert Gradient(coal, lambda c: float(c.moment(k)))._exact({'N': 1.3}, {'N': (0.1, 5)}) is not None
+        assert Gradient(coal, lambda c: float(c.tree_height.moment(k)))._exact({'N': 1.3}, {'N': (0.1, 5)}) is not None
+
+
 @pytest.mark.parametrize('case', ['lineage weight', 'locus weight', 'custom model'])
 def test_parameter_jacobian_of_parameters_outside_the_rates(case):
     """A parameter that enters neither the demography nor the rate parameters, such as a weight of an initial

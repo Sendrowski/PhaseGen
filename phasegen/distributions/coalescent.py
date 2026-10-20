@@ -17,7 +17,8 @@ from ..serialization import Serializable
 from ..settings import Settings
 from ..state_space import StateSpace, BlockCountingStateSpace, LineageCountingStateSpace, JointBlockCountingStateSpace, TwoLocusBlockCountingStateSpace
 
-from ._common import N_EMPIRICAL_SAMPLES, _make_hashable, _validate_order, _validate_reward, _validate_rewards
+from ._common import N_EMPIRICAL_SAMPLES, _make_hashable, _validate_order, _validate_reward, _validate_reward_count, \
+    _validate_rewards
 from .base import DensityAwareDistribution, MomentAwareDistribution
 from .phase_type import PhaseTypeDistribution, TreeHeightDistribution, TotalBranchLengthDistribution
 from .spectra import FoldedSFSDistribution, JointSFSDistribution, TwoLocusSFSDistribution, UnfoldedSFSDistribution
@@ -941,6 +942,9 @@ class Coalescent(AbstractCoalescent, Serializable):
         """
         k = _validate_order(k)
         _validate_rewards(rewards, k)
+
+        if rewards is not None:
+            _validate_reward_count(rewards, k)
 
         if k == 0:
             raise ValueError('The moment of order zero is constant and has no gradient.')
