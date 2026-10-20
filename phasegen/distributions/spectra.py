@@ -2114,19 +2114,68 @@ class TwoLocusSFSDistribution(SpectrumDistribution):
 
     loci = demes = property(_unsupported)
 
-    def gradient(self, k: int = 1, rewards: Sequence[Reward] = None) -> NoReturn:
-        """
-        Not available, as an entry of the two-locus spectrum is a cross moment of two rewards.
+    #: The moments beyond the mean are functions of products of the bin lengths, which the gradient does not expand.
+    _higher_moment_gradients: bool = False
 
-        :param k: The order of the moment.
-        :param rewards: The rewards.
-        :raises NotImplementedError: Always.
+    def gradient(self, k: int = 1, rewards: Sequence[Reward] = None) -> 'DemographyGradient':
+        r"""
+        Exact derivatives of every bin of the mean :math:`\mathbb{E}[L^0_i L^1_j]`, a cross-moment of order two of
+        the locus-0 and locus-1 bin rewards, differentiated as described in
+        :meth:`PhaseTypeDistribution.gradient() <phasegen.distributions.PhaseTypeDistribution.gradient>`, with the
+        bins as leading axes.
+
+        :param k: The order of the moment, which must be one.
+        :param rewards: Must be ``None``, the rewards being those of the bins.
+        :return: The derivatives.
+        :raises NotImplementedError: If ``k`` is not one, or the moment is accumulated over a time window.
+        :raises ValueError: If ``rewards`` is given, or the last epoch has no closed form.
         """
-        raise NotImplementedError(
-            "A two-locus SFS entry (i, j) is a cross moment E[L^0_i . L^1_j] of two rewards, which has no exact "
-            "gradient. The gradient of a per-locus branch length is pg.Coalescent(...).gradient(rewards="
-            "[pg.rewards.TwoLocusSFSReward(locus, i)])."
-        )
+        from ._gradient import _terms_gradient
+        from .phase_type import DemographyGradient
+
+        if _validate_order(k) != 1:
+            raise NotImplementedError("The gradient of the two-locus spectrum is available for its mean only.")
+
+        if rewards is not None:
+            raise ValueError("The two-locus spectrum takes the rewards of its bins and no other rewards.")
+
+        if self._resolve_window() != (0.0, np.inf):
+            raise NotImplementedError('Gradients are available for moments accumulated until absorption only.')
+
+        _, entries = self._mean_entries(None, self.mean)
+        out = [_terms_gradient(self, terms) for _, terms, _, _ in entries]
+        if any(o is None for o in out):
+            raise ValueError('The last epoch has no closed form, so the moment has no exact gradient.')
+
+        return DemographyGradient._stack([g for _, g in out], [pos for pos, _, _, _ in entries], self.mean.data.shape)
+
+    def _mean_entries(
+            self,
+            reward: Reward,
+            value: TwoLocusSFS
+    ) -> Tuple['PhaseTypeDistribution', List[Tuple[Tuple[int, ...], list, float, float]]]:
+        """
+        The polymorphic bins of the mean, each the average of the cross-moments of the two orderings of the locus-0
+        reward of one class and the locus-1 reward of the other, see :meth:`PhaseTypeDistribution._mean_entries()
+        <phasegen.distributions.PhaseTypeDistribution._mean_entries>`.
+
+        :param reward: Must be ``None``, the rewards being those of the bins.
+        :param value: The mean.
+        :return: The distribution and the position, terms, weighted value and sum of the moduli of the weighted values
+            of each bin.
+        """
+        indices = self._get_indices()
+        vectors = {(locus, i): np.asarray(CombinedReward([self.reward, TwoLocusSFSReward(locus, i)])._get(
+            self.state_space), dtype=float) for locus in (0, 1) for i in indices}
+
+        entries = []
+        for i in indices:
+            for j in indices:
+                x = float(value.data[i, j])
+                terms = [(0.5, (vectors[0, i], vectors[1, j])), (0.5, (vectors[0, j], vectors[1, i]))]
+                entries.append(((i, j), terms, x, abs(x)))
+
+        return self, entries
 
     def distribution(self, reward: Reward = None) -> 'RewardDistribution':
         """

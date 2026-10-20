@@ -16,7 +16,7 @@ from .distributions._gradient import CrossMomentGradient, MeanGradient, _rate_pa
 from .spectrum import AbstractSpectrum
 
 #: The distributions of a :class:`~phasegen.distributions.Coalescent` whose moments the gradient supports.
-_DISTRIBUTIONS = ('sfs', 'fsfs', 'jsfs', 'tree_height', 'total_branch_length')
+_DISTRIBUTIONS = ('sfs', 'fsfs', 'jsfs', 'sfs2', 'tree_height', 'total_branch_length')
 
 #: Relative step of the central differences of the statistic over the entries of a moment. The statistic is evaluated on
 #: moments it is handed, a smooth function of them, so that a small step leaves a truncation error of order its square.
@@ -64,7 +64,8 @@ _MOMENTS = {'var': (2, True), 'm2': (2, False), 'm3': (3, False), 'm4': (4, Fals
 class _DistributionRecorder:
     """
     Stand-in for a distribution of a coalescent that serves its moments, recording each read: the mean, the variance,
-    standard deviation and raw moments up to the fourth, and the covariance and correlation of the bins of a spectrum.
+    standard deviation and raw moments up to the fourth, and the covariance and correlation of the bins of a spectrum,
+    and for the two-locus spectrum its mean.
     """
 
     def __init__(self, distribution: Any, recorder: '_CoalescentRecorder', name: str) -> None:
@@ -91,6 +92,10 @@ class _DistributionRecorder:
         if attr == 'mean':
             return self._recorder.serve(lambda: _Read(dist, 'mean', None, dist.mean))
 
+        if not dist._higher_moment_gradients:
+            self._recorder.unsupported = True
+            raise _Unsupported(f"{self._name}.{attr}")
+
         if attr in _MOMENTS:
             k, center = _MOMENTS[attr]
             return self._recorder.serve(lambda: _Read(dist, 'moment', (k, None, center, True), getattr(dist, attr)))
@@ -115,6 +120,10 @@ class _DistributionRecorder:
         <phasegen.gradient._CoalescentRecorder.served_moment>`.
         """
         dist = self._distribution
+
+        if not dist._higher_moment_gradients:
+            self._recorder.unsupported = True
+            raise _Unsupported(f"{self._name}.moment")
 
         def make(reward: Any) -> _Read:
             if k == 1:
@@ -257,7 +266,7 @@ class Gradient:
     <phasegen.distributions.Coalescent.total_branch_length>`: the mean, the variance and standard deviation, the raw
     moments ``m2`` to ``m4``, the covariance and correlation of the bins of a spectrum, and their moments of any order,
     as from :meth:`Coalescent.moment() <phasegen.distributions.Coalescent.moment>`, each with one reward per order and
-    no time window. The loss of an :class:`~phasegen.inference.Inference` is such a statistic. As a function of the parameters, the
+    no time window, and the mean of :attr:`Coalescent.sfs2 <phasegen.distributions.Coalescent.sfs2>`. The loss of an :class:`~phasegen.inference.Inference` is such a statistic. As a function of the parameters, the
     statistic is the composition
 
     .. math::
@@ -584,9 +593,7 @@ class Gradient:
             value and sum of the moduli of the weighted values of each entry.
         """
         if read.kind == 'mean':
-            host, R, positions = read.dist._mean_rewards(read.args)
-            return host, [(pos, [(1.0, (R[:, j],))], Gradient._entry(read.value, pos),
-                           abs(Gradient._entry(read.value, pos))) for j, pos in enumerate(positions)]
+            return read.dist._mean_entries(read.args, read.value)
 
         if read.kind == 'cov':
             return read.dist, read.dist._cov_entries()

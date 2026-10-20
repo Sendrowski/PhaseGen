@@ -221,6 +221,8 @@ class PhaseTypeDistribution(CallableDistributionFunctions, MomentEvaluator, Mome
         m3 = coal.tree_height.moment(3)
         cov = coal.moment(2, (pg.TreeHeightReward(), pg.TotalBranchLengthReward()))
     """
+    #: Whether :class:`~phasegen.gradient.Gradient` differentiates the moments of the distribution beyond its mean.
+    _higher_moment_gradients: bool = True
 
     def __init__(
             self,
@@ -286,6 +288,29 @@ class PhaseTypeDistribution(CallableDistributionFunctions, MomentEvaluator, Mome
         reward = self.reward if reward is None else reward
 
         return self, np.asarray(reward._get(self.state_space), dtype=float)[:, None], [()]
+
+    def _mean_entries(
+            self,
+            reward: Reward,
+            value: Any
+    ) -> Tuple['PhaseTypeDistribution', List[Tuple[Tuple[int, ...], List[Tuple[float, Tuple[np.ndarray, ...]]], float,
+                                                   float]]]:
+        """
+        The entries of the first moment, each with the ordered raw moments whose derivatives give its derivatives, see
+        :meth:`_moment_entries`, here the mean of each reward vector of :meth:`_mean_rewards`.
+
+        :param reward: The reward of the first moment, ``None`` for that of the distribution.
+        :param value: The first moment.
+        :return: The distribution whose state space carries the reward vectors, and the position, terms, weighted value
+            and sum of the moduli of the weighted values of each entry.
+        """
+        host, R, positions = self._mean_rewards(reward)
+        entries = []
+        for j, pos in enumerate(positions):
+            x = float(value) if pos == () else float(getattr(value, 'data', value)[pos])
+            entries.append((pos, [(1.0, (R[:, j],))], x, abs(x)))
+
+        return host, entries
 
     def _moment_entries(
             self,

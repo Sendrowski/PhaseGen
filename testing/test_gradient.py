@@ -352,6 +352,32 @@ def test_loss_gradient_higher_moments(loss):
     _assert_loss_gradient(_two_deme, loss, x0, {k: (0.05, 5) for k in x0}, None, rtol=1e-6)
 
 
+def _two_loci(N1: float = 0.5, r: float = 0.7) -> pg.Coalescent:
+    """Two loci under recombination with a size change."""
+    return pg.Coalescent(n=4, loci=2, recombination_rate=r,
+                         demography=pg.Demography(pop_sizes={'pop_0': {0: 1, 0.4: N1}}))
+
+
+def test_gradient_of_the_two_locus_spectrum_matches_differences():
+    """Every bin of the mean two-locus SFS, a cross-moment of the locus-0 and locus-1 rewards, by a population size
+    and the recombination rate."""
+    grad = _two_loci().sfs2.gradient()
+
+    np.testing.assert_allclose(grad.pop_sizes[..., 1, 0],
+                               _richardson(lambda x: _two_loci(N1=x).sfs2.mean.data, 0.5), rtol=1e-6, atol=1e-10)
+    np.testing.assert_allclose(grad.parameters['recombination_rate'],
+                               _richardson(lambda x: _two_loci(r=x).sfs2.mean.data, 0.7), rtol=1e-6, atol=1e-10)
+
+
+def test_loss_gradient_two_locus_spectrum():
+    """A loss on the mean two-locus SFS is differentiated exactly, and one on its variance by finite differences."""
+    x0, bounds = {'N1': 0.5, 'r': 0.7}, {'N1': (0.1, 5), 'r': (0.01, 5)}
+    coal = lambda N1, r: _two_loci(N1, r)
+
+    _assert_loss_gradient(coal, lambda c, obs: float(np.sum(c.sfs2.mean.data ** 2)), x0, bounds, None, rtol=1e-6)
+    assert Gradient(coal, lambda c: float(np.sum(c.sfs2.var.data)))._exact(x0, bounds) is None
+
+
 def test_loss_gradient_of_a_covariance_takes_one_backward_pass_per_bin(monkeypatch):
     """A scalar loss on the covariance of the SFS takes one backward pass per bin, the orderings that share their
     second bin being summed over the first."""
@@ -1099,14 +1125,16 @@ def test_gradient_rejects_a_single_reward():
         coal.tree_height.gradient(rewards=pg.TotalBranchLengthReward())
 
 
-def test_two_locus_sfs_gradient_raises():
-    """The two-locus SFS holds cross moments of two rewards, which have no first-moment gradient. Regression: the
+def test_two_locus_sfs_gradient_is_that_of_its_bins():
+    """The gradient of the two-locus SFS holds one derivative per bin, and higher orders raise. Regression: the
     gradient of the tree height was returned silently, of shape (2, 1) and equal to Coalescent.gradient()."""
     coal = pg.Coalescent(n=4, loci=pg.LocusConfig(n=2, recombination_rate=1),
                          demography=pg.Demography(pop_sizes={'pop_0': {0: 1, 0.5: 2}}))
 
-    with pytest.raises(NotImplementedError, match='cross moment'):
-        coal.sfs2.gradient()
+    assert coal.sfs2.gradient().pop_sizes.shape == coal.sfs2.mean.data.shape + (2, 1)
+
+    with pytest.raises(NotImplementedError, match='mean only'):
+        coal.sfs2.gradient(2)
 
 
 def test_gradient_returns_a_copy_and_accepts_a_list_of_rewards():
