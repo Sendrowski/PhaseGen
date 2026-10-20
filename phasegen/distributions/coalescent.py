@@ -5,7 +5,7 @@ import logging
 from abc import ABC, abstractmethod
 from ..caching import cached_property, cache
 from collections.abc import Mapping
-from typing import List, Dict, Iterable, Iterator, Sequence, Tuple, TYPE_CHECKING
+from typing import Any, List, Dict, Iterable, Iterator, Sequence, Tuple, TYPE_CHECKING
 import numpy as np
 from ..coalescent_models import StandardCoalescent, CoalescentModel
 from ..demography import Demography, PopSizeChanges
@@ -61,7 +61,11 @@ class _StateSpaces(Mapping):
 
         :param name: Key.
         :return: Current key.
+        :raises KeyError: If the key is not a string.
         """
+        if not isinstance(name, str):
+            raise KeyError(name)
+
         key = name.removesuffix(_DEPRECATED_SUFFIX)
 
         if key != name and key in self.types:
@@ -89,7 +93,7 @@ class _StateSpaces(Mapping):
 
         :param name: Key of the state space.
         :return: State space.
-        :raises KeyError: If the key is unknown.
+        :raises KeyError: If the key is unknown or not a string.
         :raises ValueError: If the configuration does not support the state space.
         :raises NotImplementedError: If the configuration does not support the state space.
         """
@@ -114,6 +118,19 @@ class _StateSpaces(Mapping):
             built[key] = space
 
         return space
+
+    def get(self, name: str, default: Any = None) -> Any:
+        """
+        Get a state space if the configuration supports it.
+
+        :param name: Key of the state space.
+        :param default: Returned for an unknown or unsupported key.
+        :return: State space or ``default``.
+        """
+        try:
+            return self[name]
+        except (KeyError, ValueError, NotImplementedError):
+            return default
 
     def __contains__(self, name: object) -> bool:
         """

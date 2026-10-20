@@ -1828,6 +1828,40 @@ def test_state_spaces_unknown_key_raises_key_error():
         coal.state_spaces['two_locus_block_counting']
 
 
+def test_state_spaces_get_and_len_agree_with_membership():
+    """``get`` returns the default for a key that is unsupported or not a string, as ``in`` reports, while indexing
+    keeps the error of the state space, and the length counts the supported spaces."""
+    coal = pg.Coalescent(n=3)
+
+    assert coal.state_spaces.get('two_locus_block_counting') is None
+    assert coal.state_spaces.get(1, 'default') == 'default'
+    assert coal.state_spaces.get('block_counting') is coal.state_spaces['block_counting']
+    assert len(coal.state_spaces) == 3
+
+    with pytest.raises(KeyError):
+        coal.state_spaces[1]
+
+
+def test_inference_restores_state_spaces_under_deprecated_keys():
+    """An Inference payload of version 2.1.0 keys its cached state spaces by the names of the accessor properties.
+    Restoring it renames them, and the coalescents of its evaluations reuse them."""
+    inf = pg.Inference(
+        x0=dict(N=1.0), bounds=dict(N=(0.1, 5)), observation=pg.SFS([0, 10, 5, 3, 0]),
+        coal=lambda N: pg.Coalescent(n=4, demography=pg.Demography(pop_sizes={'pop_0': {0: 1, 0.5: N}})),
+        loss=lambda coal, obs: float(coal.sfs.mean.data[1]), parallelize=False
+    )
+    spaces = dict(inf._state_spaces)
+    state = inf.__getstate__()
+    state['_state_spaces'] = {f'{key}_state_space': space for key, space in spaces.items()}
+
+    restored = pg.Inference.__new__(pg.Inference)
+    restored.__setstate__(state)
+
+    assert list(restored._state_spaces) == list(spaces)
+    coal = restored.get_coal(N=1.2)
+    assert all(coal.state_spaces[key] is restored._state_spaces[key] for key in spaces)
+
+
 def test_deprecated_state_space_accessors_warn_and_return_the_mapped_space(caplog):
     """The accessor properties and the keys ending in '_state_space' log a warning and return the mapped space."""
     coal = pg.Coalescent(n=3)
