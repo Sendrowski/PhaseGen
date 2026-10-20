@@ -70,10 +70,9 @@ class Settings(metaclass=_SettingsMeta):
     #: transforms of reward distributions. The result is unchanged. Set to 0 or very large to force either path.
     expm_action_min_dim: int = 1500
 
-    #: Number of threads of the BLAS libraries while moments and their gradients are evaluated and while an inference
-    #: optimizes, restored afterwards, or ``None`` to leave them unchanged. The matrices of a moment are small enough that several threads gain little,
-    #: and where NumPy and SciPy each load their own OpenBLAS, as their wheels do, several threads in both stall the
-    #: evaluation by up to several hundred times.
+    #: Number of BLAS threads while moments, their gradients and inferences are evaluated, or ``None`` to leave them
+    #: unchanged. More threads gain little on these small matrices, and with the NumPy and SciPy wheels, which each
+    #: load their own OpenBLAS, they slow the evaluation down many times.
     blas_threads: Optional[int] = 1
 
     #: Whether to evaluate moments until absorption with the Green's matrix of the unbounded last epoch, see
