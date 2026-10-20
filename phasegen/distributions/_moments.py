@@ -24,7 +24,7 @@ from ..rewards import Reward, CustomReward, UnfoldedSFSReward, FoldedSFSReward, 
 from ..settings import Settings
 from ..state_space import BlockCountingStateSpace
 
-from ._gradient import _OccupationStep, _TapedAction
+from ._gradient import _ClosedFormTape, _OccupationStep, _TapedAction, _VanLoanStep
 from ._common import _make_hashable, _validate_order, _validate_reward_count, _validate_rewards, \
     _validate_start_time
 
@@ -1500,7 +1500,8 @@ class MomentEvaluator:
             k: int,
             rewards: Sequence[Reward],
             start_time: float = 0.0,
-            heads: Sequence[Reward] = None
+            heads: Sequence[Reward] = None,
+            tape: _ClosedFormTape = None
     ) -> np.ndarray:
         """
         Raw moment of a single reward ordering from ``start_time`` to absorption with the closed-form last epoch of
@@ -1516,10 +1517,16 @@ class MomentEvaluator:
         :param rewards: Sequence of k rewards (a single ordering).
         :param start_time: The non-negative start time.
         :param heads: Rewards each substituted for the first of ``rewards``. By default, the first of ``rewards``.
+        :param tape: If given, receives the record that ``CrossMomentGradient`` differentiates, for a single head and a
+            zero start time. The sparse actions are then applied by ``_TapedAction``.
         :return: The kth moment accumulated until absorption, one per head.
+        :raises ValueError: If ``tape`` is given with several heads or a positive start time.
         """
         heads = tuple(rewards[:1]) if heads is None else tuple(heads)
         m = len(heads)
+
+        if tape is not None and (m > 1 or start_time > 0):
+            raise ValueError("A closed form is recorded for a single head from time zero only.")
 
         epochs = self._get_epochs_until_unbounded(k)
         self._check_demography_conditioning(epochs)
@@ -1590,6 +1597,11 @@ class MomentEvaluator:
             z[(m - 1 + j) * n + idx_t] = nu[j]
         z[(m - 1 + k) * n + idx_a] = e[idx_a]
 
+        if tape is not None:
+            tape.epochs, tape.idx_t, tape.T, tape.sparse, tape.lamb = epochs, idx_t, T, sparse, lamb
+            tape.rewards = r_all
+            tape.blocks = [z[j * n + idx_t].copy() for j in range(k)]
+
         # --- preceding finite epochs, backward, via the (sparse or dense) full Van Loan matrix exponential ---
         # Each epoch is balanced on its own rates. ``V * tau`` carries the epoch's generator on the diagonal and its
         # reward blocks divided by the factor, so a factor drawn from one epoch leaves the reward blocks of an epoch
@@ -1606,24 +1618,46 @@ class MomentEvaluator:
             self.state_space.update_epoch(epoch)
             self._check_numerical_stability(self.state_space.S, i_epoch)
             lamb_e = self._balance(epoch, start_time, np.inf, scale)
-            tau = (epoch.end_time - max(epoch.start_time, start_time)) / lamb_e
+            duration = epoch.end_time - max(epoch.start_time, start_time)
+            tau = duration / lamb_e
 
             if use_action:
                 r_vecs = [np.asarray(r, dtype=float) for r in R]
                 V = self._van_loan_matrix(r_vecs, self._epoch_csr(i_epoch) * lamb_e, k, sparse=True, heads=m)
-                steps.append((lamb_e, V * tau))
+                steps.append((i_epoch, duration, lamb_e, V * tau))
             else:
-                steps.append((lamb_e, (self._dense_rate_matrix() * lamb_e, tau)))
+                steps.append((i_epoch, duration, lamb_e, (self._dense_rate_matrix() * lamb_e, tau)))
 
         if not use_action:
             exps = self._block_expms([
-                lambda S=S, tau=tau: self._van_loan_matrix(R, S, k) * tau for _, (S, tau) in steps
+                lambda S=S, tau=tau: self._van_loan_matrix(R, S, k) * tau for _, _, _, (S, tau) in steps
             ], n, [False] * (k + 1))
 
-        for lamb_e, op in steps:
+        for i_epoch, duration, lamb_e, op in steps:
             z[:(m - 1) * n] *= (lamb / lamb_e) ** k
-            lamb = self._rebase(z[(m - 1) * n:], lamb, lamb_e, k, n)
-            z = Backend.expm_multiply(op, z, blocks=k + m) if use_action else next(exps) @ z
+
+            if tape is None:
+                lamb = self._rebase(z[(m - 1) * n:], lamb, lamb_e, k, n)
+                z = Backend.expm_multiply(op, z, blocks=k + m) if use_action else next(exps) @ z
+                continue
+
+            rebase = np.ones_like(z)
+            self._rebase(rebase, lamb, lamb_e, k, n)
+            lamb = self._rebase(z, lamb, lamb_e, k, n)
+
+            if use_action:
+                step = _VanLoanStep(i_epoch, epochs[i_epoch], duration, rebase, z.copy(), op.tocsr())
+                step.action = _TapedAction(step.A, blocks=k + m)
+                z, step.checkpoints = step.action.apply(z)
+            else:
+                S, tau = op
+                step = _VanLoanStep(i_epoch, epochs[i_epoch], duration, rebase, z.copy(),
+                                    self._van_loan_matrix(R, S, k) * tau)
+                step.exp = next(exps)
+                z = step.exp @ z
+
+            step.z_out = z.copy()
+            tape.steps.append(step)
 
         # the entry distribution propagated to the start time with the plain generator
         alpha_ext = np.zeros((k + 1) * n)
@@ -1635,6 +1669,9 @@ class MomentEvaluator:
             self.state_space.update_epoch(epoch)
             alpha_ext[:n] = self._propagate_plain(alpha_ext[:n], min(epoch.end_time, start_time) - epoch.start_time,
                                                   use_action)
+
+        if tape is not None:
+            tape.alpha_ext, tape.factor = alpha_ext, factorial(k) * lamb ** k
 
         return factorial(k) * lamb ** k * np.array([
             float(alpha_ext @ np.concatenate([z[a * n:(a + 1) * n], z[m * n:]])) for a in range(m)

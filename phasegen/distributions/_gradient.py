@@ -1,6 +1,7 @@
 """
-The backward pass of the occupation-time recursion that gives the exact derivatives of first moments, as described in
-:meth:`PhaseTypeDistribution.gradient() <phasegen.distributions.PhaseTypeDistribution.gradient>`.
+The backward passes that give the exact derivatives of moments, as described in
+:meth:`PhaseTypeDistribution.gradient() <phasegen.distributions.PhaseTypeDistribution.gradient>`: that of the
+occupation-time recursion for first moments, and that of the closed form of higher cross-moments.
 """
 
 import copy
@@ -231,6 +232,73 @@ class _OccupationStep:
         """
         n = len(self.idx_t)
         return sp.bmat([[sp.csr_matrix(self.T), sp.identity(n)], [None, sp.csr_matrix((n, n))]], format='csr')
+
+
+class _VanLoanStep:
+    """
+    One finite epoch of ``MomentEvaluator._accumulate_closed_form``, as recorded for ``CrossMomentGradient``. The
+    extended column vector entering the epoch is multiplied entrywise by ``rebase`` into ``z_in`` and then mapped by
+    the exponential of the Van Loan matrix ``A`` into ``z_out``.
+    """
+
+    def __init__(self, index: int, epoch: Epoch, duration: float, rebase: np.ndarray, z_in: np.ndarray,
+                 A: 'np.ndarray | sp.spmatrix') -> None:
+        """
+        Record an epoch.
+
+        :param index: The position of the epoch in the epochs of the moment.
+        :param epoch: The epoch.
+        :param duration: Its duration, by which the generator blocks of ``A`` are scaled.
+        :param rebase: The rebasing onto the balancing factor of the epoch, as a vector of factors.
+        :param z_in: The rebased extended vector.
+        :param A: The Van Loan matrix times its step, linear in the duration.
+        """
+        self.index, self.epoch, self.duration, self.rebase, self.z_in, self.A = index, epoch, duration, rebase, z_in, A
+
+        #: The dense exponential of ``A``, on the dense path.
+        self.exp: Optional[np.ndarray] = None
+
+        #: The action of ``A``, on the sparse path, and its step inputs and term counts.
+        self.action: Optional[_TapedAction] = None
+        self.checkpoints: Optional[List[Tuple[np.ndarray, int]]] = None
+
+        #: The extended vector leaving the epoch.
+        self.z_out: Optional[np.ndarray] = None
+
+
+class _ClosedFormTape:
+    """
+    The record of ``MomentEvaluator._accumulate_closed_form`` for one ordering of the rewards from time zero, which
+    ``CrossMomentGradient`` differentiates.
+    """
+
+    def __init__(self) -> None:
+        """
+        Start an empty record.
+        """
+        #: The epochs of the moment, the last of which lasts until absorption.
+        self.epochs: List[Epoch] = []
+
+        #: The transient states of the last epoch that can carry mass, its transient block and whether it is sparse.
+        self.idx_t: Optional[np.ndarray] = None
+        self.T: 'np.ndarray | sp.spmatrix | None' = None
+        self.sparse: bool = False
+
+        #: The balancing factor of the last epoch.
+        self.lamb: float = 1.0
+
+        #: The reward vectors over all states, in order.
+        self.rewards: List[np.ndarray] = []
+
+        #: The blocks ``0, ..., k - 1`` of the extended vector of the last epoch on its transient states.
+        self.blocks: List[np.ndarray] = []
+
+        #: The finite epochs, latest first, as they are applied.
+        self.steps: List[_VanLoanStep] = []
+
+        #: The extended initial distribution and the factor of the moment, which is ``factor * alpha_ext @ z``.
+        self.alpha_ext: Optional[np.ndarray] = None
+        self.factor: float = 1.0
 
 
 class _GeneratorBasis:
@@ -590,19 +658,192 @@ class MeanGradient:
 
     def _basis(self) -> _GeneratorBasis:
         """
-        The generator basis of the state space, kept on the state space, which :class:`~phasegen.inference.Inference`
-        shares across evaluations, as is the error of a space without one.
+        The generator basis of the state space, see :func:`_generator_basis`.
 
         :raises ValueError: If the generator is not affine in the inverse time scales and migration rates.
         """
-        ss = self.distribution.state_space
-        if ss._generator_basis is None:
-            try:
-                ss._generator_basis = _GeneratorBasis(ss)
-            except ValueError as e:
-                ss._generator_basis = e
+        return _generator_basis(self.distribution.state_space)
 
-        if isinstance(ss._generator_basis, ValueError):
-            raise ss._generator_basis
 
-        return ss._generator_basis
+class _Contraction:
+    """
+    The contraction of a derivative by the entries of a generator with the derivatives of the generator by the
+    population sizes, the migration rates and the parameters of the coalescent model, over the entries of a set of
+    states that the generators can take.
+    """
+
+    def __init__(self, basis: _GeneratorBasis, idx: np.ndarray) -> None:
+        """
+        Restrict the basis to a set of states.
+
+        :param basis: The generator basis.
+        :param idx: The states.
+        """
+        self.basis, self.idx = basis, idx
+        C, M, self.rows, self.cols = basis.transient(idx)
+
+        #: The coalescence and migration parts at the entries.
+        self.C = {p: np.asarray(X[self.rows, self.cols]).ravel() for p, X in C.items()}
+        self.M = {pair: np.asarray(X[self.rows, self.cols]).ravel() for pair, X in M.items()}
+
+    def add(self, grad: 'DemographyGradient', e: int, g: np.ndarray, scale: float) -> None:
+        """
+        Add a derivative by the entries of the generator of an epoch to the gradient.
+
+        :param grad: The gradient.
+        :param e: The position of the epoch.
+        :param g: The derivative by the entries ``(rows, cols)``.
+        :param scale: The factor with which the generator enters.
+        """
+        epoch = grad.epochs[e]
+        coefficients = self.basis.coefficients(epoch)
+        for i, pop in enumerate(grad.pops):
+            grad.pop_sizes[e, i] += scale * coefficients[pop] * float(self.C[pop] @ g)
+        for j, pair in enumerate(grad.pairs):
+            grad.migration_rates[e, j] += scale * float(self.M[pair] @ g)
+        for name, dS in self.basis.parameter_derivatives(epoch, self.idx).items():
+            grad.parameters[name] += scale * float(np.asarray(dS[self.rows, self.cols]).ravel() @ g)
+
+
+class CrossMomentGradient:
+    r"""
+    Values and derivatives of the raw cross-moment :math:`k!\, \mathbb{E}_\sigma[R_1 \cdots R_k]` of one ordering of
+    :math:`k \geq 2` rewards, the closed form of ``MomentEvaluator._accumulate_closed_form``, by a backward pass through
+    its record, as described in :meth:`PhaseTypeDistribution.gradient()
+    <phasegen.distributions.PhaseTypeDistribution.gradient>`.
+    """
+
+    def __init__(self, distribution: 'PhaseTypeDistribution') -> None:
+        """
+        Configure the gradient.
+
+        :param distribution: The distribution whose state space and demography define the moment.
+        """
+        self.distribution = distribution
+
+    def compute(self, heads: np.ndarray,
+                tail: Sequence[np.ndarray]) -> Optional[List[Tuple[float, 'DemographyGradient']]]:
+        """
+        The cross-moments and their gradients of the orderings that start with each column of ``heads``, followed by
+        the rewards of ``tail``.
+
+        :param heads: The first reward vectors over the states, one per column.
+        :param tail: The following reward vectors.
+        :return: The moment and its gradient of each column, or ``None`` where the last epoch has no closed form.
+        :raises ValueError: If the generator is not affine in the inverse time scales and migration rates.
+        """
+        from ..rewards import CustomReward
+        from ..settings import Settings
+        from .phase_type import DemographyGradient
+
+        dist = self.distribution
+        k = 1 + len(tail)
+        if not (Settings.closed_form_last_epoch and dist._absorption_certain_in_last_epoch(k)):
+            return None
+
+        n = dist.state_space.k
+        basis = _generator_basis(dist.state_space)
+        tail = tuple(CustomReward(lambda _, r=np.asarray(r, dtype=float): r) for r in tail)
+
+        out = []
+        for head in np.asarray(heads, dtype=float).T:
+            tape = _ClosedFormTape()
+            value = float(dist._accumulate_closed_form(k, (CustomReward(lambda _, r=head: r),) + tail, tape=tape)[0])
+
+            names = list(_rate_parameters(dist.state_space.model, dist.state_space.locus_config))
+            grad = DemographyGradient(tape.epochs, basis.pops, basis.pairs,
+                                      parameters=[name for name in names if basis._stencil(name) is not None])
+            full = _Contraction(basis, np.arange(n))
+            rows = np.concatenate([j * n + full.rows for j in range(k + 1)])
+            cols = np.concatenate([j * n + full.cols for j in range(k + 1)])
+
+            # the finite epochs, earliest first, carrying the adjoint row vector of the extended vector forward
+            y = tape.factor * tape.alpha_ext
+            for step in reversed(tape.steps):
+                if step.action is None:
+                    G = sla.expm_frechet(step.A.T, np.outer(y, step.z_in), compute_expm=False)
+                    g = sum(G[j * n:(j + 1) * n, j * n:(j + 1) * n] for j in range(k + 1))[full.rows, full.cols]
+                    y_in = y @ step.exp
+                else:
+                    y_in, gA = step.action.reverse(y, step.checkpoints, rows, cols)
+                    g = gA.reshape(k + 1, -1).sum(axis=0)
+
+                # the generator enters every diagonal block multiplied by the duration, and the boundaries of the epoch
+                # move its duration
+                full.add(grad, step.index, g, step.duration)
+                dt = float(y @ (step.A @ step.z_out)) / step.duration
+                grad.start_times[step.index + 1] += dt
+                if step.index > 0:
+                    grad.start_times[step.index] -= dt
+
+                y = y_in * step.rebase
+
+            # the last epoch: block j is (-T)^{-1} (r_j * block j + 1) / lamb, the last block the ones vector
+            last = _Contraction(basis, tape.idx_t)
+            solve = dist._lu_solver(-tape.T.T, tape.sparse)
+            a = y[tape.idx_t]
+            g = np.zeros(len(last.rows))
+            for j in range(k):
+                q = solve(a)
+                g += q[last.rows] * tape.blocks[j][last.cols]
+                if j + 1 < k:
+                    a = y[(j + 1) * n + tape.idx_t] + q / tape.lamb * tape.rewards[j][tape.idx_t]
+            last.add(grad, len(tape.epochs) - 1, g, 1.0)
+
+            grad.parameters = {name: float(v) for name, v in grad.parameters.items()}
+            out.append((value, grad))
+
+        return out
+
+
+def _terms_gradient(
+        distribution: 'PhaseTypeDistribution',
+        terms: Sequence[Tuple[float, Tuple[np.ndarray, ...]]]
+) -> Optional[Tuple[float, 'DemographyGradient']]:
+    """
+    The weighted sum of ordered raw moments of ``PhaseTypeDistribution._moment_terms`` and its gradient. The orderings
+    are linear in their first reward, so the terms that share the following rewards take one backward pass.
+
+    :param distribution: The distribution whose state space the reward vectors are defined on.
+    :param terms: The coefficients with the reward vectors of each ordering.
+    :return: The sum and its gradient, or ``None`` where the last epoch has no closed form.
+    """
+    from .phase_type import DemographyGradient
+
+    groups: Dict[Tuple[bytes, ...], list] = {}
+    for coefficient, vectors in terms:
+        group = groups.setdefault(tuple(v.tobytes() for v in vectors[1:]), [vectors[1:], 0.0])
+        group[1] = group[1] + coefficient * vectors[0]
+
+    value, gradients = 0.0, []
+    for tail, head in groups.values():
+        head = np.asarray(head, dtype=float)[:, None]
+        out = (CrossMomentGradient(distribution).compute(head, tail) if tail else
+               MeanGradient(distribution).compute_columns(head))
+        if out is None:
+            return None
+        value += out[0][0]
+        gradients.append(out[0][1])
+
+    return value, DemographyGradient._sum(gradients)
+
+
+def _generator_basis(state_space: 'StateSpace') -> _GeneratorBasis:
+    """
+    The generator basis of a state space, kept on the state space, which :class:`~phasegen.inference.Inference`
+    shares across evaluations, as is the error of a space without one.
+
+    :param state_space: The state space.
+    :return: The basis.
+    :raises ValueError: If the generator is not affine in the inverse time scales and migration rates.
+    """
+    if state_space._generator_basis is None:
+        try:
+            state_space._generator_basis = _GeneratorBasis(state_space)
+        except ValueError as e:
+            state_space._generator_basis = e
+
+    if isinstance(state_space._generator_basis, ValueError):
+        raise state_space._generator_basis
+
+    return state_space._generator_basis

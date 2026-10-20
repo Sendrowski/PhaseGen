@@ -11,9 +11,11 @@ import numpy as np
 
 from ._blas import BlasThreadLimit
 from .distributions import Coalescent, DemographyGradient
-from .distributions._gradient import MeanGradient, _rate_parameters
+from .distributions._common import _sqrt_spectrum
+from .distributions._gradient import CrossMomentGradient, MeanGradient, _rate_parameters
+from .spectrum import AbstractSpectrum
 
-#: The distributions of a :class:`~phasegen.distributions.Coalescent` whose first moments the gradient supports.
+#: The distributions of a :class:`~phasegen.distributions.Coalescent` whose moments the gradient supports.
 _DISTRIBUTIONS = ('sfs', 'fsfs', 'jsfs', 'tree_height', 'total_branch_length')
 
 #: Relative step of the central differences of the statistic over the entries of a moment. The statistic is evaluated on
@@ -44,17 +46,25 @@ class _Unsupported(BaseException):
 
 class _Read(NamedTuple):
     """
-    A first moment the statistic reads: the distribution whose state space carries it, the reward multiplied with the
-    rewards of its entries (``None`` for the reward of the distribution), and its value.
+    A moment the statistic reads: the distribution whose state space carries it, its kind, ``'mean'`` for the first
+    moment, ``'moment'`` for a higher one and ``'cov'`` for the covariance of the bins of a spectrum, the arguments of
+    that kind, the reward of the mean (``None`` for the reward of the distribution) or the order, rewards, centering
+    and permutation of a higher moment, and its value.
     """
     dist: Any
-    reward: Any
+    kind: str
+    args: Any
     value: Any
+
+
+#: The orders and centering of the higher moments a distribution serves as attributes.
+_MOMENTS = {'var': (2, True), 'm2': (2, False), 'm3': (3, False), 'm4': (4, False)}
 
 
 class _DistributionRecorder:
     """
-    Stand-in for a distribution of a coalescent that serves its mean and its first moments, recording each read.
+    Stand-in for a distribution of a coalescent that serves its moments, recording each read: the mean, the variance,
+    standard deviation and raw moments up to the fourth, and the covariance and correlation of the bins of a spectrum.
     """
 
     def __init__(self, distribution: Any, recorder: '_CoalescentRecorder', name: str) -> None:
@@ -69,16 +79,31 @@ class _DistributionRecorder:
 
     def __getattr__(self, attr: str) -> Any:
         """
-        Serve the mean.
+        Serve a moment.
 
         :param attr: The attribute.
-        :return: The mean, possibly overridden.
-        :raises _Unsupported: For any attribute other than the mean.
+        :return: The moment, possibly overridden, or a function of one.
+        :raises _Unsupported: For any other attribute.
         """
         dist = self._distribution
+        spectrum = hasattr(dist, '_cov_entries')
 
         if attr == 'mean':
-            return self._recorder.serve(lambda: _Read(dist, None, dist.mean))
+            return self._recorder.serve(lambda: _Read(dist, 'mean', None, dist.mean))
+
+        if attr in _MOMENTS:
+            k, center = _MOMENTS[attr]
+            return self._recorder.serve(lambda: _Read(dist, 'moment', (k, None, center, True), getattr(dist, attr)))
+
+        if attr == 'std':
+            var = self.var
+            return _sqrt_spectrum(var) if isinstance(var, AbstractSpectrum) else max(float(var), 0.0) ** 0.5
+
+        if attr == 'cov' and spectrum:
+            return self._recorder.serve(lambda: _Read(dist, 'cov', None, dist.cov))
+
+        if attr == 'corr' and spectrum:
+            return dist._corr_from(self.cov)
 
         self._recorder.unsupported = True
         raise _Unsupported(f"{self._name}.{attr}")
@@ -86,23 +111,26 @@ class _DistributionRecorder:
     def moment(self, k: int = 1, rewards: Sequence = None, start_time: float = None, end_time: float = None,
                center: bool = True, permute: bool = True) -> Any:
         """
-        Serve a first moment, see
-        :meth:`_CoalescentRecorder.first_moment() <phasegen.gradient._CoalescentRecorder.first_moment>`.
+        Serve a moment, see :meth:`_CoalescentRecorder.served_moment()
+        <phasegen.gradient._CoalescentRecorder.served_moment>`.
         """
         dist = self._distribution
 
-        return self._recorder.first_moment(
-            k, rewards, start_time, end_time, f"{self._name}.moment",
-            lambda reward: _Read(dist, reward, dist.moment(1, rewards=rewards))
-        )
+        def make(reward: Any) -> _Read:
+            if k == 1:
+                return _Read(dist, 'mean', reward, dist.moment(1, rewards=rewards))
+            return _Read(dist, 'moment', (k, None if rewards is None else tuple(rewards), center, permute),
+                         dist.moment(k, rewards=rewards, center=center, permute=permute))
+
+        return self._recorder.served_moment(k, rewards, start_time, end_time, f"{self._name}.moment", make)
 
 
 class _CoalescentRecorder:
     """
-    Stand-in for a :class:`~phasegen.distributions.Coalescent` passed to a statistic, admitting only first moments: the
-    means and first moments of :data:`_DISTRIBUTIONS` and
-    :meth:`Coalescent.moment() <phasegen.distributions.Coalescent.moment>` of order one. The reads of one evaluation are
-    numbered in order, so that a moment can be overridden in the next evaluation.
+    Stand-in for a :class:`~phasegen.distributions.Coalescent` passed to a statistic, admitting only the moments of
+    :data:`_DISTRIBUTIONS` that :class:`_DistributionRecorder` serves and :meth:`Coalescent.moment()
+    <phasegen.distributions.Coalescent.moment>`. The reads of one evaluation are numbered in order, so that a moment
+    can be overridden in the next evaluation.
     """
 
     def __init__(self, coal: Coalescent) -> None:
@@ -140,23 +168,24 @@ class _CoalescentRecorder:
 
         return self.overrides.get(i, self._first[i].value)
 
-    def first_moment(self, k: Any, rewards: Optional[Sequence], start_time: Optional[float],
-                     end_time: Optional[float], name: str, make: Callable[[Any], _Read]) -> Any:
+    def served_moment(self, k: Any, rewards: Optional[Sequence], start_time: Optional[float],
+                      end_time: Optional[float], name: str, make: Callable[[Any], _Read]) -> Any:
         """
-        Serve a first moment after validating its arguments.
+        Serve a moment after validating its arguments.
 
-        :param k: The order, which must be one.
-        :param rewards: One reward or ``None``.
+        :param k: The order, at least one.
+        :param rewards: ``None``, or one reward per order.
         :param start_time: Must be ``None``.
         :param end_time: Must be ``None``.
         :param name: The quantity, for the signal.
-        :param make: Returns the read for the reward, ``None`` for that of the distribution.
+        :param make: Returns the read, given the reward of a first moment, ``None`` for that of the distribution.
         :return: The moment, possibly overridden.
-        :raises _Unsupported: For another order, several rewards or a time window.
+        :raises _Unsupported: For an order below one, a number of rewards other than the order or a time window.
         """
-        if k != 1 or (rewards is not None and len(rewards) != 1) or start_time is not None or end_time is not None:
+        if not isinstance(k, (int, np.integer)) or k < 1 or (rewards is not None and len(rewards) != k) or \
+                start_time is not None or end_time is not None:
             self.unsupported = True
-            raise _Unsupported(f"{name} with k={k}, a time window or several rewards")
+            raise _Unsupported(f"{name} with k={k}, a time window or a number of rewards other than k")
 
         reward = None if rewards is None else rewards[0]
 
@@ -165,16 +194,20 @@ class _CoalescentRecorder:
     def moment(self, k: int = 1, rewards: Sequence = None, start_time: float = None, end_time: float = None,
                center: bool = True, permute: bool = True) -> Any:
         """
-        Serve a first moment of :meth:`Coalescent.moment() <phasegen.distributions.Coalescent.moment>`, see
-        :meth:`_CoalescentRecorder.first_moment() <phasegen.gradient._CoalescentRecorder.first_moment>`.
+        Serve a moment of :meth:`Coalescent.moment() <phasegen.distributions.Coalescent.moment>`, see
+        :meth:`_CoalescentRecorder.served_moment() <phasegen.gradient._CoalescentRecorder.served_moment>`.
         """
         coal = self._coal
 
-        # the distribution carries the reward of the moment as its own
-        return self.first_moment(
-            k, rewards, start_time, end_time, 'moment',
-            lambda reward: _Read(coal._get_dist(1, rewards), None, coal.moment(1, rewards=rewards))
-        )
+        # the distribution carries the reward of a first moment as its own
+        def make(reward: Any) -> _Read:
+            if k == 1:
+                return _Read(coal._get_dist(1, rewards), 'mean', None, coal.moment(1, rewards=rewards))
+            return _Read(coal._get_dist(k, rewards), 'moment', (k, None if rewards is None else tuple(rewards), center,
+                                                                permute),
+                         coal.moment(k, rewards=rewards, center=center, permute=permute))
+
+        return self.served_moment(k, rewards, start_time, end_time, 'moment', make)
 
     def __getattr__(self, attr: str) -> Any:
         """
@@ -217,14 +250,14 @@ class Gradient:
     :meth:`Spectrum.normalize() <sfsutils.spectrum.Spectrum.normalize>`. :math:`s_j` is its :math:`j`-th element, a
     single one for a number, :math:`\theta_i` the :math:`i`-th parameter, :math:`\mathrm{coal}(\theta)` the coalescent
     returned by the ``coal`` callback and :math:`J_{j i}` the entry of the Jacobian in row :math:`j` and column
-    :math:`i`. The statistic may read first moments of the coalescent only:
-    the means and first moments of :attr:`Coalescent.sfs <phasegen.distributions.Coalescent.sfs>`,
+    :math:`i`. The statistic may read the moments of :attr:`Coalescent.sfs <phasegen.distributions.Coalescent.sfs>`,
     :attr:`Coalescent.fsfs <phasegen.distributions.Coalescent.fsfs>`, :attr:`Coalescent.jsfs
     <phasegen.distributions.Coalescent.jsfs>`, :attr:`Coalescent.tree_height
     <phasegen.distributions.Coalescent.tree_height>` and :attr:`Coalescent.total_branch_length
-    <phasegen.distributions.Coalescent.total_branch_length>`, and :meth:`Coalescent.moment()
-    <phasegen.distributions.Coalescent.moment>` of order one, each with at most one reward and no time window. The
-    loss of an :class:`~phasegen.inference.Inference` is such a statistic. As a function of the parameters, the
+    <phasegen.distributions.Coalescent.total_branch_length>`: the mean, the variance and standard deviation, the raw
+    moments ``m2`` to ``m4``, the covariance and correlation of the bins of a spectrum, and their moments of any order,
+    as from :meth:`Coalescent.moment() <phasegen.distributions.Coalescent.moment>`, each with one reward per order and
+    no time window. The loss of an :class:`~phasegen.inference.Inference` is such a statistic. As a function of the parameters, the
     statistic is the composition
 
     .. math::
@@ -250,7 +283,7 @@ class Gradient:
     which are one-sided of second order at a bound or next to a value at which :math:`f` is invalid. For
     :math:`\partial s_j / \partial \mu_l`, the statistic is evaluated on the computed moments with one entry shifted,
     which needs no further moments. For :math:`\partial q_k / \partial \theta_i`, the callback builds the coalescent at
-    shifted parameters, and only its quantities :math:`q_k` are read. The Jacobian costs about one evaluation of the
+    shifted parameters, and only its quantities :math:`q_k` are read. The Jacobian costs a few evaluations of the
     moments, whatever the number of parameters. A parameter that changes the coalescent otherwise is differentiated by
     such a difference of the statistic, and a statistic without an exact gradient by such differences altogether, as
     noted in the log.
@@ -425,7 +458,7 @@ class Gradient:
 
     def supported(self, params: Dict[str, float]) -> bool:
         """
-        Whether the statistic reads only supported first moments, evaluated at some parameters. A model that cannot be
+        Whether the statistic reads only supported moments, evaluated at some parameters. A model that cannot be
         evaluated there leaves the question open, which is answered in favour of the exact Jacobian.
 
         :param params: The parameters.
@@ -471,8 +504,8 @@ class Gradient:
 
         :param params: The parameters.
         :param bounds: The bounds of the parameters.
-        :return: The entries and the Jacobian, or ``None`` where the statistic reads a quantity other than a supported
-            first moment, a moment is windowed, an entry is not finite, or the occupation times have no closed form.
+        :return: The entries and the Jacobian, or ``None`` where the statistic reads an unsupported quantity, a moment
+            is windowed, an entry is not finite, or the last epoch has no closed form.
         """
         coal = self.coal(**params)
         record = self._record(coal)
@@ -485,13 +518,15 @@ class Gradient:
 
         n_entries = value.size
 
-        # the rewards of the moments read, weighted by the derivatives of each entry of the statistic, summed per host
-        # distribution, since a moment is linear in its reward and one backward pass serves a host
-        hosts: Dict[int, list] = {}
+        # Each entry of a moment is a weighted sum of ordered raw moments, which are linear in their first reward. The
+        # first rewards, weighted by the derivatives of each entry of the statistic, are summed over the orderings that
+        # share their host and following rewards, so that one backward pass serves each such group.
+        groups: Dict[tuple, list] = {}
+        contraction, magnitude = np.zeros(n_entries), np.zeros(n_entries)
         for i, read in enumerate(list(recorder.reads)):
-            host, R, positions = read.dist._mean_rewards(read.reward)
+            host, entries = self._read_entries(read)
             try:
-                D = self._moment_derivatives(recorder, i, read.value, positions)
+                D = self._moment_derivatives(recorder, i, read.value, [entry[0] for entry in entries])
             except BaseException as e:
                 if isinstance(e, _Unsupported) or recorder.unsupported:
                     self._log.debug("The statistic reads %s at a perturbed moment, which the exact gradient does not "
@@ -499,33 +534,66 @@ class Gradient:
                     return None
                 raise
 
-            entries = np.array([self._entry(read.value, pos) for pos in positions])
-            entry = hosts.setdefault(id(host), [host, np.zeros((R.shape[0], n_entries)), np.zeros(n_entries),
-                                                np.zeros(n_entries)])
-            entry[1] += R @ D.T
-            entry[2] += D @ entries
-            entry[3] += np.abs(D) @ np.abs(entries)
+            for l, (_, terms, check, scale) in enumerate(entries):
+                contraction += D[:, l] * check
+                magnitude += np.abs(D[:, l]) * scale
+                for coefficient, vectors in terms:
+                    key = (id(host),) + tuple(v.tobytes() for v in vectors[1:])
+                    group = groups.setdefault(key, [host, vectors[1:], np.zeros((len(vectors[0]), n_entries))])
+                    group[2] += np.outer(coefficient * vectors[0], D[:, l])
 
+        adjoint = np.zeros(n_entries)
         derivatives = []
-        for host, rewards, contraction, magnitude in hosts.values():
-            out = MeanGradient(host).compute_columns(rewards)
+        for host, tail, heads in groups.values():
+            used = np.flatnonzero(np.abs(heads).sum(axis=0))
+            if not len(used):
+                continue
+
+            out = (CrossMomentGradient(host).compute(heads[:, used], tail) if tail else
+                   MeanGradient(host).compute_columns(heads[:, used]))
             if out is None:
                 return None
 
-            # the contraction of the derivatives of the statistic with the moments, against its magnitude, which
-            # cancellation leaves far above the contraction for a statistic invariant to the scale of the moments
-            adjoint = np.array([v for v, _ in out])
-            if np.any(np.abs(adjoint - contraction) > _VALUE_RTOL * magnitude):
-                self._log.warning("The value of the backward pass differs from the moments, using finite differences.")
-                return None
+            flat = np.zeros((n_entries, len(out[0][1].flat())))
+            for j, (v, grad) in zip(used, out):
+                adjoint[j] += v
+                flat[j] = grad.flat()
 
             g = out[0][1]
-            derivatives.append(_Host([e.index for e in g.epochs], g.pops, g.pairs, list(g.parameters),
-                                     np.array([grad.flat() for _, grad in out])))
+            derivatives.append(_Host([e.index for e in g.epochs], g.pops, g.pairs, list(g.parameters), flat))
+
+        # the contraction of the derivatives of the statistic with the moments, against its magnitude, which
+        # cancellation leaves far above the contraction for a statistic invariant to the scale of the moments
+        if np.any(np.abs(adjoint - contraction) > _VALUE_RTOL * np.maximum(magnitude, 1e-300)):
+            self._log.warning("The value of the backward pass differs from the moments, using finite differences.")
+            return None
 
         jacobian = self._chain(params, bounds, coal, derivatives, value.shape)
 
         return value, jacobian
+
+    @staticmethod
+    def _read_entries(read: _Read) -> Tuple[Any, List[Tuple[Tuple[int, ...], list, float, float]]]:
+        """
+        The entries of a moment read, each with the ordered raw moments whose derivatives give its derivatives, see
+        :meth:`PhaseTypeDistribution._moment_entries()
+        <phasegen.distributions.PhaseTypeDistribution._moment_entries>`.
+
+        :param read: The read.
+        :return: The distribution whose state space carries the reward vectors, and the position, terms, weighted
+            value and sum of the moduli of the weighted values of each entry.
+        """
+        if read.kind == 'mean':
+            host, R, positions = read.dist._mean_rewards(read.args)
+            return host, [(pos, [(1.0, (R[:, j],))], Gradient._entry(read.value, pos),
+                           abs(Gradient._entry(read.value, pos))) for j, pos in enumerate(positions)]
+
+        if read.kind == 'cov':
+            return read.dist, read.dist._cov_entries()
+
+        k, rewards, center, permute = read.args
+
+        return read.dist, read.dist._moment_entries(k, rewards, center, permute, value=read.value)
 
     def _moment_derivatives(self, recorder: _CoalescentRecorder, i: int, moment: Any,
                             positions: List[Tuple[int, ...]]) -> np.ndarray:
@@ -571,7 +639,7 @@ class Gradient:
         :param pos: The position, an empty tuple for a scalar.
         :return: The entry.
         """
-        return float(moment) if pos == () else float(moment.data[pos])
+        return float(moment) if pos == () else float(getattr(moment, 'data', moment)[pos])
 
     @staticmethod
     def _with_entry(moment: Any, pos: Tuple[int, ...], x: float) -> Any:
@@ -587,7 +655,7 @@ class Gradient:
             return x
 
         out = copy.deepcopy(moment)
-        out.data[pos] = x
+        getattr(out, 'data', out)[pos] = x
 
         return out
 

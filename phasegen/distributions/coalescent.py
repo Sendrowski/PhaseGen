@@ -914,42 +914,52 @@ class Coalescent(AbstractCoalescent, Serializable):
             permute=permute
         )
 
-    def gradient(self, k: int = 1, rewards: Sequence[Reward] = None) -> 'DemographyGradient':
+    def gradient(self, k: int = 1, rewards: Sequence[Reward] = None, center: bool = True,
+                 permute: bool = True) -> 'DemographyGradient':
         """
-        Exact derivatives of the first moment of the accumulated reward with respect to the population sizes,
-        migration rates and epoch start times of the demography, the parameters of the coalescent model and the
-        recombination rate, evaluated on the smallest state space supporting the reward as described in :meth:`PhaseTypeDistribution.gradient()
+        Exact derivatives of the :math:`k`-th moment of :meth:`Coalescent.moment()
+        <phasegen.distributions.Coalescent.moment>` with respect to the population sizes, migration rates and epoch
+        start times of the demography, the parameters of the coalescent model and the recombination rate, evaluated on
+        the smallest state space supporting the rewards as described in :meth:`PhaseTypeDistribution.gradient()
         <phasegen.distributions.PhaseTypeDistribution.gradient>`.
 
         ::
 
             coal = pg.Coalescent(n=5, demography=pg.Demography(pop_sizes={'pop_0': {0: 1, 0.5: 2}}))
 
-            grad = coal.gradient(1, rewards=(pg.TotalBranchLengthReward(),))
+            grad = coal.gradient(2, rewards=(pg.TreeHeightReward(), pg.TotalBranchLengthReward()))
 
-        :param k: The order of the moment, which must be one.
-        :param rewards: One reward. By default, the tree-height reward.
+        :param k: The order of the moment, at least one.
+        :param rewards: Sequence of :math:`k` rewards. By default, the tree-height reward for each factor.
+        :param center: Whether the moment is central.
+        :param permute: Whether it averages over the :math:`k!` orderings of the rewards.
         :return: The derivatives.
-        :raises NotImplementedError: If ``k`` is not one, or the moment is accumulated over a time window.
-        :raises ValueError: If ``rewards`` does not hold one reward, or the occupation times have no closed form.
+        :raises NotImplementedError: If the moment is accumulated over a time window.
+        :raises ValueError: If ``k`` is zero, if the number of rewards differs from ``k``, or if the last epoch has no
+            closed form.
         :raises TypeError: If an entry of ``rewards`` is not a :class:`~phasegen.rewards.Reward`.
         """
-        if _validate_order(k) != 1:
-            raise NotImplementedError('Gradients are available for first moments only.')
+        k = _validate_order(k)
+        _validate_rewards(rewards, k)
 
-        _validate_rewards(rewards, 1)
+        if k == 0:
+            raise ValueError('The moment of order zero is constant and has no gradient.')
 
-        return copy.deepcopy(self._gradient(None if rewards is None else tuple(rewards)))
+        return copy.deepcopy(self._gradient(k, None if rewards is None else tuple(rewards), center, permute))
 
     @cache
-    def _gradient(self, rewards: Tuple[Reward, ...] | None) -> 'DemographyGradient':
+    def _gradient(self, k: int, rewards: Tuple[Reward, ...] | None, center: bool,
+                  permute: bool) -> 'DemographyGradient':
         """
         The derivatives of :meth:`Coalescent.gradient() <phasegen.distributions.Coalescent.gradient>`, cached.
 
+        :param k: The order of the moment.
         :param rewards: The rewards.
+        :param center: Whether the moment is central.
+        :param permute: Whether it averages over the orderings of the rewards.
         :return: The derivatives.
         """
-        return self._get_dist(1, rewards)._gradient(1, rewards)
+        return self._get_dist(k, rewards)._gradient(k, rewards, center, permute)
 
     def accumulate(
             self,

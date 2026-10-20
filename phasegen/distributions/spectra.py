@@ -433,6 +433,45 @@ class SFSDistribution(SpectrumDistribution, ABC):
 
         return (self._tree_height if flatten else self), R, [(j + 1,) for j in range(len(bin_rewards))]
 
+    def _moment_entries(
+            self,
+            k: int,
+            rewards: Sequence[Reward] = None,
+            center: bool = True,
+            permute: bool = True,
+            value: SFS = None
+    ) -> List[Tuple[Tuple[int, ...], List[Tuple[float, Tuple[np.ndarray, ...]]], float, float]]:
+        """
+        The polymorphic bins of the :math:`k`-th moment, see :meth:`PhaseTypeDistribution._moment_entries()
+        <phasegen.distributions.PhaseTypeDistribution._moment_entries>`, with the rewards multiplied with the bin
+        rewards.
+        """
+        rewards = (self.reward,) * k if rewards is None else tuple(rewards)
+        means = [self.moment(1, (r,)).data for r in rewards]
+
+        return [
+            ((j + 1,),) + self._moment_terms(
+                tuple(CombinedReward([r, self._get_sfs_reward(i)]) for r in rewards), center, permute,
+                means=[m[j + 1] for m in means], value=None if value is None else float(value.data[j + 1])
+            )
+            for j, i in enumerate(self._get_indices())
+        ]
+
+    def _cov_entries(self) -> List[Tuple[Tuple[int, ...], List[Tuple[float, Tuple[np.ndarray, ...]]], float, float]]:
+        """
+        The entries of :attr:`cov`, each a central moment of two bin rewards, see
+        :meth:`PhaseTypeDistribution._moment_entries() <phasegen.distributions.PhaseTypeDistribution._moment_entries>`.
+        """
+        indices = self._get_indices()
+        bins = {i: CombinedReward([self.reward, self._get_sfs_reward(i)]) for i in indices}
+        mean, cov = self.mean.data, self.cov.data
+
+        return [
+            ((a, b),) + self._moment_terms((bins[a], bins[b]), True, True, means=[mean[a], mean[b]],
+                                           value=float(cov[a, b]))
+            for a in indices for b in indices
+        ]
+
     def _moment(
             self,
             k: int,
@@ -905,20 +944,23 @@ class SFSDistribution(SpectrumDistribution, ABC):
     @cached_property
     def corr(self) -> TwoSFS:
         """
-        Correlation matrix across site-frequency counts.
+        Correlation matrix across site-frequency counts, :attr:`cov` scaled by the standard deviations of both bins.
+        Pairs without variance are set to zero.
         """
-        # get standard deviations
-        std = np.sqrt(self.var.data)
+        return self._corr_from(self.cov)
 
-        # monomorphic bins have zero variance; the resulting NaNs from dividing by a zero std are expected and
-        # replaced with zeros below, so silence the benign divide warning at the source.
-        with np.errstate(divide='ignore', invalid='ignore'):
-            sfs = TwoSFS(self.cov.data / np.outer(std, std))
+    @staticmethod
+    def _corr_from(cov: TwoSFS) -> TwoSFS:
+        """
+        The correlation matrix of a covariance matrix of the bins.
 
-        # replace NaNs with zeros
-        sfs.data[np.isnan(sfs.data)] = 0
+        :param cov: The covariance matrix.
+        :return: The correlation matrix, zero for pairs without variance.
+        """
+        std = np.sqrt(np.maximum(np.diag(cov.data), 0.0))
+        denom = np.outer(std, std)
 
-        return sfs
+        return TwoSFS(np.divide(cov.data, denom, out=np.zeros_like(cov.data, dtype=float), where=denom > 0))
 
     def get_corr(self, i: int, j: int) -> float:
         """
@@ -1720,6 +1762,45 @@ class JointSFSDistribution(SpectrumDistribution):
 
         return self, R, list(configs)
 
+    def _moment_entries(
+            self,
+            k: int,
+            rewards: Sequence[Reward] = None,
+            center: bool = True,
+            permute: bool = True,
+            value: JointSFS = None
+    ) -> List[Tuple[Tuple[int, ...], List[Tuple[float, Tuple[np.ndarray, ...]]], float, float]]:
+        """
+        The polymorphic bins of the :math:`k`-th moment, see :meth:`PhaseTypeDistribution._moment_entries()
+        <phasegen.distributions.PhaseTypeDistribution._moment_entries>`, with the rewards multiplied with the bin
+        rewards.
+        """
+        rewards = (self.reward,) * k if rewards is None else tuple(rewards)
+        means = [self.moment(1, (r,)).data for r in rewards]
+
+        return [
+            (tuple(config),) + self._moment_terms(
+                tuple(CombinedReward([r, JointSFSReward(config)]) for r in rewards), center, permute,
+                means=[m[tuple(config)] for m in means], value=None if value is None else float(value.data[tuple(config)])
+            )
+            for config in self._get_configs()
+        ]
+
+    def _cov_entries(self) -> List[Tuple[Tuple[int, ...], List[Tuple[float, Tuple[np.ndarray, ...]]], float, float]]:
+        """
+        The entries of :attr:`cov`, each a central moment of two bin rewards, see
+        :meth:`PhaseTypeDistribution._moment_entries() <phasegen.distributions.PhaseTypeDistribution._moment_entries>`.
+        """
+        configs = [tuple(c) for c in self._get_configs()]
+        bins = {c: CombinedReward([self.reward, JointSFSReward(c)]) for c in configs}
+        mean, cov = self.mean.data, np.asarray(self.cov)
+
+        return [
+            (a + b,) + self._moment_terms((bins[a], bins[b]), True, True, means=[mean[a], mean[b]],
+                                          value=float(cov[a + b]))
+            for a in configs for b in configs
+        ]
+
     def _plot_accumulation_data(
             self,
             k: int = 1,
@@ -1881,8 +1962,18 @@ class JointSFSDistribution(SpectrumDistribution):
         Correlation between the branch lengths of all pairs of joint SFS bins, :attr:`cov` scaled by the standard
         deviations of both bins, of shape :attr:`shape` ``+`` :attr:`shape`. Pairs without variance are set to zero.
         """
-        cov = np.asarray(self.cov, dtype=float)
-        flat = cov.reshape(int(np.prod(self.shape)), -1)
+        return self._corr_from(self.cov)
+
+    @staticmethod
+    def _corr_from(cov: np.ndarray) -> np.ndarray:
+        """
+        The correlation of a covariance of the bins.
+
+        :param cov: The covariance, of shape :attr:`shape` ``+`` :attr:`shape`.
+        :return: The correlation, zero for pairs without variance.
+        """
+        cov = np.asarray(cov, dtype=float)
+        flat = cov.reshape(int(np.sqrt(cov.size)), -1)
         std = np.sqrt(np.maximum(np.diag(flat), 0.0))
         denom = np.outer(std, std)
 

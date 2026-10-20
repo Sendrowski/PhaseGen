@@ -6,7 +6,7 @@ import logging
 import math
 import warnings
 from ..caching import cached_property, cache
-from typing import Dict, List, Tuple, Iterable, Sequence, Union, TYPE_CHECKING
+from typing import Any, Dict, List, Tuple, Iterable, Sequence, Union, TYPE_CHECKING
 import numpy as np
 import scipy.linalg as sla
 import scipy.sparse as sp
@@ -40,7 +40,7 @@ logger = logging.getLogger('phasegen')
 
 class DemographyGradient:
     r"""
-    Derivatives of a first moment :math:`\mu` with respect to the population sizes :math:`N_{d,e}` of the demes
+    Derivatives of a moment :math:`\mu` with respect to the population sizes :math:`N_{d,e}` of the demes
     :math:`d`, the migration rates :math:`m_{ab,e}` from deme :math:`a` to deme :math:`b` and the start times
     :math:`t_e` of the epochs :math:`e` the moment was evaluated over, and the continuous parameters of the coalescent
     model and the recombination rate of two loci
@@ -106,6 +106,31 @@ class DemographyGradient:
             out.start_times[pos] = g.start_times
             for name, value in g.parameters.items():
                 out.parameters[name][pos] = value
+
+        return out
+
+    @classmethod
+    def _sum(cls, gradients: Sequence['DemographyGradient']) -> 'DemographyGradient':
+        """
+        The sum of gradients of scalar moments of one state space whose epochs may end at different positions, as the
+        epochs held until absorption depend on the order of a moment. The epochs are matched by their index in the
+        demography, and the last epoch of a shorter list, which holds its rates until absorption, stands for the epoch
+        of the same index in a longer one.
+
+        :param gradients: The gradients.
+        :return: The sum, over the longest list of epochs.
+        """
+        longest = max(gradients, key=lambda g: len(g.epochs))
+        names = list(dict.fromkeys(name for g in gradients for name in g.parameters))
+        out = cls(longest.epochs, longest.pops, longest.pairs, parameters=names)
+        position = {e.index: i for i, e in enumerate(out.epochs)}
+        for g in gradients:
+            rows = [position[e.index] for e in g.epochs]
+            out.pop_sizes[rows] += g.pop_sizes
+            out.migration_rates[rows] += g.migration_rates
+            out.start_times[rows] += g.start_times
+            for name, value in g.parameters.items():
+                out.parameters[name] += value
 
         return out
 
@@ -262,9 +287,106 @@ class PhaseTypeDistribution(CallableDistributionFunctions, MomentEvaluator, Mome
 
         return self, np.asarray(reward._get(self.state_space), dtype=float)[:, None], [()]
 
-    def gradient(self, k: int = 1, rewards: Sequence[Reward] = None) -> 'DemographyGradient':
+    def _moment_entries(
+            self,
+            k: int,
+            rewards: Sequence[Reward] = None,
+            center: bool = True,
+            permute: bool = True,
+            value: Any = None
+    ) -> List[Tuple[Tuple[int, ...], List[Tuple[float, Tuple[np.ndarray, ...]]], float, float]]:
+        """
+        The entries of the :math:`k`-th moment accumulated until absorption, each with the ordered raw moments whose
+        derivatives, weighted by the coefficients, give its derivatives, see :meth:`_moment_terms`.
+
+        :param k: The order of the moment, at least one.
+        :param rewards: Sequence of :math:`k` rewards. By default, the reward of the distribution for each factor.
+        :param center: Whether the moment is central.
+        :param permute: Whether it averages over the orderings of the rewards.
+        :param value: The moment, if known, from which the raw moment of all rewards is recovered.
+        :return: The position of each entry, an empty tuple for a scalar, with its terms, their weighted value and the
+            sum of the moduli of the weighted values.
+        """
+        rewards = (self.reward,) * k if rewards is None else tuple(rewards)
+
+        return [((),) + self._moment_terms(rewards, center, permute, value=None if value is None else float(value))]
+
+    def _moment_terms(
+            self,
+            rewards: Tuple[Reward, ...],
+            center: bool,
+            permute: bool,
+            means: Sequence[float] = None,
+            value: float = None
+    ) -> Tuple[List[Tuple[float, Tuple[np.ndarray, ...]]], float, float]:
         r"""
-        Exact derivatives of the first moment :math:`\mu` of
+        The derivative of a moment of order :math:`k = |\{R_1, \dots, R_k\}|` accumulated until absorption as a
+        weighted sum of derivatives of ordered raw moments. An ordering of one reward is its mean, and an ordering of
+        several rewards is the closed form of ``MomentEvaluator._accumulate_closed_form``, :math:`k!` times the reward
+        collected in that order. The raw cross-moment averages its orderings, and the central moment
+        :math:`\sum_{S} (-1)^{k - |S|}\, \mathbb{E}[\prod_{j \in S} R_j] \prod_{j \notin S} \mathbb{E}[R_j]` over the
+        subsets :math:`S` of the rewards is differentiated by the product rule with the values of its factors.
+
+        :param rewards: The :math:`k` rewards.
+        :param center: Whether the moment is central.
+        :param permute: Whether it averages over the orderings of the rewards.
+        :param means: The means of the rewards, if known.
+        :param value: The moment, if known, from which the raw moment of all rewards is recovered.
+        :return: The coefficients with the reward vectors of each ordering, the sum of the coefficients times the
+            values of their orderings, against which the backward passes are checked, and the sum of its moduli.
+        """
+        k = len(rewards)
+        vectors = [np.asarray(r._get(self.state_space), dtype=float) for r in rewards]
+        known = {(j,): float(m) for j, m in enumerate(means or [])}
+
+        def raw(S: Tuple[int, ...]) -> float:
+            if S not in known:
+                if len(S) == k and value is not None:
+                    # the moment less its terms over the proper subsets of the rewards
+                    known[S] = value
+                    if center:
+                        known[S] -= sum((-1) ** (k - len(P)) * (raw(P) if P else 1.0) *
+                                        float(np.prod([raw((j,)) for j in range(k) if j not in P]))
+                                        for size in range(k) for P in itertools.combinations(range(k), size))
+                else:
+                    known[S] = float(
+                        self._accumulate_raw(len(S), tuple(rewards[j] for j in S), (np.inf,), permute, 0.0)[0]
+                    )
+
+            return known[S]
+
+        terms, check, scale = [], 0.0, 0.0
+
+        def add(S: Tuple[int, ...], coefficient: float) -> None:
+            nonlocal check, scale
+            orderings = [S]
+            if permute and any(rewards[j] != rewards[S[0]] for j in S[1:]):
+                orderings = list(itertools.permutations(S))
+            terms.extend((coefficient / len(orderings), tuple(vectors[j] for j in o)) for o in orderings)
+            check += coefficient * raw(S)
+            scale += abs(coefficient * raw(S))
+
+        if not center or k == 1:
+            add(tuple(range(k)), 1.0)
+            return terms, check, scale
+
+        means = [raw((j,)) for j in range(k)]
+        for size in range(k + 1):
+            for S in itertools.combinations(range(k), size):
+                sign = (-1) ** (k - size)
+                rest = [j for j in range(k) if j not in S]
+                raw_S = raw(S) if S else 1.0
+                if S:
+                    add(S, sign * float(np.prod([means[j] for j in rest])))
+                for j in rest:
+                    add((j,), sign * raw_S * float(np.prod([means[i] for i in rest if i != j])))
+
+        return terms, check, scale
+
+    def gradient(self, k: int = 1, rewards: Sequence[Reward] = None, center: bool = True,
+                 permute: bool = True) -> 'DemographyGradient':
+        r"""
+        Exact derivatives of the :math:`k`-th moment :math:`\mu` of
         :meth:`PhaseTypeDistribution.moment() <phasegen.distributions.PhaseTypeDistribution.moment>`, of every bin for a
         spectrum, with respect to the population sizes :math:`N_{d,e}` of deme :math:`d` in epoch :math:`e`, the
         migration rates :math:`m_{ab,e}` from deme :math:`a` to deme :math:`b`, the start times :math:`t_e` of the
@@ -331,9 +453,32 @@ class PhaseTypeDistribution(CallableDistributionFunctions, MomentEvaluator, Mome
 
         The entries of the generator change linearly with the inverse coalescent time scales, the migration rates, the
         recombination rate and the rate ``c`` of a Dirac coalescent, so :math:`\partial \mathbf{T} / \partial \theta` is
-        exact for these, and a central difference is used for the other model parameters. All derivatives together cost
-        a few moment evaluations, however many quantities there are. The result is cached like the moments, and a copy
-        is returned. :class:`~phasegen.inference.Inference` differentiates losses with these derivatives, and
+        exact for these, and a central difference is used for the other model parameters.
+
+        A higher moment is differentiated through the closed form of
+        :meth:`PhaseTypeDistribution.moment() <phasegen.distributions.PhaseTypeDistribution.moment>`. The raw
+        cross-moment of one ordering of the rewards :math:`\mathbf{r}_1, \dots, \mathbf{r}_k` is
+
+        .. math::
+            \mu = k!\, \boldsymbol{\alpha}_{k+1} \Big(\prod_{e < E} e^{\mathbf{V}_e \Delta_e}\Big) \mathbf{z}_E,
+
+        where :math:`\mathbf{V}_e` is the Van Loan matrix of epoch :math:`e` with :math:`k + 1` diagonal blocks
+        :math:`\mathbf{S}_e`, :math:`\boldsymbol{\alpha}_{k+1} = (\boldsymbol{\alpha}, \mathbf{0}, \dots, \mathbf{0})`
+        the initial distribution on its first block, and :math:`\mathbf{z}_E` the column vector of the last epoch with
+        blocks :math:`\mathbf{z}_k = \mathbf{e}` and :math:`\mathbf{z}_j = (-\mathbf{T}_E)^{-1}
+        \operatorname{diag}(\mathbf{r}_{j+1})\, \mathbf{z}_{j+1}` for :math:`j < k`. The moment is computed from the
+        last epoch backwards, so the passes exchange their roles: the row vector :math:`\mathbf{x}_e = k!\,
+        \boldsymbol{\alpha}_{k+1} \prod_{e' < e} e^{\mathbf{V}_{e'} \Delta_{e'}}` is carried forward, and epoch
+        :math:`e` contributes :math:`\mathbf{x}_e L(\mathbf{V}_e \Delta_e, \partial \mathbf{V}_e / \partial \theta\,
+        \Delta_e)\, \mathbf{z}_{e+1}`, where :math:`\mathbf{z}_{e+1}` is the column vector at the end of the epoch and
+        :math:`\partial \mathbf{V}_e / \partial \theta` holds :math:`\partial \mathbf{S}_e / \partial \theta` in each
+        diagonal block. In the last epoch, every block :math:`\mathbf{z}_j` is differentiated with the derivative of
+        :math:`(-\mathbf{T}_E)^{-1}` above. The average over the orderings and the centering by the lower moments,
+        :math:`\mathbb{E}[R_1 R_2] - \mathbb{E}[R_1] \mathbb{E}[R_2]` for the covariance, are differentiated by the
+        product rule.
+
+        All derivatives together cost a few moment evaluations, however many quantities there are. The result is cached
+        like the moments, and a copy is returned. :class:`~phasegen.inference.Inference` differentiates losses with these derivatives, and
         :class:`~phasegen.gradient.Gradient` chains them through a coalescent callback.
 
         ::
@@ -343,48 +488,58 @@ class PhaseTypeDistribution(CallableDistributionFunctions, MomentEvaluator, Mome
             grad = th.gradient()
             grad.pop_sizes  # by epoch and deme
 
-        :param k: The order of the moment, which must be one.
-        :param rewards: One reward, multiplied with the bin rewards for a spectrum. By default, the reward of the
-            distribution.
+            var = th.gradient(2)  # of the variance
+
+        :param k: The order :math:`k` of the moment, at least one.
+        :param rewards: Sequence of :math:`k` rewards, each multiplied with the bin rewards for a spectrum. By default,
+            the reward of the distribution for each factor.
+        :param center: Whether the moment is central.
+        :param permute: Whether it averages over the :math:`k!` orderings of the rewards.
         :return: The derivatives.
-        :raises NotImplementedError: If ``k`` is not one, or the moment is accumulated over a time window.
-        :raises ValueError: If ``rewards`` does not hold one reward, or the occupation times have no closed form, as
-            without certain absorption in the last epoch.
+        :raises NotImplementedError: If the moment is accumulated over a time window.
+        :raises ValueError: If ``k`` is zero, if the number of rewards differs from ``k``, or if the last epoch has no
+            closed form, as without certain absorption in it.
         :raises TypeError: If an entry of ``rewards`` is not a :class:`~phasegen.rewards.Reward`.
         """
         k = _validate_order(k)
-        _validate_rewards(rewards, 1)
+        _validate_rewards(rewards, k)
 
-        return copy.deepcopy(self._gradient(k, None if rewards is None else tuple(rewards)))
+        if k == 0:
+            raise ValueError('The moment of order zero is constant and has no gradient.')
+
+        return copy.deepcopy(self._gradient(k, None if rewards is None else tuple(rewards), center, permute))
 
     @cache
     @BlasThreadLimit()
-    def _gradient(self, k: int, rewards: Tuple[Reward, ...] | None) -> 'DemographyGradient':
+    def _gradient(self, k: int, rewards: Tuple[Reward, ...] | None, center: bool = True,
+                  permute: bool = True) -> 'DemographyGradient':
         """
         The derivatives of
         :meth:`PhaseTypeDistribution.gradient() <phasegen.distributions.PhaseTypeDistribution.gradient>`, cached.
 
         :param k: The order of the moment.
         :param rewards: The rewards.
+        :param center: Whether the moment is central.
+        :param permute: Whether it averages over the orderings of the rewards.
         :return: The derivatives.
         """
-        from ._gradient import MeanGradient
-
-        if k != 1:
-            raise NotImplementedError('Gradients are available for first moments only.')
-
-        if rewards is not None and len(rewards) != 1:
-            raise ValueError(f'A first moment takes one reward, got {len(rewards)}.')
+        from ._gradient import MeanGradient, _terms_gradient
 
         if self._resolve_window() != (0.0, np.inf):
             raise NotImplementedError('Gradients are available for moments accumulated until absorption only.')
 
-        host, R, positions = self._mean_rewards(None if rewards is None else rewards[0])
-        out = MeanGradient(host).compute_columns(R)
-        if out is None:
-            raise ValueError('The occupation times have no closed form, so the moment has no exact gradient.')
+        if k == 1:
+            host, R, positions = self._mean_rewards(None if rewards is None else rewards[0])
+            out = MeanGradient(host).compute_columns(R)
+            gradients = None if out is None else [g for _, g in out]
+        else:
+            entries = self._moment_entries(k, rewards, center, permute)
+            positions = [entry[0] for entry in entries]
+            out = [_terms_gradient(self, entry[1]) for entry in entries]
+            gradients = None if any(o is None for o in out) else [g for _, g in out]
 
-        gradients = [g for _, g in out]
+        if gradients is None:
+            raise ValueError('The last epoch has no closed form, so the moment has no exact gradient.')
 
         if positions == [()]:
             return gradients[0]

@@ -245,12 +245,12 @@ def test_loss_gradient_model_parameter():
 
 
 @pytest.mark.parametrize('loss', [
-    lambda coal, obs: float(np.sum(coal.sfs.var.polymorphic)),
+    lambda coal, obs: float(coal.tree_height.cdf(1.0)),
     lambda coal, obs: float(coal.demography.get_epoch(0).pop_sizes['pop_0']),
     lambda coal, obs: 1.0,
 ])
 def test_loss_gradient_unsupported_loss(loss):
-    """A loss reading anything but a supported mean, or no mean at all, has no exact gradient."""
+    """A loss reading anything but a supported moment, or no moment at all, has no exact gradient."""
     coal = lambda N: pg.Coalescent(n=4, demography=pg.Demography(pop_sizes={'pop_0': {0: 1, 0.5: N}}))
     assert Gradient(coal, lambda c: loss(c, None))._exact({'N': 1.0}, {'N': (0.1, 5)}) is None
 
@@ -260,7 +260,7 @@ def test_loss_gradient_unsupported_read_caught_by_loss():
     absorbed the signal of the unsupported read, and the gradient was taken of the value of the handler."""
     def loss(coal, obs):
         try:
-            return float(coal.sfs.mean.polymorphic.sum() + coal.sfs.var.polymorphic.sum())
+            return float(coal.sfs.mean.polymorphic.sum() + coal.tree_height.cdf(1.0))
         except Exception:
             return 1e10
 
@@ -273,7 +273,7 @@ def test_loss_gradient_unsupported_read_raised_as_other_error():
     which is still detected."""
     def loss(coal, obs):
         try:
-            return float(coal.sfs.var.data[1])
+            return float(coal.tree_height.cdf(1.0))
         except BaseException as e:
             raise RuntimeError(f'Error in py_get_attr: {e}')
 
@@ -293,7 +293,7 @@ def test_loss_gradient_unsupported_read_at_perturbed_mean():
     def loss(c, obs):
         mean = c.sfs.mean
         if mean.data[1] > reference:
-            return float(c.sfs.var.data[1])
+            return float(c.tree_height.cdf(1.0))
         return float(mean.data[1])
 
     assert Gradient(coal, lambda c: loss(c, None))._exact({'N': 1.0}, {'N': (0.1, 5)}) is None
@@ -326,14 +326,46 @@ def test_loss_gradient_first_moments_of_custom_rewards():
 
 
 @pytest.mark.parametrize('loss', [
-    lambda coal, obs: float(coal.tree_height.moment(2)),
     lambda coal, obs: float(coal.moment(1, end_time=1.0)),
-    lambda coal, obs: float(coal.moment(2, rewards=(pg.TreeHeightReward(), pg.TotalBranchLengthReward()))),
+    lambda coal, obs: float(coal.tree_height.moment(2, end_time=1.0)),
+    lambda coal, obs: float(coal.tree_height.moment(0)),
 ])
 def test_loss_gradient_unsupported_moments(loss):
-    """Moments of higher order and moments in a time window have no exact gradient."""
+    """Moments in a time window and of order zero have no exact gradient."""
     coal = lambda N: pg.Coalescent(n=4, demography=pg.Demography(pop_sizes={'pop_0': {0: 1, 0.5: N}}))
     assert Gradient(coal, lambda c: loss(c, None))._exact({'N': 1.0}, {'N': (0.1, 5)}) is None
+
+
+@pytest.mark.parametrize('loss', [
+    lambda coal, obs: float(coal.tree_height.var + coal.tree_height.std / coal.tree_height.mean),
+    lambda coal, obs: float(coal.total_branch_length.m3 ** (1 / 3) + coal.tree_height.m2),
+    lambda coal, obs: float(coal.moment(2, rewards=(pg.TreeHeightReward(), pg.TotalBranchLengthReward()))),
+    lambda coal, obs: float(np.sum(coal.sfs.cov.data ** 2) + np.sum(coal.sfs.corr.data) + np.sum(coal.sfs.var.data)),
+    lambda coal, obs: float(np.sum(np.asarray(coal.jsfs.cov) ** 2) + np.sum(coal.jsfs.var.data)),
+    lambda coal, obs: float(coal.fsfs.cov.data[1, 2] + coal.sfs.moment(2, center=False).data[1]),
+])
+def test_loss_gradient_higher_moments(loss):
+    """Losses reading variances, standard deviations, raw and cross moments of higher order, and the covariances and
+    correlations of the bins of a spectrum are differentiated exactly."""
+    x0 = {'a0': 1.2, 'a1': 0.6, 'a2': 1.5, 'b0': 0.8, 'b1': 1.1, 'b2': 2.0, 'm': 0.4}
+
+    _assert_loss_gradient(_two_deme, loss, x0, {k: (0.05, 5) for k in x0}, None, rtol=1e-6)
+
+
+def test_loss_gradient_of_a_covariance_takes_one_backward_pass_per_bin(monkeypatch):
+    """A scalar loss on the covariance of the SFS takes one backward pass per bin, the orderings that share their
+    second bin being summed over the first."""
+    from phasegen.distributions._gradient import CrossMomentGradient
+
+    calls = []
+    compute = CrossMomentGradient.compute
+    monkeypatch.setattr(CrossMomentGradient, 'compute', lambda self, heads, tail: calls.append(heads.shape[1]) or
+                        compute(self, heads, tail))
+
+    coal = lambda N: pg.Coalescent(n=6, demography=pg.Demography(pop_sizes={'pop_0': {0: 1, 0.5: N}}))
+    Gradient(coal, lambda c: float(np.sum(c.sfs.cov.data ** 2)))._exact({'N': 1.2}, {'N': (0.1, 5)})
+
+    assert calls == [1] * 5
 
 
 def test_loss_gradient_value_dependent_reads_unsupported():
@@ -366,7 +398,7 @@ def test_loss_gradient_shared_host_one_pass(monkeypatch):
 def test_inference_unsupported_loss_uses_optimizer_differences():
     """A loss the exact gradient does not support is optimized exactly as with finite differences."""
     coal = lambda N: pg.Coalescent(n=4, demography=pg.Demography(pop_sizes={'pop_0': {0: 1, 0.5: N}}))
-    loss = lambda c, obs: float((c.sfs.var.polymorphic.sum() - 3) ** 2)
+    loss = lambda c, obs: float((c.tree_height.cdf(1.0) - 0.3) ** 2)
 
     results = []
     for gradient in ['exact', 'finite_differences']:
@@ -416,7 +448,7 @@ def test_inference_warns_on_unsupported_loss(caplog):
     """An unsupported loss is warned about once per run."""
     coal = lambda N: pg.Coalescent(n=4, demography=pg.Demography(pop_sizes={'pop_0': {0: 1, 0.5: N}}))
     with caplog.at_level('WARNING'):
-        _inference(coal, lambda c, obs: float(c.sfs.var.data[1]), {'N': 1.0}, {'N': (0.1, 5)}, None).run()
+        _inference(coal, lambda c, obs: float(c.tree_height.cdf(1.0)), {'N': 1.0}, {'N': (0.1, 5)}, None).run()
 
     assert len([r for r in caplog.records if 'finite differences' in r.getMessage()]) == 1
 
@@ -651,16 +683,52 @@ def test_coalescent_gradient_of_a_reward():
                                coal.total_branch_length.gradient().pop_sizes, rtol=1e-12)
 
 
-def test_gradient_of_higher_moments_and_windows_raises():
-    """Gradients are available for first moments accumulated until absorption only."""
+def test_gradient_of_windows_and_order_zero_raises():
+    """Gradients are available for moments of order one and higher accumulated until absorption only."""
     coal = pg.Coalescent(n=4, demography=pg.Demography(pop_sizes={'pop_0': {0: 1, 0.5: 2}}))
 
-    with pytest.raises(NotImplementedError, match='first moments'):
-        coal.tree_height.gradient(2)
-    with pytest.raises(NotImplementedError, match='first moments'):
-        coal.gradient(2)
+    with pytest.raises(ValueError, match='order zero'):
+        coal.tree_height.gradient(0)
+    with pytest.raises(ValueError, match='order zero'):
+        coal.gradient(0)
     with pytest.raises(NotImplementedError, match='until absorption'):
-        pg.Coalescent(n=4, end_time=1.0).tree_height.gradient()
+        pg.Coalescent(n=4, end_time=1.0).tree_height.gradient(2)
+
+
+def _three_epochs(N0: float = 1.0, N1: float = 0.4, t: float = 0.3, alpha: float = 1.6, m: float = 0.5) -> pg.Coalescent:
+    """A Beta coalescent of two demes with migration and a size change, whose moments of order two and three take
+    several epochs."""
+    return pg.Coalescent(n={'a': 3, 'b': 2}, model=pg.BetaCoalescent(alpha=alpha), demography=pg.Demography(
+        pop_sizes={'a': {0: N0, t: N1, 0.9: 2.0}, 'b': {0: 0.7}},
+        migration_rates={('a', 'b'): m, ('b', 'a'): 0.4}))
+
+
+@pytest.mark.parametrize('sparse', [False, True])
+@pytest.mark.parametrize('moment, gradient', [
+    (lambda c: c.tree_height.var, lambda c: c.tree_height.gradient(2)),
+    (lambda c: c.total_branch_length.m3, lambda c: c.total_branch_length.gradient(3, center=False)),
+    (lambda c: c.moment(2, (pg.TreeHeightReward(), pg.TotalBranchLengthReward())),
+     lambda c: c.gradient(2, (pg.TreeHeightReward(), pg.TotalBranchLengthReward()))),
+    (lambda c: c.jsfs.var.data[0, 1], lambda c: c.jsfs.gradient(2)),
+])
+def test_gradient_of_higher_moments_matches_differences(moment, gradient, sparse, monkeypatch):
+    """The derivatives of central, raw and cross moments of order two and three by a population size, an epoch start
+    time, a migration rate and alpha, on the dense exponentials and the sparse actions and solves."""
+    if sparse:
+        monkeypatch.setattr(Settings, 'expm_action_min_dim', 1)
+        monkeypatch.setattr(Settings, 'closed_form_sparse_min_states', 1)
+
+    grad = gradient(_three_epochs())
+    a = grad.pops.index('a')
+    pos = (0, 1) if grad.pop_sizes.ndim > 2 else ()
+    exact = dict(N0=grad.pop_sizes[pos + (0, a)], N1=grad.pop_sizes[pos + (1, a)], t=grad.start_times[pos + (1,)],
+                 m=grad.migration_rates[pos + (slice(None), grad.pairs.index(('a', 'b')))].sum(),
+                 alpha=grad.parameters['alpha'][pos] if pos else grad.parameters['alpha'])
+
+    for key, value in exact.items():
+        numeric = _richardson(lambda x: float(moment(_three_epochs(**{key: x}))), dict(N0=1.0, N1=0.4, t=0.3,
+                                                                                      alpha=1.6, m=0.5)[key])
+        assert value == pytest.approx(numeric, rel=1e-6), key
 
 
 def test_parameter_jacobian_matches_central_differences():
@@ -680,18 +748,18 @@ def test_parameter_jacobian_matches_central_differences():
 
 
 def test_parameter_jacobian_of_an_unsupported_statistic_uses_differences(caplog):
-    """A statistic reading a variance is differentiated by central differences, as noted in the log."""
+    """A statistic reading a distribution function is differentiated by central differences, as noted in the log."""
     import logging
 
     gradient = pg.Gradient(
         coal=lambda N: pg.Coalescent(n=4, demography=pg.Demography(pop_sizes={'pop_0': {0: 1, 0.5: N}})),
-        statistic=lambda coal: coal.tree_height.var
+        statistic=lambda coal: coal.tree_height.cdf(1.0)
     )
 
     with caplog.at_level(logging.INFO, logger='phasegen'):
         value, jacobian = gradient.compute(dict(N=1.3))
 
-    numeric = _richardson(lambda N: float(gradient.coal(N=N).tree_height.var), 1.3)
+    numeric = _richardson(lambda N: float(gradient.coal(N=N).tree_height.cdf(1.0)), 1.3)
     assert jacobian[0] == pytest.approx(numeric, rel=1e-6)
     assert any('no exact gradient' in r.getMessage() for r in caplog.records)
 
