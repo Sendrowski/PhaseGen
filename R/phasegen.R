@@ -1401,11 +1401,17 @@ plot.phasegen.inference.Inference <- function(x, which = c("demography", "pop_si
 plot_bootstraps <- function(x, kind, bins, title, truth = NULL) {
 
   names <- as.character(unlist(x$param_names))
+
+  if (length(truth) > 0 && (is.null(names(truth)) || any(names(truth) == ""))) {
+    stop("truth must be a named list or vector of parameter values.", call. = FALSE)
+  }
+
   unknown <- setdiff(names(truth), names)
 
   if (length(unknown) > 0) {
     stop("truth names unknown parameters: ", paste(unknown, collapse = ", "), ".", call. = FALSE)
   }
+
   values <- matrix(as.numeric(x$`_bootstrap_values`), ncol = length(names))
 
   if (nrow(values) == 0) {

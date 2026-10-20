@@ -255,6 +255,7 @@ test_that("the inference plots draw the ground truth dashed", {
                          logical(1))))
 
   expect_error(plot(inf, which = "bootstraps", truth = list(M = 1)), "unknown parameters: M")
+  expect_error(plot(inf, which = "bootstraps", truth = c(1.5)), "named list or vector")
 })
 
 test_that("Godambe standard errors agree with Fisher ones on Poisson bins and draw intervals", {

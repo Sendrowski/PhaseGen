@@ -822,7 +822,7 @@ class MomentEvaluator:
     @_make_hashable
     @cache
     def _raw_powers(self, k: int, reward: Reward, start_time: float) -> np.ndarray:
-        """
+        r"""
         The raw moments :math:`\mathbb{E}[R^i]` for :math:`i = 0, \dots, k` of a reward accumulated from the start time
         until absorption, from the trailing blocks of the closed form of order ``k``.
 
