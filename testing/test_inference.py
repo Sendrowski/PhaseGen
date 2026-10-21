@@ -2,6 +2,8 @@
 Test Inference class.
 """
 import os
+import traceback
+from typing import Tuple
 from unittest import mock
 from testing import TestCase
 
@@ -1531,7 +1533,7 @@ def test_indexed_runs_are_reproducible_without_stored_entropy():
     assert old.create_run(index=3).x0 == old.create_run(index=3).x0 == make().create_run(index=3).x0
 
 
-def _linear_poisson_inference(gradient: str) -> pg.Inference:
+def _linear_poisson_inference(gradient: str, seed: int = None) -> pg.Inference:
     """
     Inference of a constant population size ``Ne`` from an SFS whose expected counts are proportional to ``Ne``, so
     that the Hessian of the Poisson negative log-likelihood is :math:`\\sum_i k_i / Ne^2` for observed counts
@@ -1547,6 +1549,7 @@ def _linear_poisson_inference(gradient: str) -> pg.Inference:
         observation=pg.SFS([0, 180, 95, 70, 52, 0]),
         n_runs=1,
         gradient=gradient,
+        seed=seed,
         pbar=False
     )
 
@@ -2239,6 +2242,54 @@ def test_godambe_standard_error_on_a_bound_centres_the_scores():
     ratio = inf.standard_errors(method='godambe', n=1000)['Ne'] / inf.standard_errors()['Ne']
 
     assert ratio == pytest.approx(1, abs=0.09)
+
+
+def _godambe_spied(monkeypatch, gradient: str, loss=None) -> Tuple[pd.DataFrame, list, list]:
+    """The Godambe covariance of the linear Poisson inference, with the results of ``Gradient._scores`` and, for each
+    call of ``Gradient.compute``, whether the covariance of the scores made it."""
+    from phasegen.gradient import Gradient
+
+    inf = _linear_poisson_inference(gradient, seed=1)
+    if loss is not None:
+        inf.loss = loss
+    inf.resample = _poisson_resample
+    inf.run()
+
+    scores, computed = [], []
+    _scores, compute = Gradient._scores, Gradient.compute
+    monkeypatch.setattr(Gradient, '_scores', lambda self, *a: scores.append(_scores(self, *a)) or scores[-1])
+    def spied(self, *args, **kwargs):
+        computed.extend(['_score_covariance' in traceback.format_stack()[-2]])
+        return compute(self, *args, **kwargs)
+
+    monkeypatch.setattr(Gradient, 'compute', spied)
+
+    return inf.covariance(method='godambe', n=20), scores, computed
+
+
+def test_godambe_covariance_shares_the_moment_jacobian_across_resamples(monkeypatch):
+    """The exact scores of the resampled observations come from one Jacobian of the moments, without a gradient per
+    resample, and agree with the scores by finite differences."""
+    exact, scores, computed = _godambe_spied(monkeypatch, 'exact')
+    differenced, _, _ = _godambe_spied(monkeypatch, 'finite_differences')
+
+    assert len(scores) == 1 and scores[0] is not None and not any(computed)
+    np.testing.assert_allclose(exact.values, differenced.values, rtol=1e-4)
+
+
+def test_godambe_covariance_of_losses_reading_different_moments(monkeypatch):
+    """Resampled losses that read different moments take one exact gradient each, which agree with the scores by
+    finite differences."""
+    def loss(coal, obs):
+        extra = 1e-2 * coal.tree_height.var if obs.data[1] > 180 else 0.0
+        return float(pg.PoissonLikelihood().compute(observed=obs.polymorphic,
+                                                    modelled=100 * coal.sfs.mean.polymorphic)) + extra
+
+    exact, scores, computed = _godambe_spied(monkeypatch, 'exact', loss)
+    differenced, _, _ = _godambe_spied(monkeypatch, 'finite_differences', loss)
+
+    assert scores == [None] and sum(computed) == 20
+    np.testing.assert_allclose(exact.values, differenced.values, rtol=1e-4)
 
 
 def test_godambe_covariance_needs_resample_and_a_known_method():
