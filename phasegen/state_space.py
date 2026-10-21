@@ -514,7 +514,6 @@ class StateSpace(ABC):
         """
         clone = copy.copy(self)
         clone.__dict__.pop('transition', None)
-        clone._generator_basis = None
 
         if model is not None:
             clone.model = model
@@ -527,12 +526,14 @@ class StateSpace(ABC):
 
     def drop_cache(self) -> None:
         """
-        Drop the rate matrix cache, the current rate matrix and that of the epoch left last.
+        Drop the rate matrix cache, the current rate matrix, that of the epoch left last and the generator basis of the
+        gradients.
         """
         self.drop_S()
 
         self._previous_S = {}
         self._cache = {}
+        self._generator_basis = None
 
     @abstractmethod
     def _get_initial(self) -> 'State':

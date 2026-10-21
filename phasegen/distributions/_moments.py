@@ -829,6 +829,21 @@ class MomentEvaluator:
                 self._absorption_certain_in_last_epoch(k)
         )
 
+    @cache
+    def _last_epoch_solver(self, k: int, sparse: bool) -> 'Callable':
+        """
+        The factorization of ``-T`` of the last epoch on the transient states of ``_alpha_support``, as
+        ``_lu_solver``, shared by the closed forms of order ``k``. Leaves the state space in the last epoch.
+
+        :param k: The order of the moment, which selects the epochs (see ``_get_epochs_until_unbounded``).
+        :param sparse: Whether to factorize sparsely.
+        :return: The solver.
+        """
+        self.state_space.update_epoch(self._get_epochs_until_unbounded(k)[-1])
+        idx_t = np.where(~self.state_space.absorbing & self._alpha_support(k))[0]
+
+        return self._lu_solver(-self._transient_block(idx_t, sparse=sparse), sparse)
+
     @_make_hashable
     @cache
     def _raw_powers(self, k: int, reward: Reward, start_time: float) -> np.ndarray:
@@ -1626,8 +1641,6 @@ class MomentEvaluator:
                 self._accumulate_closed_form(k, (h,) + tuple(rewards[1:]), start_time) for h in heads
             ])
 
-        # transient sub-generator and its (sparse or dense) factorization, reused across the back-substitution
-        T = self._transient_block(idx_t, sparse=sparse)
         if sparse:
             self._logger.debug(
                 "closed form (k=%d): sparse LU (splu) of T (n_t=%d >= %d), %s exponential, %d finite epoch(s)",
@@ -1638,7 +1651,7 @@ class MomentEvaluator:
             self._logger.debug(
                 "closed form (k=%d): dense LU of T (n_t=%d), %d finite epoch(s)", k, len(idx_t), len(epochs) - 1
             )
-        solve = self._lu_solver(-T, sparse)
+        solve = self._last_epoch_solver(k, sparse)
 
         # the j-th block of the extended vector is stored divided by lamb ** (k - j), which balances the Van Loan
         # exponentials of the finite epochs, so the moment is multiplied by lamb ** k at the end. The heads share one

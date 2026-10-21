@@ -376,6 +376,10 @@ class _GeneratorBasis:
         #: The contractions of :meth:`contraction`, by set of states.
         self._contractions: Dict[bytes, '_Contraction'] = {}
 
+        #: The bytes of the epochs cached by the contractions, by contraction and rates, least recently used first.
+        self._cached: 'OrderedDict[Tuple[_Contraction, tuple], int]' = OrderedDict()
+        self._bytes = 0
+
     def contraction(self, idx: np.ndarray) -> '_Contraction':
         """
         The contraction of the basis over a set of states, memoized.
@@ -388,6 +392,25 @@ class _GeneratorBasis:
             self._contractions[key] = _Contraction(self, idx)
 
         return self._contractions[key]
+
+    def touch(self, contraction: '_Contraction', key: tuple, keep: int) -> None:
+        """
+        Mark an epoch cached by a contraction as most recently used, evicting the least recently used epochs of all
+        contractions beyond :data:`_CONTRACTION_BYTES`.
+
+        :param contraction: The contraction.
+        :param key: The rates of the epoch.
+        :param keep: The number of most recently used epochs kept regardless, those of the gradient being computed.
+        """
+        if (contraction, key) not in self._cached:
+            self._cached[contraction, key] = contraction.size(key)
+            self._bytes += self._cached[contraction, key]
+        self._cached.move_to_end((contraction, key))
+
+        while self._bytes > _CONTRACTION_BYTES and len(self._cached) > keep:
+            (oldest, old), size = self._cached.popitem(last=False)
+            del oldest._epochs[old]
+            self._bytes -= size
 
     def _generator(self, sizes: Dict[str, float], rates: Dict[Tuple[str, str], float]) -> sp.csr_matrix:
         """
@@ -683,10 +706,9 @@ class _Contraction:
         self.C = {p: np.asarray(X[self.rows, self.cols]).ravel() for p, X in C.items()}
         self.M = {pair: np.asarray(X[self.rows, self.cols]).ravel() for pair, X in M.items()}
 
-        #: The factors of the coalescence parts and the parameter derivatives at the entries, by the rates of the most
-        #: recent epochs, and their bytes.
-        self._epochs: 'OrderedDict[tuple, Tuple[Dict[str, float], Dict[str, np.ndarray]]]' = OrderedDict()
-        self._bytes = 0
+        #: The factors of the coalescence parts and the parameter derivatives at the entries, by the rates of the
+        #: recent epochs, evicted by the basis.
+        self._epochs: Dict[tuple, Tuple[Dict[str, float], Dict[str, np.ndarray]]] = {}
 
     def add(self, grad: 'DemographyGradient', e: int, g: np.ndarray, scale: float) -> None:
         """
@@ -704,11 +726,7 @@ class _Contraction:
                 name: np.asarray(dS[self.rows, self.cols]).ravel()
                 for name, dS in self.basis.parameter_derivatives(epoch, self.idx).items()
             })
-            self._bytes += self._size(key)
-            while self._bytes > _CONTRACTION_BYTES and len(self._epochs) > len(grad.epochs):
-                self._bytes -= self._size(next(iter(self._epochs)))
-                self._epochs.popitem(last=False)
-        self._epochs.move_to_end(key)
+        self.basis.touch(self, key, len(grad.epochs))
         coefficients, derivatives = self._epochs[key]
 
         for i, pop in enumerate(grad.pops):
@@ -718,7 +736,7 @@ class _Contraction:
         for name, dS in derivatives.items():
             grad.parameters[name] += scale * float(dS @ g)
 
-    def _size(self, key: tuple) -> int:
+    def size(self, key: tuple) -> int:
         """
         The bytes of a cached epoch: its parameter derivatives and about a kilobyte for its dictionaries.
 

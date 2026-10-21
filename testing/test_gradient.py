@@ -1276,26 +1276,28 @@ def test_epoch_contractions_are_cached_across_gradients(monkeypatch):
 
 
 def test_epoch_contractions_are_bounded_in_bytes(monkeypatch):
-    """The cached contractions of epochs at new rates, as an inference produces, stay within the byte budget.
-    Regression: the cache was bounded by 256 epochs, which a Beta coalescent of n = 30 fills with about 1.15 GB."""
+    """The cached contractions of epochs at new rates, as an inference produces, stay within one byte budget per
+    state space across the contractions of its sets of states, as those of a higher moment use two. Regression: the
+    cache was bounded by 256 epochs, which a Beta coalescent of n = 30 fills with about 1.15 GB, and then by bytes per
+    set of states."""
     coal = lambda N: pg.Coalescent(n=4, model=pg.BetaCoalescent(alpha=1.5), demography=pg.Demography(
         pop_sizes={'pop_0': {0: 1, 0.5: N}}))
     base = coal(2.0)
     base.sfs.gradient(2)
-    contractions = list(base.state_spaces['block_counting']._generator_basis._contractions.values())
-    assert contractions
-    size = max(c._size(key) for c in contractions for key in c._epochs)
+    space = base.state_spaces['block_counting']
+    basis = space._generator_basis
+    assert len(basis._contractions) == 2
+    size = max(basis._cached.values())
 
     monkeypatch.setattr('phasegen.distributions._gradient._CONTRACTION_BYTES', 3 * size)
-    space = base.state_spaces['block_counting']
     for N in np.linspace(1.5, 3, 10):
         c = coal(N)
         c.__dict__.setdefault('_built_state_spaces', {})['block_counting'] = space
         c.sfs.gradient(2)
 
-    assert max(len(contraction._epochs) for contraction in contractions) == 3
-    for contraction in contractions:
-        assert contraction._bytes == sum(contraction._size(key) for key in contraction._epochs) <= 3 * size
+    cached = sum(len(contraction._epochs) for contraction in basis._contractions.values())
+    assert cached == len(basis._cached) and 2 <= cached <= 3
+    assert basis._bytes == sum(basis._cached.values()) <= 3 * size
 
 
 def test_supported_builds_only_the_state_spaces_of_the_passes():
@@ -1366,6 +1368,19 @@ def test_payloads_leave_out_the_generator_basis():
     restored = pg.Coalescent.from_json(coal.to_json())
     assert restored.state_spaces['lineage_counting']._generator_basis is None
     np.testing.assert_allclose(restored.tree_height.gradient(2).pop_sizes, expected, rtol=1e-12)
+
+
+def test_drop_cache_drops_the_generator_basis():
+    """Dropping the caches of a coalescent frees the generator basis and its contractions. Regression: they were
+    kept."""
+    coal = pg.Coalescent(n=5, model=pg.BetaCoalescent(alpha=1.5),
+                         demography=pg.Demography(pop_sizes={'pop_0': {0: 1, 0.5: 2}}))
+    coal.sfs.gradient(2)
+    assert coal.state_spaces['block_counting']._generator_basis is not None
+
+    coal.drop_cache()
+
+    assert coal.state_spaces['block_counting']._generator_basis is None
 
 
 @pytest.mark.parametrize('case', ['lineage weight', 'locus weight', 'custom model'])
