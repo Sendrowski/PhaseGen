@@ -2139,28 +2139,19 @@ class TwoLocusSFSDistribution(SpectrumDistribution):
     def _mean_gradient(self) -> 'DemographyGradient':
         """
         The derivatives of :meth:`TwoLocusSFSDistribution.gradient()
-        <phasegen.distributions.TwoLocusSFSDistribution.gradient>`, cached. Bin :math:`(i, j)` averages the two
-        orderings of the rewards of classes :math:`i` and :math:`j` at the two loci, and every ordering is
-        differentiated once.
+        <phasegen.distributions.TwoLocusSFSDistribution.gradient>`, cached.
 
         :return: The derivatives.
+        :raises ValueError: If absorption is not certain in the last epoch.
         """
-        from ._gradient import CrossMomentGradient, _zero_gradient
+        from ._gradient import _entries_gradients
 
-        indices = self._get_indices()
-        vectors = self._locus_vectors()
-        orderings = {}
-        for j in indices:
-            out = CrossMomentGradient(self).compute(np.column_stack([vectors[0, i] for i in indices]),
-                                                    (vectors[1, j],))
-            if out is None:
-                raise ValueError('Absorption is not certain in the last epoch, so the moment has no exact gradient.')
-            orderings.update({(i, j): _zero_gradient(self, 2) if r is None else r[1] for i, r in zip(indices, out)})
+        _, entries = self._mean_entries(None, self.mean)
+        out = _entries_gradients(self, [terms for _, terms, _, _ in entries])
+        if out is None:
+            raise ValueError('Absorption is not certain in the last epoch, so the moment has no exact gradient.')
 
-        gradients = [DemographyGradient._sum([orderings[i, j], orderings[j, i]])._scaled(0.5)
-                     for i in indices for j in indices]
-
-        return DemographyGradient._stack(gradients, [(i, j) for i in indices for j in indices], self.mean.data.shape)
+        return DemographyGradient._stack([g for _, g in out], [pos for pos, _, _, _ in entries], self.mean.data.shape)
 
     def _locus_vectors(self) -> Dict[Tuple[int, int], np.ndarray]:
         """

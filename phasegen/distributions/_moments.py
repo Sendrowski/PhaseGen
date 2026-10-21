@@ -2035,9 +2035,11 @@ class MomentEvaluator:
 
             if np.isinf(tau):
                 # final unbounded epoch, no cap: occupation to absorption = p (-T)^{-1}, i.e. solve (-T)^T x = p
+                solve = self._lu_solver(-S.T, sparse)
                 if tape is not None:
                     tape.append(_OccupationStep(epoch, idx_t, np.inf, S, np.concatenate([p, m]), sparse=sparse))
-                m += self._lu_solver(-S.T, sparse)(p)
+                    tape[-1].solve = solve
+                m += solve(p)
                 break
 
             if use_action:

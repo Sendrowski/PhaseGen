@@ -134,20 +134,6 @@ class DemographyGradient:
 
         return out
 
-    def _scaled(self, factor: float) -> 'DemographyGradient':
-        """
-        The gradient multiplied by a factor, in place.
-
-        :param factor: The factor.
-        :return: The gradient.
-        """
-        self.pop_sizes *= factor
-        self.migration_rates *= factor
-        self.start_times *= factor
-        self.parameters = {name: value * factor for name, value in self.parameters.items()}
-
-        return self
-
     @staticmethod
     def quantities(epochs: Sequence[Epoch], pops: Sequence[str], pairs: Sequence[Tuple[str, str]],
                    parameters: Dict[str, float], names: Sequence[str]) -> np.ndarray:
@@ -589,7 +575,7 @@ class PhaseTypeDistribution(CallableDistributionFunctions, MomentEvaluator, Mome
         :param permute: Whether it averages over the orderings of the rewards.
         :return: The derivatives.
         """
-        from ._gradient import MeanGradient, _terms_gradient
+        from ._gradient import MeanGradient, _entries_gradients
 
         if self._resolve_window() != (0.0, np.inf):
             raise NotImplementedError('Gradients are available for moments accumulated until absorption only.')
@@ -601,8 +587,8 @@ class PhaseTypeDistribution(CallableDistributionFunctions, MomentEvaluator, Mome
         else:
             entries = self._moment_entries(k, rewards, center, permute, checked=False)
             positions = [entry[0] for entry in entries]
-            out = [_terms_gradient(self, entry[1]) for entry in entries]
-            gradients = None if any(o is None for o in out) else [g for _, g in out]
+            out = _entries_gradients(self, [entry[1] for entry in entries])
+            gradients = None if out is None else [g for _, g in out]
 
         if gradients is None:
             raise ValueError('Absorption is not certain in the last epoch, so the moment has no exact gradient.')

@@ -60,7 +60,7 @@ def _assert_mean_gradient(n, stat: str, model=None, n_epochs: int = 3, seed: int
     dist = getattr(_coalescent(n, q, model), stat)
     host, R, positions = dist._mean_rewards()
     reward = R[:, 0] if entry is None else R[:, positions.index(entry)]
-    result, grad = MeanGradient(host).compute(reward)
+    result, grad = MeanGradient(host).compute_columns(np.asarray(reward, dtype=float)[:, None])[0]
 
     assert result == pytest.approx(value(q), rel=1e-12)
 
@@ -121,7 +121,7 @@ def test_mean_gradient_two_loci():
     th = pg.Coalescent(n=3, loci=2, recombination_rate=0.7,
                        demography=pg.Demography(pop_sizes={'pop_0': {0: 1, 0.4: 1.7}})).tree_height
     host, R, _ = th._mean_rewards()
-    value, grad = MeanGradient(host).compute(R[:, 0])
+    value, grad = MeanGradient(host).compute_columns(R[:, :1])[0]
 
     assert value == pytest.approx(th.mean, rel=1e-12)
     assert grad.pop_sizes[1, 0] == pytest.approx(_richardson(mean, 1.7), rel=1e-7)
@@ -142,7 +142,7 @@ def test_mean_gradient_at_zero_migration_rate(action):
 
     th = tree_height(0.0)
     host, R, _ = th._mean_rewards()
-    _, grad = MeanGradient(host).compute(R[:, 0])
+    _, grad = MeanGradient(host).compute_columns(R[:, :1])[0]
 
     h = 1e-5
     one_sided = (-3 * th.mean + 4 * tree_height(h).mean - tree_height(2 * h).mean) / (2 * h)
@@ -167,7 +167,7 @@ def test_generator_basis_failure_restores_epoch(monkeypatch):
 
     for _ in range(2):
         with pytest.raises(ValueError, match='not affine'):
-            MeanGradient(th).compute(th.reward._get(ss))
+            MeanGradient(th).compute_columns(np.asarray(th.reward._get(ss), dtype=float)[:, None])
     assert isinstance(ss.__dict__['_generator_basis'], ValueError)
 
 
@@ -175,7 +175,7 @@ def test_mean_gradient_undefined_without_certain_absorption():
     """Without certain absorption in the last epoch, the occupation has no closed form and no gradient."""
     coal = pg.Coalescent(n={'pop_0': 1, 'pop_1': 1}, demography=pg.Demography(pop_sizes={'pop_0': 1, 'pop_1': 1}))
     th = coal.tree_height
-    assert MeanGradient(th).compute(th.reward._get(th.state_space)) is None
+    assert MeanGradient(th).compute_columns(np.asarray(th.reward._get(th.state_space), dtype=float)[:, None]) is None
 
 
 def _inference(coal: Callable, loss: Callable, x0: dict, bounds: dict, observation, **kwargs) -> Inference:
@@ -1299,14 +1299,15 @@ def test_gradient_returns_a_copy_and_accepts_a_list_of_rewards():
     rewards may be a list. Regression: the cached object itself was returned, and a list raised a TypeError."""
     coal = pg.Coalescent(n=4, demography=pg.Demography(pop_sizes={'pop_0': {0: 1, 0.5: 2}}))
     first = coal.tree_height.gradient()
+    expected = first.pop_sizes.copy()
     first.pop_sizes += 1
 
-    np.testing.assert_array_equal(coal.tree_height.gradient().pop_sizes, first.pop_sizes - 1)
+    np.testing.assert_array_equal(coal.tree_height.gradient().pop_sizes, expected)
 
     by_list = coal.gradient(1, rewards=[pg.TotalBranchLengthReward()])
+    expected = by_list.pop_sizes.copy()
     by_list.pop_sizes += 1
-    np.testing.assert_array_equal(coal.gradient(1, rewards=[pg.TotalBranchLengthReward()]).pop_sizes,
-                                  by_list.pop_sizes - 1)
+    np.testing.assert_array_equal(coal.gradient(1, rewards=[pg.TotalBranchLengthReward()]).pop_sizes, expected)
 
 
 def test_parameter_jacobian_value_mismatch_falls_back(monkeypatch, caplog):

@@ -230,6 +230,9 @@ class _OccupationStep:
         #: Step inputs and term counts of the action.
         self.checkpoints: Optional[List[Tuple[np.ndarray, int]]] = None
 
+        #: The solver of ``(-T)^T`` of the last epoch, whose attribute ``T`` solves ``-T``.
+        self.solve: Optional[Callable] = None
+
     def augmented(self) -> sp.csr_matrix:
         """
         The augmented generator :math:`[[\\mathbf{T}, \\mathbf{I}], [\\mathbf{0}, \\mathbf{0}]]`, unscaled.
@@ -588,18 +591,6 @@ class MeanGradient:
         """
         return logging.getLogger(f"phasegen.{type(self).__name__}")
 
-    def compute(self, reward: np.ndarray) -> Optional[Tuple[float, 'DemographyGradient']]:
-        """
-        The mean and its gradient.
-
-        :param reward: The reward vector over the states of the state space.
-        :return: The mean and its gradient, or ``None`` where the occupation times are not defined in closed form.
-        :raises ValueError: If the generator is not affine in the inverse time scales and migration rates.
-        """
-        out = self.compute_columns(np.asarray(reward, dtype=float)[:, None])
-
-        return None if out is None else out[0]
-
     def compute_columns(self, rewards: np.ndarray) -> Optional[List[Tuple[float, 'DemographyGradient']]]:
         """
         The means and gradients of several rewards, sharing the forward pass, the factorization of the last epoch and
@@ -620,80 +611,57 @@ class MeanGradient:
 
         m, idx_t = occupation
         nt = len(idx_t)
-        basis = self._basis()
-        C, M, rows, cols = basis.transient(idx_t)
+        basis = _generator_basis(dist.state_space)
+        con = basis.contraction(idx_t)
+        names = [name for name in _rate_parameters(dist.state_space.model, dist.state_space.locus_config)
+                 if basis._stencil(name) is not None]
 
         # last epoch: d(p (-T)^{-1} r) = q dT u with q = p (-T)^{-1} and u = (-T)^{-1} r
         last = tape[-1]
-        neg_t = -last.T
-        solve = dist._lu_solver(neg_t, last.sparse)
-        q = solve.T(last.w[:nt])
+        q = last.solve(last.w[:nt])
 
-        # the factors of the coalescence parts and the derivatives of the generator by the model parameters and the
-        # recombination rate, per epoch
-        coefficients = [basis.coefficients(step.epoch) for step in tape]
-        dT = [basis.parameter_derivatives(step.epoch, idx_t) for step in tape]
-        names = list(dT[0])
+        # the augmented generator [[T, I], [0, 0]] applied to a vector, and its dense form scaled by the step
+        def augmented(step: _OccupationStep, v: np.ndarray) -> np.ndarray:
+            return np.concatenate([step.T @ v[:nt] + v[nt:], np.zeros(nt)])
+
+        dense = {e: step.augmented().toarray() * step.tau for e, step in enumerate(tape[:-1]) if step.action is None}
 
         out = []
         for r in np.asarray(rewards, dtype=float)[idx_t].T:
             grad = DemographyGradient([step.epoch for step in tape], basis.pops, basis.pairs, parameters=names)
 
-            # G is the derivative with respect to the transient block of the generator of epoch e, which enters the
-            # exponent of a finite epoch multiplied by its duration, passed as the scale
-            def accumulate(e: int, G: 'sp.spmatrix | np.ndarray', scale: float) -> None:
-                G = sp.csr_matrix(G)
-                for i, pop in enumerate(basis.pops):
-                    grad.pop_sizes[e, i] += scale * coefficients[e][pop] * float(C[pop].multiply(G).sum())
-                for j, pair in enumerate(basis.pairs):
-                    grad.migration_rates[e, j] += scale * float(M[pair].multiply(G).sum())
-                for name in names:
-                    grad.parameters[name] += scale * float(dT[e][name].multiply(G).sum())
-
-            u = solve(r)
-            accumulate(len(tape) - 1,
-                       sp.csr_matrix((q[rows] * u[cols], (rows, cols)), shape=(nt, nt)) if last.sparse
-                       else np.outer(q, u), 1.0)
+            u = last.solve.T(r)
+            con.add(grad, len(tape) - 1, q[con.rows] * u[con.cols], 1.0)
 
             v = np.concatenate([u, r])
 
             # the last augmented generator annihilates its adjoint vector on the transient states
             V_next_v = np.concatenate([last.T @ u + r, np.zeros(nt)])
 
+            # the generator of a finite epoch enters its exponent multiplied by its duration
             for e in range(len(tape) - 2, -1, -1):
                 step = tape[e]
-                V = step.augmented()
                 w_next = tape[e + 1].w
-                grad.start_times[e + 1] += float(w_next @ (V @ v) - w_next @ V_next_v)
+                grad.start_times[e + 1] += float(w_next @ augmented(step, v) - w_next @ V_next_v)
 
                 if step.action is None:
-                    A = V.toarray() * step.tau
-                    G = sla.expm_frechet(A.T, np.outer(step.w, v), compute_expm=False)[:nt, :nt]
-                    accumulate(e, G, step.tau)
+                    G = sla.expm_frechet(dense[e].T, np.outer(step.w, v), compute_expm=False)[:nt, :nt]
+                    con.add(grad, e, G[con.rows, con.cols], step.tau)
                     v = step.exp_aug @ v
                 else:
                     # the action applies exp(A^T) to [p, 0], so dL/dA_{rc} = dL/dM_{cr}, taken over the entries every
                     # generator of the space can take, also those at a rate of zero in this epoch
-                    v_in, gM = step.action.reverse(v, step.checkpoints, cols, rows)
-                    GA = sp.csr_matrix((gM, (rows, cols)), shape=(nt, nt))
-                    accumulate(e, GA, step.tau)
+                    v_in, gM = step.action.reverse(v, step.checkpoints, con.cols, con.rows)
+                    con.add(grad, e, gM, step.tau)
                     # the action is applied to [p, 0], and the accumulated occupation is carried past it
                     v = np.concatenate([v_in[:nt], v[nt:]])
 
-                V_next_v = V @ v
+                V_next_v = augmented(step, v)
 
             grad.parameters = {name: float(value) for name, value in grad.parameters.items()}
             out.append((float(m @ r), grad))
 
         return out
-
-    def _basis(self) -> _GeneratorBasis:
-        """
-        The generator basis of the state space, see :func:`_generator_basis`.
-
-        :raises ValueError: If the generator is not affine in the inverse time scales and migration rates.
-        """
-        return _generator_basis(self.distribution.state_space)
 
 
 class _Contraction:
@@ -802,11 +770,17 @@ class CrossMomentGradient:
         tail = tuple(CustomReward(lambda _, r=np.asarray(r, dtype=float): r) for r in tail)
         last = None
 
-        out = []
+        out, done = [], {}
         for c, head in enumerate(heads.T):
             weights = {i: float(w[c]) for i, w in seeds.items() if w[c] != 0}
             if not head.any() and not weights:
                 out.append(None)
+                continue
+
+            # columns with the same head and weights share their pass
+            key = (head.tobytes(), tuple(sorted(weights.items())))
+            if key in done:
+                out.append(done[key])
                 continue
 
             tape = _ClosedFormTape()
@@ -854,7 +828,8 @@ class CrossMomentGradient:
             last.add(grad, len(tape.epochs) - 1, g, 1.0)
 
             grad.parameters = {name: float(v) for name, v in grad.parameters.items()}
-            out.append((value, grad))
+            done[key] = (value, grad)
+            out.append(done[key])
 
         return out
 
@@ -902,34 +877,41 @@ def _group_terms(
     return out, means
 
 
-def _terms_gradient(
+def _entries_gradients(
         distribution: 'PhaseTypeDistribution',
-        terms: Sequence[Tuple[float, Tuple[np.ndarray, ...]]]
-) -> Optional[Tuple[float, 'DemographyGradient']]:
+        entries: Sequence[Sequence[Tuple[float, Tuple[np.ndarray, ...]]]]
+) -> Optional[List[Tuple[float, 'DemographyGradient']]]:
     """
-    The weighted sum of ordered raw moments of ``PhaseTypeDistribution._moment_terms`` and its gradient, by the
-    backward passes of :func:`_group_terms`.
+    The weighted sums of ordered raw moments of ``PhaseTypeDistribution._moment_terms`` of several entries and their
+    gradients, by the backward passes of :func:`_group_terms` over all entries at once.
 
     :param distribution: The distribution whose state space the reward vectors are defined on.
-    :param terms: The coefficients with the reward vectors of each ordering.
-    :return: The sum and its gradient, or ``None`` where absorption is not certain in the last epoch.
+    :param entries: The coefficients with the reward vectors of each ordering, per entry.
+    :return: The sum and its gradient per entry, or ``None`` where absorption is not certain in the last epoch.
     """
     from .phase_type import DemographyGradient
 
-    groups, means = _group_terms([(np.array([c]), vectors) for c, vectors in terms])
+    n = len(entries)
+    terms = [(np.eye(n)[c] * coefficient, vectors) for c, entry in enumerate(entries) for coefficient, vectors in entry]
+    groups, means = _group_terms(terms)
 
     outs = [CrossMomentGradient(distribution).compute(heads, tail, seeds) for tail, heads, seeds in groups]
     if means is not None:
-        outs.append(MeanGradient(distribution).compute_columns(means))
+        used = np.flatnonzero(np.abs(means).sum(axis=0))
+        out = MeanGradient(distribution).compute_columns(means[:, used])
+        outs.append(None if out is None else [out[list(used).index(c)] if c in used else None for c in range(n)])
 
     if any(o is None for o in outs):
         return None
 
-    results = [o[0] for o in outs if o[0] is not None]
-    if not results:
-        return 0.0, _zero_gradient(distribution, max(len(vectors) for _, vectors in terms))
+    k = max(len(vectors) for _, vectors in terms)
+    results = []
+    for c in range(n):
+        column = [o[c] for o in outs if o[c] is not None]
+        results.append((sum(v for v, _ in column), DemographyGradient._sum([g for _, g in column])) if column else
+                       (0.0, _zero_gradient(distribution, k)))
 
-    return sum(v for v, _ in results), DemographyGradient._sum([g for _, g in results])
+    return results
 
 
 def _zero_gradient(distribution: 'PhaseTypeDistribution', k: int) -> 'DemographyGradient':
