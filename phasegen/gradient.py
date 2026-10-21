@@ -3,6 +3,7 @@ Exact Jacobians of statistics of a parametrized coalescent with respect to its p
 """
 
 import copy
+import inspect
 import itertools
 import logging
 from typing import Any, Callable, Dict, List, NamedTuple, Optional, Sequence, Tuple
@@ -110,14 +111,19 @@ class _DistributionRecorder:
         self._recorder.unsupported = True
         raise _Unsupported(f"{self._name}.{attr}")
 
-    def moment(self, k: int = 1, rewards: Sequence = None, start_time: float = None, end_time: float = None,
-               center: bool = True, permute: bool = True) -> Any:
+    def moment(self, *args: Any, **kwargs: Any) -> Any:
         """
-        Serve a moment, see :meth:`_CoalescentRecorder.order()
+        Serve a moment, with the arguments of the moment of the distribution, see :meth:`_CoalescentRecorder.order()
         <phasegen.gradient._CoalescentRecorder.order>`.
+
+        :raises TypeError: If the moment of the distribution does not take the arguments.
         """
         dist = self._distribution
-        k = self._recorder.order(k, rewards, start_time, end_time, f"{self._name}.moment")
+        bound = inspect.signature(dist.moment).bind(*args, **kwargs)
+        bound.apply_defaults()
+        get = lambda name, default=None: bound.arguments.get(name, default)
+        rewards, center, permute = get('rewards'), get('center', True), get('permute', True)
+        k = self._recorder.order(get('k'), rewards, get('start_time'), get('end_time'), f"{self._name}.moment")
 
         if not dist._differentiable(k):
             self._recorder.unsupported = True
@@ -471,16 +477,22 @@ class Gradient:
 
     def supported(self, params: Dict[str, float]) -> bool:
         """
-        Whether the statistic reads only supported moments, evaluated at some parameters. A model that cannot be
-        evaluated there leaves the question open, which is answered in favour of the exact Jacobian.
+        Whether the statistic reads only supported moments of state spaces whose generator is affine in the rates,
+        evaluated at some parameters. A model that cannot be evaluated there leaves the question open, which is
+        answered in favour of the exact Jacobian.
 
         :param params: The parameters.
         :return: Whether the statistic is supported.
         """
         try:
-            return self._record(self.coal(**params)) is not None
+            record = self._record(self.coal(**params))
         except Exception:
             return True
+
+        try:
+            return record is not None and all(_generator_basis(read.dist.state_space) for read in record[1].reads)
+        except ValueError:
+            return False
 
     def _record(self, coal: Coalescent) -> Optional[Tuple[np.ndarray, _CoalescentRecorder]]:
         """
