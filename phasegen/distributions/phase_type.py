@@ -374,8 +374,8 @@ class PhaseTypeDistribution(CallableDistributionFunctions, MomentEvaluator, Mome
             checked: bool = True
     ) -> Tuple[List[Tuple[float, Tuple[np.ndarray, ...]]], float, float]:
         r"""
-        The derivative of a moment of order :math:`k = |\{R_1, \dots, R_k\}|` accumulated until absorption as a
-        weighted sum of derivatives of ordered raw moments. An ordering of one reward is its mean, and an ordering of
+        The derivative of a moment of the rewards :math:`R_1, \dots, R_k`, which may repeat, accumulated until
+        absorption as a weighted sum of derivatives of ordered raw moments. An ordering of one reward is its mean, and an ordering of
         several rewards is the closed form of ``MomentEvaluator._accumulate_closed_form``, :math:`k!` times the reward
         collected in that order. The raw cross-moment averages its orderings, and the central moment
         :math:`\sum_{S} (-1)^{k - |S|}\, \mathbb{E}[\prod_{j \in S} R_j] \prod_{j \notin S} \mathbb{E}[R_j]` over the

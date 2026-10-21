@@ -812,12 +812,13 @@ class MomentEvaluator:
 
     def _powers_apply(self, k: int, rewards: Sequence[Reward], end_times: Sequence[float]) -> bool:
         """
-        Whether the moments of the orders up to ``k`` of a single reward accumulated until absorption are read from one
-        closed form by :meth:`_raw_powers`.
+        Whether the raw moments up to order ``k`` are read from one closed form by :meth:`_raw_powers`: where the
+        rewards are equal, the end times infinite, :attr:`Settings.closed_form_last_epoch
+        <phasegen.settings.Settings.closed_form_last_epoch>` set and absorption certain in the last epoch.
 
         :param k: The order.
-        :param rewards: The rewards, which must all be equal.
-        :param end_times: The end times, which must all be infinite.
+        :param rewards: The rewards.
+        :param end_times: The end times.
         :return: Whether they are.
         """
         return (

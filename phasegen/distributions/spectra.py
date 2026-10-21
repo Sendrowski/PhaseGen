@@ -2079,15 +2079,15 @@ class TwoLocusSFSDistribution(SpectrumDistribution):
 
     def _unsupported(self, *args, **kwargs) -> NoReturn:
         """
-        Not available for the two-locus spectrum, which provides the moments, the correlations, the joint
-        distribution of a pair of classes, samples and the empirical counterpart. The distribution of a single class at
+        Not available for the two-locus spectrum, which provides the moments, the gradient of the mean, the
+        correlations, the joint distribution of a pair of classes, samples and the empirical counterpart. The distribution of a single class at
         one locus is that of the single-locus spectrum :attr:`Coalescent.sfs <phasegen.distributions.Coalescent.sfs>`.
 
         :raises NotImplementedError: Always.
         """
         raise NotImplementedError(
-            f"{type(self).__name__} provides moment, mean, var, std, m2, corr, accumulate, distribution, "
-            "joint, sample, sample_per_locus and to_empirical. The per-locus marginals are those of the "
+            f"{type(self).__name__} provides moment, mean, var, std, m2, m3, m4, cov, corr, gradient, accumulate, "
+            "distribution, joint, sample, sample_per_locus and to_empirical. The per-locus marginals are those of the "
             "single-locus spectrum pg.Coalescent(...).sfs."
         )
 

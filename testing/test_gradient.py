@@ -1,8 +1,9 @@
 """
-Exact gradients of first moments (:class:`phasegen.distributions._gradient.MeanGradient`) and of inference losses
-(:class:`phasegen.gradient.Gradient`), against Richardson-extrapolated central differences. The steps are
-relative 1e-3: the adaptive truncation of the sparse action makes the computed moments non-smooth at about 1e-13
-relative, which smaller steps amplify.
+Exact gradients of moments of any order (:class:`phasegen.distributions._gradient.MeanGradient` and
+:class:`phasegen.distributions._gradient.CrossMomentGradient`) and of inference losses
+(:class:`phasegen.gradient.Gradient`), against Richardson-extrapolated central differences. The steps are relative
+1e-3: the adaptive truncation of the sparse action makes the computed moments non-smooth at about 1e-13 relative,
+which smaller steps amplify.
 """
 from typing import Callable, Dict
 
@@ -738,6 +739,9 @@ def _three_epochs(N0: float = 1.0, N1: float = 0.4, t: float = 0.3, alpha: float
     (lambda c: c.moment(2, (pg.TreeHeightReward(), pg.TotalBranchLengthReward())),
      lambda c: c.gradient(2, (pg.TreeHeightReward(), pg.TotalBranchLengthReward()))),
     (lambda c: c.jsfs.var.data[0, 1], lambda c: c.jsfs.gradient(2)),
+    (lambda c: c.tree_height.moment(4), lambda c: c.tree_height.gradient(4)),
+    (lambda c: c.moment(3, (pg.TreeHeightReward(), pg.TotalBranchLengthReward(), pg.TotalBranchLengthReward())),
+     lambda c: c.gradient(3, (pg.TreeHeightReward(), pg.TotalBranchLengthReward(), pg.TotalBranchLengthReward()))),
 ])
 def test_gradient_of_higher_moments_matches_differences(moment, gradient, sparse, monkeypatch):
     """The derivatives of central, raw and cross moments of order two and three by a population size, an epoch start

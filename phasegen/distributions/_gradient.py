@@ -756,7 +756,8 @@ class CrossMomentGradient:
     closed form of ``MomentEvaluator._accumulate_closed_form`` of one ordering, by a backward pass through its record,
     as described in :meth:`PhaseTypeDistribution.gradient()
     <phasegen.distributions.PhaseTypeDistribution.gradient>`. Block :math:`k - i` of its extended vector holds the
-    moment of the last :math:`i` rewards, so the backward pass also differentiates these.
+    moment of the last :math:`i` rewards divided by :math:`i!\, \lambda^i`, with :math:`\lambda` the balancing factor
+    of its blocks, so the backward pass also differentiates these.
     """
 
     def __init__(self, distribution: 'PhaseTypeDistribution') -> None:
