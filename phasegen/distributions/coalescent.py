@@ -953,9 +953,10 @@ class Coalescent(AbstractCoalescent, Serializable):
         :param permute: Whether it averages over the :math:`k!` orderings of the rewards.
         :return: The derivatives.
         :raises NotImplementedError: If the moment is accumulated over a time window.
-        :raises ValueError: If ``k`` is zero, if the number of rewards differs from ``k``, or if the last epoch has no
-            closed form.
-        :raises TypeError: If an entry of ``rewards`` is not a :class:`~phasegen.rewards.Reward`.
+        :raises ValueError: If ``k`` is not a positive integer, if the number of rewards differs from ``k``, if a
+            reward is non-zero on an absorbing state, or if absorption is not certain in the last epoch.
+        :raises TypeError: If ``k`` is not a number or an entry of ``rewards`` is not a
+            :class:`~phasegen.rewards.Reward`.
         """
         k = _validate_order(k)
         _validate_rewards(rewards, k)

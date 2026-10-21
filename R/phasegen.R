@@ -1293,8 +1293,8 @@ accumulation_plot <- function(source, k, end_times, rewards, center, permute, ti
 #' @param bins Number of histogram bins. Default is `20`.
 #' @param title Plot title, `NULL` for the default.
 #' @param truth The ground truth, drawn dashed: for the trajectories, the true `Demography`, whose trajectories are
-#'        drawn in the colour of the inferred ones with the same label; for `which = "bootstraps"`, a named list or
-#'        vector of the true values of some or all parameters.
+#'        drawn in the colour of the inferred ones with the same label and must all be among them; for
+#'        `which = "bootstraps"`, a named list or vector of the true values of some or all parameters.
 #' @param ... Unused.
 #'
 #' @return A ggplot object.
@@ -1386,7 +1386,13 @@ plot.phasegen.inference.Inference <- function(x, which = c("demography", "pop_si
 
   # the true trajectories with a label of the inferred ones, dashed in their colour
   true <- curve_frame(truth$`_plot_data`(curves$x, if (which == "demography") "all" else which))
-  true <- true[true$series %in% levels(data$series), ]
+  unknown <- setdiff(unique(true$series), levels(data$series))
+
+  if (length(unknown) > 0) {
+    stop("truth has trajectories the inferred demography lacks: ", paste(sort(unknown), collapse = ", "), ".",
+         call. = FALSE)
+  }
+
   true$series <- factor(true$series, levels = levels(data$series))
 
   p +

@@ -1573,13 +1573,17 @@ class MomentEvaluator:
         :param suffixes: Whether to return, for a single head, the raw moments of the trailing rewards ``rewards[k -
             i:]`` for ``i = 0, ..., k``, which block ``k - i`` of the extended vector holds, one for ``i = 0``.
         :return: The kth moment accumulated until absorption, one per head, or the moments of the trailing rewards.
-        :raises ValueError: If ``tape`` is given with several heads or a positive start time.
+        :raises ValueError: If ``tape`` is given with several heads or a positive start time, or ``suffixes`` with
+            several heads.
         """
         heads = tuple(rewards[:1]) if heads is None else tuple(heads)
         m = len(heads)
 
         if tape is not None and (m > 1 or start_time > 0):
             raise ValueError("A closed form is recorded for a single head from time zero only.")
+
+        if suffixes and m > 1:
+            raise ValueError("The moments of the trailing rewards are returned for a single head only.")
 
         epochs = self._get_epochs_until_unbounded(k)
         self._check_demography_conditioning(epochs)

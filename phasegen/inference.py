@@ -1690,7 +1690,8 @@ class Inference(Serializable):
             the same label.
         :return: Axes.
         :raises RuntimeError: If :meth:`Inference.run() <phasegen.inference.Inference.run>` has not been called.
-        :raises ValueError: If ``interval`` is unknown, or for ``'godambe'``, if ``resample`` is ``None``.
+        :raises ValueError: If ``interval`` is unknown, for ``'godambe'`` if ``resample`` is ``None``, or if
+            ``truth`` has a trajectory the inferred demography lacks.
         """
         return self._plot_demography(
             t=t,
@@ -1732,7 +1733,8 @@ class Inference(Serializable):
             the same label.
         :return: Axes.
         :raises RuntimeError: If :meth:`Inference.run() <phasegen.inference.Inference.run>` has not been called.
-        :raises ValueError: If ``interval`` is unknown, or for ``'godambe'``, if ``resample`` is ``None``.
+        :raises ValueError: If ``interval`` is unknown, for ``'godambe'`` if ``resample`` is ``None``, or if
+            ``truth`` has a trajectory the inferred demography lacks.
         """
         return self._plot_demography(
             t=t,
@@ -1774,7 +1776,8 @@ class Inference(Serializable):
             the same label.
         :return: Axes.
         :raises RuntimeError: If :meth:`Inference.run() <phasegen.inference.Inference.run>` has not been called.
-        :raises ValueError: If ``interval`` is unknown, or for ``'godambe'``, if ``resample`` is ``None``.
+        :raises ValueError: If ``interval`` is unknown, for ``'godambe'`` if ``resample`` is ``None``, or if
+            ``truth`` has a trajectory the inferred demography lacks.
         """
         return self._plot_demography(
             t=t,
@@ -1821,6 +1824,11 @@ class Inference(Serializable):
             kwargs = {}
 
         inferred, bootstraps, band = self._plot_demography_data(t, kind, interval)
+        true = None if truth is None else truth._plot_data(inferred.x, kind)
+
+        if true is not None and set(true.labels) - set(inferred.labels):
+            raise ValueError(f"truth has trajectories the inferred demography lacks: "
+                             f"{', '.join(sorted(set(true.labels) - set(inferred.labels)))}.")
 
         if ax is None:
             ax = plt.subplots()[1]
@@ -1839,13 +1847,10 @@ class Inference(Serializable):
                 style = {'color': color, 'alpha': 0.3} | kwargs
                 ax.plot(data.x, y, drawstyle='steps-post', label='_nolegend_', **style)
 
-        if truth is not None:
-            true = truth._plot_data(inferred.x, kind)
-
+        if true is not None and true.labels:
             for label, y in zip(true.labels, true.y):
-                if label in inferred.labels:
-                    ax.plot(true.x, y, drawstyle='steps-post', linestyle='--',
-                            color=colors[inferred.labels.index(label)], label=f'{label} (true)')
+                ax.plot(true.x, y, drawstyle='steps-post', linestyle='--',
+                        color=colors[inferred.labels.index(label)], label=f'{label} (true)')
 
             ax.legend()
 

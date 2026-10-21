@@ -12,7 +12,8 @@ import numpy as np
 from ._blas import BlasThreadLimit
 from .distributions import Coalescent, DemographyGradient
 from .distributions._common import _sqrt_spectrum, _validate_order
-from .distributions._gradient import CrossMomentGradient, MeanGradient, _group_terms, _rate_parameters
+from .distributions._gradient import CrossMomentGradient, MeanGradient, _generator_basis, _group_terms, \
+    _rate_parameters
 from .spectrum import AbstractSpectrum
 
 #: The distributions of a :class:`~phasegen.distributions.Coalescent` whose moments the gradient supports.
@@ -185,8 +186,8 @@ class _CoalescentRecorder:
 
         :param k: The order, at least one, an integer or a float of integral value.
         :param rewards: ``None``, or one reward per order.
-        :param start_time: Must be ``None``.
-        :param end_time: Must be ``None``.
+        :param start_time: ``None`` or zero.
+        :param end_time: ``None`` or infinite.
         :param name: The quantity, for the signal.
         :return: The order.
         :raises _Unsupported: For an order below one, a number of rewards other than the order or a time window.
@@ -196,8 +197,8 @@ class _CoalescentRecorder:
         except (TypeError, ValueError):
             order = 0
 
-        if order < 1 or (rewards is not None and len(rewards) != order) or start_time is not None or \
-                end_time is not None:
+        if order < 1 or (rewards is not None and len(rewards) != order) or start_time not in (None, 0) or \
+                end_time not in (None, np.inf):
             self.unsupported = True
             raise _Unsupported(f"{name} with k={k}, a time window or a number of rewards other than k")
 
@@ -517,7 +518,8 @@ class Gradient:
         :param params: The parameters.
         :param bounds: The bounds of the parameters.
         :return: The entries and the Jacobian, or ``None`` where the statistic reads an unsupported quantity, a moment
-            is windowed, an entry is not finite, or the last epoch has no closed form.
+            is windowed, an entry is not finite, the last epoch has no closed form, the generator is not affine in the
+            rates, or the value of the backward pass differs from the moments.
         """
         coal = self.coal(**params)
         record = self._record(coal)
@@ -555,6 +557,12 @@ class Gradient:
         adjoint = np.zeros(n_entries)
         derivatives = []
         for host, terms in hosts.values():
+            try:
+                _generator_basis(host.state_space)
+            except ValueError as e:
+                self._log.info("%s Using finite differences.", e)
+                return None
+
             groups, means = _group_terms(terms)
             outs = [CrossMomentGradient(host).compute(heads, tail, seeds) for tail, heads, seeds in groups]
             if means is not None:

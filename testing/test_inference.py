@@ -1084,6 +1084,18 @@ if __name__ == '__main__':
 
         plt.close('all')
 
+    def test_plot_pop_sizes_rejects_a_truth_of_other_demes(self):
+        """A true demography with trajectories the inferred one lacks raises, as unknown names in plot_bootstraps."""
+        import matplotlib.pyplot as plt
+
+        inf = self.get_fast_inference()
+        inf.run()
+
+        with self.assertRaisesRegex(ValueError, 'lacks: A'):
+            inf.plot_pop_sizes(interval=None, show=False, truth=pg.Demography(pop_sizes={'A': 1}))
+
+        plt.close('all')
+
     def test_plot_pop_sizes_draws_the_true_trajectory(self):
         """The true trajectory is drawn dashed in the colour of the inferred one with the same label."""
         import matplotlib.pyplot as plt

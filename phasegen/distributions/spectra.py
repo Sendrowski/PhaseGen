@@ -2113,10 +2113,17 @@ class TwoLocusSFSDistribution(SpectrumDistribution):
         :param k: The order of the moment, which must be one.
         :param rewards: Must be ``None``, the rewards being those of the bins.
         :return: The derivatives.
-        :raises NotImplementedError: If ``k`` is not one, or the moment is accumulated over a time window.
-        :raises ValueError: If ``rewards`` is given, or absorption is not certain in the last epoch.
+        :raises NotImplementedError: If ``k`` is a positive integer other than one, or the moment is accumulated over a
+            time window.
+        :raises ValueError: If ``k`` is not a positive integer, if ``rewards`` is given, or if absorption is not
+            certain in the last epoch.
+        :raises TypeError: If ``k`` is not a number.
         """
-        if _validate_order(k) != 1:
+        k = _validate_order(k)
+        if k == 0:
+            raise ValueError('The moment of order zero is constant and has no gradient.')
+
+        if k != 1:
             raise NotImplementedError("The gradient of the two-locus spectrum is available for its mean only.")
 
         if rewards is not None:
@@ -2138,7 +2145,7 @@ class TwoLocusSFSDistribution(SpectrumDistribution):
 
         :return: The derivatives.
         """
-        from ._gradient import CrossMomentGradient
+        from ._gradient import CrossMomentGradient, _zero_gradient
 
         indices = self._get_indices()
         vectors = self._locus_vectors()
@@ -2148,7 +2155,7 @@ class TwoLocusSFSDistribution(SpectrumDistribution):
                                                     (vectors[1, j],))
             if out is None:
                 raise ValueError('Absorption is not certain in the last epoch, so the moment has no exact gradient.')
-            orderings.update({(i, j): g for i, (_, g) in zip(indices, out)})
+            orderings.update({(i, j): _zero_gradient(self, 2) if r is None else r[1] for i, r in zip(indices, out)})
 
         gradients = [DemographyGradient._sum([orderings[i, j], orderings[j, i]])._scaled(0.5)
                      for i in indices for j in indices]

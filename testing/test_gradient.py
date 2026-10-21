@@ -1092,6 +1092,54 @@ def test_loss_gradient_of_moments_of_a_float_order():
         assert Gradient(coal, lambda c: float(c.tree_height.moment(k)))._exact({'N': 1.3}, {'N': (0.1, 5)}) is not None
 
 
+def test_gradient_rejects_rewards_on_absorbing_states():
+    """A reward that is non-zero on an absorbing state raises as for the moment. Regression: derivatives of the
+    undefined moment were returned."""
+    coal = _three_epochs()
+    deme = pg.DemeReward('a')
+
+    for k, center in [(1, True), (2, False), (3, False)]:
+        with pytest.raises(ValueError, match='absorbing'):
+            coal.gradient(k, [deme] * k, center=center)
+
+
+def test_gradient_of_a_zero_reward_is_zero():
+    """A moment of an identically zero reward has a zero gradient. Regression: an empty sum raised an opaque
+    ValueError."""
+    zero = pg.CustomReward(lambda ss: np.zeros(ss.k))
+    th = pg.Coalescent(n=4, demography=pg.Demography(pop_sizes={'pop_0': {0: 1, 0.5: 2}})).tree_height
+
+    for k, center in [(2, False), (2, True), (3, False)]:
+        assert not th.gradient(k, (zero,) * k, center=center).pop_sizes.any()
+
+
+def test_parameter_jacobian_of_a_non_affine_generator_uses_differences(monkeypatch, caplog):
+    """A generator that is not affine in the rates is differentiated by central differences, as noted in the log."""
+    import logging
+    import phasegen.gradient
+
+    def raise_(state_space):
+        raise ValueError('The generator is not affine in the inverse time scales and migration rates.')
+
+    monkeypatch.setattr(phasegen.gradient, '_generator_basis', raise_)
+    gradient = pg.Gradient(lambda N: pg.Coalescent(n=4, demography=pg.Demography(pop_sizes={'pop_0': {0: 1, 0.5: N}})),
+                           lambda c: c.tree_height.var)
+
+    with caplog.at_level(logging.INFO, logger='phasegen'):
+        value, jacobian = gradient.compute(dict(N=1.3))
+
+    assert jacobian[0] == pytest.approx(_richardson(lambda N: float(gradient.coal(N=N).tree_height.var), 1.3), rel=1e-6)
+    assert any('not affine' in r.getMessage() for r in caplog.records)
+
+
+def test_loss_gradient_of_moments_with_the_default_window():
+    """A start time of zero and an infinite end time passed explicitly are no window."""
+    coal = lambda N: pg.Coalescent(n=4, demography=pg.Demography(pop_sizes={'pop_0': {0: 1, 0.5: N}}))
+    statistic = lambda c: float(c.moment(2, start_time=0, end_time=np.inf) + c.tree_height.moment(1, end_time=np.inf))
+
+    assert Gradient(coal, statistic)._exact({'N': 1.3}, {'N': (0.1, 5)}) is not None
+
+
 @pytest.mark.parametrize('case', ['lineage weight', 'locus weight', 'custom model'])
 def test_parameter_jacobian_of_parameters_outside_the_rates(case):
     """A parameter that enters neither the demography nor the rate parameters, such as a weight of an initial

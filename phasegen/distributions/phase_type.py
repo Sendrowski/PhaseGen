@@ -296,8 +296,10 @@ class PhaseTypeDistribution(CallableDistributionFunctions, MomentEvaluator, Mome
         :param reward: The reward of the first moment, by default that of
             :attr:`PhaseTypeDistribution.mean <phasegen.distributions.PhaseTypeDistribution.mean>`.
         :return: The distribution, the reward matrix and the positions.
+        :raises ValueError: If the reward is non-zero on an absorbing state.
         """
         reward = self.reward if reward is None else reward
+        Reward._check_accumulable(self.state_space, (reward,))
 
         return self, np.asarray(reward._get(self.state_space), dtype=float)[:, None], [()]
 
@@ -354,8 +356,10 @@ class PhaseTypeDistribution(CallableDistributionFunctions, MomentEvaluator, Mome
         :param checked: Whether to evaluate the weighted values, zero otherwise.
         :return: The position of each entry, an empty tuple for a scalar, with its terms, their weighted value and the
             sum of the moduli of the weighted values.
+        :raises ValueError: If a reward is non-zero on an absorbing state.
         """
         rewards = (self.reward,) * k if rewards is None else tuple(rewards)
+        Reward._check_accumulable(self.state_space, rewards)
 
         return [((),) + self._moment_terms(rewards, center, permute, value=None if value is None else float(value),
                                            checked=checked)]
@@ -555,9 +559,10 @@ class PhaseTypeDistribution(CallableDistributionFunctions, MomentEvaluator, Mome
         :param permute: Whether it averages over the :math:`k!` orderings of the rewards.
         :return: The derivatives.
         :raises NotImplementedError: If the moment is accumulated over a time window.
-        :raises ValueError: If ``k`` is zero, if the number of rewards differs from ``k``, or if the last epoch has no
-            closed form, as without certain absorption in it.
-        :raises TypeError: If an entry of ``rewards`` is not a :class:`~phasegen.rewards.Reward`.
+        :raises ValueError: If ``k`` is not a positive integer, if the number of rewards differs from ``k``, if a
+            reward is non-zero on an absorbing state, or if absorption is not certain in the last epoch.
+        :raises TypeError: If ``k`` is not a number or an entry of ``rewards`` is not a
+            :class:`~phasegen.rewards.Reward`.
         """
         k = _validate_order(k)
         _validate_rewards(rewards, k)
@@ -600,7 +605,7 @@ class PhaseTypeDistribution(CallableDistributionFunctions, MomentEvaluator, Mome
             gradients = None if any(o is None for o in out) else [g for _, g in out]
 
         if gradients is None:
-            raise ValueError('The last epoch has no closed form, so the moment has no exact gradient.')
+            raise ValueError('Absorption is not certain in the last epoch, so the moment has no exact gradient.')
 
         if positions == [()]:
             return gradients[0]

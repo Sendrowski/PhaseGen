@@ -35,8 +35,8 @@ or \code{"bootstraps"} for the bootstrapped parameters.}
 \item{title}{Plot title, \code{NULL} for the default.}
 
 \item{truth}{The ground truth, drawn dashed: for the trajectories, the true \code{Demography}, whose trajectories are
-drawn in the colour of the inferred ones with the same label; for \code{which = "bootstraps"}, a named list or
-vector of the true values of some or all parameters.}
+drawn in the colour of the inferred ones with the same label and must all be among them; for
+\code{which = "bootstraps"}, a named list or vector of the true values of some or all parameters.}
 
 \item{...}{Unused.}
 }

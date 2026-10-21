@@ -892,8 +892,27 @@ def _terms_gradient(
         return None
 
     results = [o[0] for o in outs if o[0] is not None]
+    if not results:
+        return 0.0, _zero_gradient(distribution, max(len(vectors) for _, vectors in terms))
 
     return sum(v for v, _ in results), DemographyGradient._sum([g for _, g in results])
+
+
+def _zero_gradient(distribution: 'PhaseTypeDistribution', k: int) -> 'DemographyGradient':
+    """
+    The gradient of a moment of order ``k`` with zero weight.
+
+    :param distribution: The distribution.
+    :param k: The order, which fixes the epochs.
+    :return: The gradient.
+    """
+    from .phase_type import DemographyGradient
+
+    basis = _generator_basis(distribution.state_space)
+    names = [name for name in _rate_parameters(distribution.state_space.model, distribution.state_space.locus_config)
+             if basis._stencil(name) is not None]
+
+    return DemographyGradient(distribution._get_epochs_until_unbounded(k), basis.pops, basis.pairs, parameters=names)
 
 
 def _generator_basis(state_space: 'StateSpace') -> _GeneratorBasis:
