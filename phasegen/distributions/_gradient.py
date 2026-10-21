@@ -6,7 +6,8 @@ occupation-time recursion for first moments, and that of the closed form of high
 
 import copy
 import logging
-from typing import Dict, List, Optional, Sequence, Tuple, TYPE_CHECKING
+from collections import OrderedDict
+from typing import Callable, Dict, List, Optional, Sequence, Tuple, TYPE_CHECKING
 
 import numpy as np
 import scipy.linalg as sla
@@ -44,6 +45,9 @@ _MIN_PARAMETER_STEP = 1e-14
 
 #: Number of steps a parameter must be able to move towards each side of a difference.
 _STEP_MARGIN = 1000
+
+#: Number of epochs, by their rates, whose contractions of the generator derivatives are kept.
+_CONTRACTION_EPOCHS = 256
 
 
 
@@ -279,10 +283,10 @@ class _ClosedFormTape:
         #: The epochs of the moment, the last of which lasts until absorption.
         self.epochs: List[Epoch] = []
 
-        #: The transient states of the last epoch that can carry mass, its transient block and whether it is sparse.
+        #: The transient states of the last epoch that can carry mass, and the solver of ``-T`` on them, whose
+        #: attribute ``T`` solves the transposed system.
         self.idx_t: Optional[np.ndarray] = None
-        self.T: 'np.ndarray | sp.spmatrix | None' = None
-        self.sparse: bool = False
+        self.solve: Optional[Callable] = None
 
         #: The balancing factor of the last epoch.
         self.lamb: float = 1.0
@@ -366,6 +370,30 @@ class _GeneratorBasis:
         #: Finite-difference stencils of the generator over the parameters of :func:`_rate_parameters`, as bases with
         #: weights, by parameter, ``None`` for a parameter that cannot be varied.
         self._stencils: Dict[str, Optional[List[Tuple['_GeneratorBasis', float]]]] = {}
+
+        #: The contractions of :meth:`contraction`, by set of states.
+        self._contractions: Dict[bytes, '_Contraction'] = {}
+
+    def __getstate__(self) -> dict:
+        """
+        The state without the contractions, which are rebuilt on use.
+
+        :return: The state.
+        """
+        return {k: v for k, v in self.__dict__.items() if k != '_contractions'} | {'_contractions': {}}
+
+    def contraction(self, idx: np.ndarray) -> '_Contraction':
+        """
+        The contraction of the basis over a set of states, memoized.
+
+        :param idx: The states.
+        :return: The contraction.
+        """
+        key = np.asarray(idx).tobytes()
+        if key not in self._contractions:
+            self._contractions[key] = _Contraction(self, idx)
+
+        return self._contractions[key]
 
     def _generator(self, sizes: Dict[str, float], rates: Dict[Tuple[str, str], float]) -> sp.csr_matrix:
         """
@@ -599,7 +627,7 @@ class MeanGradient:
         last = tape[-1]
         neg_t = -last.T
         solve = dist._lu_solver(neg_t, last.sparse)
-        q = dist._lu_solver(neg_t.T, last.sparse)(last.w[:nt])
+        q = solve.T(last.w[:nt])
 
         # the factors of the coalescence parts and the derivatives of the generator by the model parameters and the
         # recombination rate, per epoch
@@ -689,8 +717,9 @@ class _Contraction:
         self.C = {p: np.asarray(X[self.rows, self.cols]).ravel() for p, X in C.items()}
         self.M = {pair: np.asarray(X[self.rows, self.cols]).ravel() for pair, X in M.items()}
 
-        #: The factors of the coalescence parts and the parameter derivatives at the entries, by epoch.
-        self._epochs: Dict[int, Tuple[Dict[str, float], Dict[str, np.ndarray]]] = {}
+        #: The factors of the coalescence parts and the parameter derivatives at the entries, by the rates of the most
+        #: recent epochs.
+        self._epochs: 'OrderedDict[tuple, Tuple[Dict[str, float], Dict[str, np.ndarray]]]' = OrderedDict()
 
     def add(self, grad: 'DemographyGradient', e: int, g: np.ndarray, scale: float) -> None:
         """
@@ -702,12 +731,16 @@ class _Contraction:
         :param scale: The factor with which the generator enters.
         """
         epoch = grad.epochs[e]
-        if id(epoch) not in self._epochs:
-            self._epochs[id(epoch)] = (self.basis.coefficients(epoch), {
+        key = (tuple(sorted(epoch.pop_sizes.items())), tuple(sorted(epoch.migration_rates.items())))
+        if key not in self._epochs:
+            self._epochs[key] = (self.basis.coefficients(epoch), {
                 name: np.asarray(dS[self.rows, self.cols]).ravel()
                 for name, dS in self.basis.parameter_derivatives(epoch, self.idx).items()
             })
-        coefficients, derivatives = self._epochs[id(epoch)]
+            if len(self._epochs) > _CONTRACTION_EPOCHS:
+                self._epochs.popitem(last=False)
+        self._epochs.move_to_end(key)
+        coefficients, derivatives = self._epochs[key]
 
         for i, pop in enumerate(grad.pops):
             grad.pop_sizes[e, i] += scale * coefficients[pop] * float(self.C[pop] @ g)
@@ -762,7 +795,7 @@ class CrossMomentGradient:
         basis = _generator_basis(dist.state_space)
         names = [name for name in _rate_parameters(dist.state_space.model, dist.state_space.locus_config)
                  if basis._stencil(name) is not None]
-        full = _Contraction(basis, np.arange(n))
+        full = basis.contraction(np.arange(n))
         rows = np.concatenate([j * n + full.rows for j in range(k + 1)])
         cols = np.concatenate([j * n + full.cols for j in range(k + 1)])
         tail = tuple(CustomReward(lambda _, r=np.asarray(r, dtype=float): r) for r in tail)
@@ -778,7 +811,7 @@ class CrossMomentGradient:
             tape = _ClosedFormTape()
             value = float(dist._accumulate_closed_form(k, (CustomReward(lambda _, r=head: r),) + tail, tape=tape)[0])
             grad = DemographyGradient(tape.epochs, basis.pops, basis.pairs, parameters=names)
-            last = last or _Contraction(basis, tape.idx_t)
+            last = last or basis.contraction(tape.idx_t)
 
             # the adjoint of the extended vector at time zero, on block 0 for the moment of the whole ordering and on
             # block k - i for that of the last i rewards
@@ -809,7 +842,7 @@ class CrossMomentGradient:
                 y = y_in * step.rebase
 
             # the last epoch: block j is (-T)^{-1} (r_j * block j + 1) / lamb, the last block the ones vector
-            solve = dist._lu_solver(-tape.T.T, tape.sparse)
+            solve = tape.solve.T
             a = y[tape.idx_t]
             g = np.zeros(len(last.rows))
             for j in range(k):

@@ -1140,6 +1140,24 @@ def test_loss_gradient_of_moments_with_the_default_window():
     assert Gradient(coal, statistic)._exact({'N': 1.3}, {'N': (0.1, 5)}) is not None
 
 
+def test_moments_of_one_state_space_share_backward_passes(monkeypatch):
+    """Coalescent.moment reads of different orders on one state space share the backward pass of the highest order,
+    which holds the lower moments in its trailing blocks."""
+    from phasegen.distributions._gradient import CrossMomentGradient
+
+    calls = []
+    compute = CrossMomentGradient.compute
+    monkeypatch.setattr(CrossMomentGradient, 'compute', lambda self, heads, tail, seeds=None:
+                        calls.append(len(tail)) or compute(self, heads, tail, seeds))
+    monkeypatch.setattr(MeanGradient, 'compute_columns', lambda self, rewards: pytest.fail('a separate mean pass'))
+
+    coal = lambda N: pg.Coalescent(n=4, demography=pg.Demography(pop_sizes={'pop_0': {0: 1, 0.5: N}}))
+    statistic = lambda c: float(c.moment(2) + c.moment(1) ** 2)
+
+    assert Gradient(coal, statistic)._exact({'N': 1.2}, {'N': (0.1, 5)}) is not None
+    assert calls == [1]
+
+
 @pytest.mark.parametrize('case', ['lineage weight', 'locus weight', 'custom model'])
 def test_parameter_jacobian_of_parameters_outside_the_rates(case):
     """A parameter that enters neither the demography nor the rate parameters, such as a weight of an initial

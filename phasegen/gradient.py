@@ -535,7 +535,7 @@ class Gradient:
         # Each entry of a moment is a weighted sum of ordered raw moments, which are linear in their first reward. The
         # orderings, weighted by the derivatives of each entry of the statistic, are grouped per host into backward
         # passes by _group_terms.
-        hosts: Dict[int, list] = {}
+        hosts: Dict[tuple, list] = {}
         contraction, magnitude = np.zeros(n_entries), np.zeros(n_entries)
         for i, read in enumerate(list(recorder.reads)):
             host, entries = self._read_entries(read)
@@ -548,7 +548,9 @@ class Gradient:
                     return None
                 raise
 
-            terms = hosts.setdefault(id(host), [host, []])[1]
+            # distributions on one state space, demography and tree height share their backward passes
+            key = (id(host.state_space), id(host.demography), id(host._tree_height))
+            terms = hosts.setdefault(key, [host, []])[1]
             for l, (_, entry_terms, check, scale) in enumerate(entries):
                 contraction += D[:, l] * check
                 magnitude += np.abs(D[:, l]) * scale

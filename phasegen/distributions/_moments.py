@@ -273,21 +273,29 @@ class MomentEvaluator:
         :param sparse: Whether to use the sparse factorization.
         :param perm: The block-triangular permutation, or ``None`` for the default ordering, or ``_AUTO_PERM``
             (default) to compute it from ``A``.
-        :return: Callable ``b -> x`` solving ``A x = b``.
+        :return: Callable ``b -> x`` solving ``A x = b``, whose attribute ``T`` solves ``A^T x = b`` with the same
+            factorization.
         """
         if sparse:
             if isinstance(perm, str):
                 perm = MomentEvaluator._block_triangular_order(A)
             if perm is None:
-                return spla.splu(sp.csc_matrix(A)).solve
+                lu = spla.splu(sp.csc_matrix(A))
+                solve = lambda b: lu.solve(np.asarray(b))
+                solve.T = lambda b: lu.solve(np.asarray(b), trans='T')
+                return solve
 
             inv = np.empty_like(perm)
             inv[perm] = np.arange(perm.size)
             lu = spla.splu(sp.csr_matrix(A)[perm][:, perm].tocsc(), permc_spec='NATURAL')
-            return lambda b: lu.solve(np.asarray(b)[perm])[inv]
+            solve = lambda b: lu.solve(np.asarray(b)[perm])[inv]
+            solve.T = lambda b: lu.solve(np.asarray(b)[perm], trans='T')[inv]
+            return solve
 
         lu = sla.lu_factor(A)
-        return lambda b: sla.lu_solve(lu, b)
+        solve = lambda b: sla.lu_solve(lu, b)
+        solve.T = lambda b: sla.lu_solve(lu, b, trans=1)
+        return solve
 
     @_make_hashable
     @cache
@@ -1655,7 +1663,7 @@ class MomentEvaluator:
         z[(m - 1 + k) * n + idx_a] = e[idx_a]
 
         if tape is not None:
-            tape.epochs, tape.idx_t, tape.T, tape.sparse, tape.lamb = epochs, idx_t, T, sparse, lamb
+            tape.epochs, tape.idx_t, tape.solve, tape.lamb = epochs, idx_t, solve, lamb
             tape.rewards = r_all
             tape.blocks = [z[j * n + idx_t].copy() for j in range(k)]
 
