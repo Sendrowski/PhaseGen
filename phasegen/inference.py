@@ -1172,11 +1172,13 @@ class Inference(Serializable):
         exact = self.gradient == 'exact' and Gradient(
             self.get_coal, lambda coal: self.loss(coal, self.observation)).supported(x)
 
-        scores = []
-        for _ in range(n):
-            y = self.resample(self.observation, rng)
-            gradient = Gradient(self.get_coal, lambda coal, y=y: self.loss(coal, y))
-            scores.append(gradient.compute(x, self.bounds, exact=exact)[1])
+        # the moments and their derivatives are those of the estimate for every resampled observation
+        observations = [self.resample(self.observation, rng) for _ in range(n)]
+        losses = [lambda coal, y=y: self.loss(coal, y) for y in observations]
+        scores = Gradient(self.get_coal, losses[0])._scores(x, self.bounds, losses) if exact else None
+
+        if scores is None:
+            scores = [Gradient(self.get_coal, loss).compute(x, self.bounds, exact=exact)[1] for loss in losses]
 
         scores = np.array(scores, dtype=float)
 

@@ -2146,12 +2146,12 @@ class TwoLocusSFSDistribution(SpectrumDistribution):
         """
         from ._gradient import _entries_gradients
 
-        _, entries = self._mean_entries(None, self.mean)
+        _, entries = self._mean_entries(None)
         out = _entries_gradients(self, [terms for _, terms, _, _ in entries])
         if out is None:
             raise ValueError('Absorption is not certain in the last epoch, so the moment has no exact gradient.')
 
-        return DemographyGradient._stack([g for _, g in out], [pos for pos, _, _, _ in entries], self.mean.data.shape)
+        return DemographyGradient._stack([g for _, g in out], [pos for pos, _, _, _ in entries], self.shape)
 
     def _locus_vectors(self) -> Dict[Tuple[int, int], np.ndarray]:
         """
@@ -2165,7 +2165,7 @@ class TwoLocusSFSDistribution(SpectrumDistribution):
     def _mean_entries(
             self,
             reward: Reward,
-            value: TwoLocusSFS
+            value: TwoLocusSFS = None
     ) -> Tuple['PhaseTypeDistribution', List[Tuple[Tuple[int, ...], list, float, float]]]:
         """
         The polymorphic bins of the mean, each the average of the cross-moments of the two orderings of the locus-0
@@ -2173,7 +2173,7 @@ class TwoLocusSFSDistribution(SpectrumDistribution):
         <phasegen.distributions.PhaseTypeDistribution._mean_entries>`.
 
         :param reward: Must be ``None``, the rewards being those of the bins.
-        :param value: The mean.
+        :param value: The mean, if known, whose entries are the weighted values, zero otherwise.
         :return: The distribution and the position, terms, weighted value and sum of the moduli of the weighted values
             of each bin.
         """
@@ -2183,7 +2183,7 @@ class TwoLocusSFSDistribution(SpectrumDistribution):
         entries = []
         for i in indices:
             for j in indices:
-                x = float(value.data[i, j])
+                x = 0.0 if value is None else float(value.data[i, j])
                 terms = [(0.5, (vectors[0, i], vectors[1, j])), (0.5, (vectors[0, j], vectors[1, i]))]
                 entries.append(((i, j), terms, x, abs(x)))
 

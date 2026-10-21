@@ -2038,7 +2038,7 @@ class MomentEvaluator:
                 # final unbounded epoch, no cap: occupation to absorption = p (-T)^{-1}, i.e. solve (-T)^T x = p
                 solve = self._lu_solver(-S.T, sparse)
                 if tape is not None:
-                    tape.append(_OccupationStep(epoch, idx_t, np.inf, S, np.concatenate([p, m]), sparse=sparse))
+                    tape.append(_OccupationStep(epoch, idx_t, np.inf, S, np.concatenate([p, m])))
                     tape[-1].solve = solve
                 m += solve(p)
                 break
@@ -2114,11 +2114,12 @@ class MomentEvaluator:
 
         sparse = self._solve_sparse(len(idx_t))
         neg_t = -self._transient_block(idx_t, sparse=sparse)
-        m = self._lu_solver(neg_t.T, sparse)(np.asarray(self.state_space.alpha, dtype=float)[idx_t])
+        solve = self._lu_solver(neg_t, sparse)
+        m = solve.T(np.asarray(self.state_space.alpha, dtype=float)[idx_t])
 
         self._logger.debug(
             "two-point occupation: single-epoch closed form diag(m)(-T)^-1, %s LU (n_t=%d)",
             'sparse' if sparse else 'dense', len(idx_t)
         )
 
-        return m, self._lu_solver(neg_t, sparse), idx_t
+        return m, solve, idx_t

@@ -301,7 +301,7 @@ class PhaseTypeDistribution(CallableDistributionFunctions, MomentEvaluator, Mome
     def _mean_entries(
             self,
             reward: Reward,
-            value: Any
+            value: Any = None
     ) -> Tuple['PhaseTypeDistribution', List[Tuple[Tuple[int, ...], List[Tuple[float, Tuple[np.ndarray, ...]]], float,
                                                    float]]]:
         """
@@ -309,14 +309,14 @@ class PhaseTypeDistribution(CallableDistributionFunctions, MomentEvaluator, Mome
         :meth:`_moment_entries`, here the mean of each reward vector of :meth:`_mean_rewards`.
 
         :param reward: The reward of the first moment, ``None`` for that of the distribution.
-        :param value: The first moment.
+        :param value: The first moment, if known, whose entries are the weighted values, zero otherwise.
         :return: The distribution whose state space carries the reward vectors, and the position, terms, weighted value
             and sum of the moduli of the weighted values of each entry.
         """
         host, R, positions = self._mean_rewards(reward)
         entries = []
         for j, pos in enumerate(positions):
-            x = float(value) if pos == () else float(getattr(value, 'data', value)[pos])
+            x = 0.0 if value is None else float(value) if pos == () else float(getattr(value, 'data', value)[pos])
             entries.append((pos, [(1.0, (R[:, j],))], x, abs(x)))
 
         return host, entries
@@ -583,24 +583,21 @@ class PhaseTypeDistribution(CallableDistributionFunctions, MomentEvaluator, Mome
         :param permute: Whether it averages over the orderings of the rewards.
         :return: The derivatives.
         """
-        from ._gradient import MeanGradient, _entries_gradients
+        from ._gradient import _entries_gradients
 
         if self._resolve_window() != (0.0, np.inf):
             raise NotImplementedError('Gradients are available for moments accumulated until absorption only.')
 
         if k == 1:
-            host, R, positions = self._mean_rewards(None if rewards is None else rewards[0])
-            out = MeanGradient(host).compute_columns(R)
-            gradients = None if out is None else [g for _, g in out]
+            host, entries = self._mean_entries(None if rewards is None else rewards[0])
         else:
-            entries = self._moment_entries(k, rewards, center, permute, checked=False)
-            positions = [entry[0] for entry in entries]
-            out = _entries_gradients(self, [entry[1] for entry in entries])
-            gradients = None if out is None else [g for _, g in out]
+            host, entries = self, self._moment_entries(k, rewards, center, permute, checked=False)
 
-        if gradients is None:
+        out = _entries_gradients(host, [entry[1] for entry in entries])
+        if out is None:
             raise ValueError('Absorption is not certain in the last epoch, so the moment has no exact gradient.')
 
+        gradients, positions = [g for _, g in out], [entry[0] for entry in entries]
         if positions == [()]:
             return gradients[0]
 

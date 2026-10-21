@@ -13,8 +13,7 @@ import numpy as np
 from ._blas import BlasThreadLimit
 from .distributions import Coalescent, DemographyGradient
 from .distributions._common import _sqrt_spectrum, _validate_order
-from .distributions._gradient import CrossMomentGradient, MeanGradient, _generator_basis, _group_terms, \
-    _rate_parameters
+from .distributions._gradient import _generator_basis, _passes, _rate_parameters
 from .spectrum import AbstractSpectrum
 
 #: The distributions of a :class:`~phasegen.distributions.Coalescent` whose moments the gradient supports.
@@ -610,15 +609,100 @@ class Gradient:
                     return None
                 raise
 
-            # distributions on one state space, demography and tree height share their backward passes
-            key = (id(host.state_space), id(host.demography), id(host._tree_height))
-            terms = hosts.setdefault(key, [host, []])[1]
+            terms = hosts.setdefault(self._host_key(host), [host, []])[1]
             for l, (_, entry_terms, check, scale) in enumerate(entries):
                 contraction += D[:, l] * check
                 magnitude += np.abs(D[:, l]) * scale
                 terms.extend((coefficient * D[:, l], vectors) for coefficient, vectors in entry_terms)
 
-        adjoint = np.zeros(n_entries)
+        out = self._derivatives(hosts, contraction, magnitude)
+        if out is None:
+            return None
+
+        return value, self._chain(params, bounds, coal, out, value.shape)
+
+    def _scores(self, params: Dict[str, float], bounds: Dict[str, Tuple[float, float]],
+                statistics: Sequence[Callable[[Coalescent], Any]]) -> Optional[List[np.ndarray]]:
+        """
+        The exact Jacobians of statistics that read the same moments as this one, such as a loss at resampled
+        observations, from one Jacobian of the entries of the moments by the parameters. Per statistic, only its
+        derivatives by the moments are differenced.
+
+        :param params: The parameters.
+        :param bounds: The bounds of the parameters.
+        :param statistics: The statistics.
+        :return: The Jacobian of each statistic, or ``None`` where this one has no exact Jacobian, a parameter changes
+            the coalescent beyond its rates, or a statistic reads other moments.
+        """
+        coal = self.coal(**params)
+        record = self._record(coal)
+        if record is None:
+            return None
+
+        reads = list(record[1].reads)
+        entries = [self._read_entries(read) for read in reads]
+        n = sum(len(e) for _, e in entries)
+
+        # one column per entry of the moments
+        hosts: Dict[tuple, list] = {}
+        checks, scales, c = np.zeros(n), np.zeros(n), 0
+        for host, read_entries in entries:
+            terms = hosts.setdefault(self._host_key(host), [host, []])[1]
+            for _, entry_terms, check, scale in read_entries:
+                checks[c], scales[c] = check, scale
+                terms.extend((coefficient * np.eye(n)[c], vectors) for coefficient, vectors in entry_terms)
+                c += 1
+
+        derivatives = self._derivatives(hosts, checks, scales)
+        moments = None if derivatives is None else self._chain(params, bounds, coal, derivatives, (n,), False)
+        if moments is None:
+            return None
+
+        jacobians = []
+        for statistic in statistics:
+            other = Gradient(self.coal, statistic)
+            record = other._record(coal)
+            if record is None or len(record[1].reads) != len(reads) or any(
+                    (a.dist, a.kind, a.args) != (b.dist, b.kind, b.args) for a, b in zip(record[1].reads, reads)):
+                return None
+
+            value, recorder = record
+            try:
+                D = np.hstack([other._moment_derivatives(recorder, i, read.value, [entry[0] for entry in e])
+                               for i, (read, (_, e)) in enumerate(zip(reads, entries))])
+            except BaseException as e:
+                if isinstance(e, _Unsupported) or recorder.unsupported:
+                    return None
+                raise
+
+            jacobians.append((D @ moments).reshape(value.shape + (len(params),)))
+
+        return jacobians
+
+    @staticmethod
+    def _host_key(host: Any) -> tuple:
+        """
+        The key of the backward passes of a host: distributions on one state space, demography and tree height share
+        them.
+
+        :param host: The distribution.
+        :return: The key.
+        """
+        return id(host.state_space), id(host.demography), id(host._tree_height)
+
+    def _derivatives(self, hosts: Dict[tuple, list], contraction: np.ndarray,
+                     magnitude: np.ndarray) -> Optional[List[_Host]]:
+        """
+        The derivatives by the quantities of the coalescent of the weighted moments of each host, one column per weight.
+
+        :param hosts: The host and its weighted orderings of ``_group_terms``, by key.
+        :param contraction: The weighted values of each column, against which the backward passes are checked.
+        :param magnitude: The sum of the moduli of the weighted values of each column.
+        :return: The derivatives, or ``None`` where the generator is not affine in the rates, absorption is not certain
+            in the last epoch, or the value of the backward pass differs from the moments.
+        """
+        n_columns = len(contraction)
+        adjoint = np.zeros(n_columns)
         derivatives = []
         for host, terms in hosts.values():
             try:
@@ -627,39 +711,30 @@ class Gradient:
                 self._log.info("%s Using finite differences.", e)
                 return None
 
-            groups, means = _group_terms(terms)
-            outs = [CrossMomentGradient(host).compute(heads, tail, seeds) for tail, heads, seeds in groups]
-            if means is not None:
-                used = np.flatnonzero(np.abs(means).sum(axis=0))
-                out = MeanGradient(host).compute_columns(means[:, used])
-                outs.append(None if out is None else [out[list(used).index(j)] if j in used else None
-                                                      for j in range(n_entries)])
+            outs = _passes(host, terms, n_columns)
+            if outs is None:
+                return None
 
             for out in outs:
-                if out is None:
-                    return None
-
                 results = [(j, r) for j, r in enumerate(out) if r is not None]
                 if not results:
                     continue
 
                 g = results[0][1][1]
-                flat = np.zeros((n_entries, len(g.flat())))
+                flat = np.zeros((n_columns, len(g.flat())))
                 for j, (v, grad) in results:
                     adjoint[j] += v
                     flat[j] = grad.flat()
 
                 derivatives.append(_Host([e.index for e in g.epochs], g.pops, g.pairs, list(g.parameters), flat))
 
-        # the contraction of the derivatives of the statistic with the moments, against its magnitude, which
-        # cancellation leaves far above the contraction for a statistic invariant to the scale of the moments
+        # the contraction against its magnitude, which cancellation leaves far above the contraction for a statistic
+        # invariant to the scale of the moments
         if np.any(np.abs(adjoint - contraction) > _VALUE_RTOL * np.maximum(magnitude, 1e-300)):
             self._log.warning("The value of the backward pass differs from the moments, using finite differences.")
             return None
 
-        jacobian = self._chain(params, bounds, coal, derivatives, value.shape)
-
-        return value, jacobian
+        return derivatives
 
     @staticmethod
     def _read_entries(read: _Read) -> Tuple[Any, List[Tuple[Tuple[int, ...], list, float, float]]]:
@@ -747,7 +822,7 @@ class Gradient:
         return out
 
     def _chain(self, params: Dict[str, float], bounds: Dict[str, Tuple[float, float]], coal: Coalescent,
-               hosts: List[_Host], shape: Tuple[int, ...]) -> np.ndarray:
+               hosts: List[_Host], shape: Tuple[int, ...], differences: bool = True) -> Optional[np.ndarray]:
         """
         The Jacobian over the parameters from the derivatives over the quantities of the coalescent.
 
@@ -756,6 +831,8 @@ class Gradient:
         :param coal: The coalescent at the parameters.
         :param hosts: The derivatives over the quantities of each host.
         :param shape: The shape of the statistic.
+        :param differences: Whether a parameter that changes the coalescent beyond its rates is differentiated by a
+            difference of the statistic, ``None`` being returned otherwise.
         :return: The Jacobian, of shape ``shape + (len(params),)``.
         """
         jacobian = np.zeros((int(np.prod(shape)), len(params)))
@@ -784,6 +861,9 @@ class Gradient:
                     jacobian[:, i] = sum(host.flat @ sum(c * qi[k] for c, qi in zip(coefficients, q))
                                          for k, host in enumerate(hosts)) / dx
                     continue
+
+            if not differences:
+                return None
 
             jacobian[:, i] = sum(c * self._entries(ci).ravel() for c, ci in zip(coefficients, coals)) / dx
 

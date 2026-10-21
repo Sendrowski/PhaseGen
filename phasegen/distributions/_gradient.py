@@ -46,7 +46,8 @@ _MIN_PARAMETER_STEP = 1e-14
 #: Number of steps a parameter must be able to move towards each side of a difference.
 _STEP_MARGIN = 1000
 
-#: Number of epochs, by their rates, whose contractions of the generator derivatives are kept.
+#: Number of epochs, by their rates, whose contractions of the generator derivatives are kept, or the epochs of the
+#: gradient being computed if there are more.
 _CONTRACTION_EPOCHS = 256
 
 
@@ -209,8 +210,7 @@ class _OccupationStep:
             T: 'np.ndarray | sp.spmatrix',
             w: np.ndarray,
             exp_aug: np.ndarray = None,
-            action: _TapedAction = None,
-            sparse: bool = False
+            action: _TapedAction = None
     ) -> None:
         """
         Record an epoch.
@@ -222,10 +222,9 @@ class _OccupationStep:
         :param w: The state distribution and the accumulated occupation at the start of the epoch.
         :param exp_aug: The dense exponential of the augmented generator, on the dense path.
         :param action: The action of the transposed augmented generator, on the sparse path.
-        :param sparse: Whether the solve of the last epoch is sparse.
         """
         self.epoch, self.idx_t, self.tau, self.T, self.w = epoch, idx_t, tau, T, w
-        self.exp_aug, self.action, self.sparse = exp_aug, action, sparse
+        self.exp_aug, self.action = exp_aug, action
 
         #: Step inputs and term counts of the action.
         self.checkpoints: Optional[List[Tuple[np.ndarray, int]]] = None
@@ -481,6 +480,14 @@ class _GeneratorBasis:
 
         return self._stencils[name]
 
+    @property
+    def parameter_names(self) -> List[str]:
+        """
+        The parameters of :func:`_rate_parameters` the generator is differentiated by, those that can be varied.
+        """
+        return [name for name in _rate_parameters(self.state_space.model, self.state_space.locus_config)
+                if self._stencil(name) is not None]
+
     def parameter_derivatives(self, epoch: Epoch, idx_t: np.ndarray) -> Dict[str, sp.csr_matrix]:
         r"""
         The derivatives :math:`\partial \mathbf{T} / \partial \theta` of the transient block of the generator of an
@@ -605,8 +612,7 @@ class MeanGradient:
         nt = len(idx_t)
         basis = _generator_basis(dist.state_space)
         con = basis.contraction(idx_t)
-        names = [name for name in _rate_parameters(dist.state_space.model, dist.state_space.locus_config)
-                 if basis._stencil(name) is not None]
+        names = basis.parameter_names
 
         # last epoch: d(p (-T)^{-1} r) = q dT u with q = p (-T)^{-1} and u = (-T)^{-1} r
         last = tape[-1]
@@ -697,7 +703,7 @@ class _Contraction:
                 name: np.asarray(dS[self.rows, self.cols]).ravel()
                 for name, dS in self.basis.parameter_derivatives(epoch, self.idx).items()
             })
-            if len(self._epochs) > _CONTRACTION_EPOCHS:
+            if len(self._epochs) > max(_CONTRACTION_EPOCHS, len(grad.epochs)):
                 self._epochs.popitem(last=False)
         self._epochs.move_to_end(key)
         coefficients, derivatives = self._epochs[key]
@@ -754,8 +760,7 @@ class CrossMomentGradient:
         seeds = {i: np.asarray(w, dtype=float) for i, w in (seeds or {}).items()}
         n = dist.state_space.k
         basis = _generator_basis(dist.state_space)
-        names = [name for name in _rate_parameters(dist.state_space.model, dist.state_space.locus_config)
-                 if basis._stencil(name) is not None]
+        names = basis.parameter_names
         full = basis.contraction(np.arange(n))
         rows = np.concatenate([j * n + full.rows for j in range(k + 1)])
         cols = np.concatenate([j * n + full.cols for j in range(k + 1)])
@@ -869,13 +874,38 @@ def _group_terms(
     return out, means
 
 
+def _passes(
+        distribution: 'PhaseTypeDistribution',
+        terms: Sequence[Tuple[np.ndarray, Tuple[np.ndarray, ...]]],
+        n_columns: int
+) -> Optional[List[List[Optional[Tuple[float, 'DemographyGradient']]]]]:
+    """
+    The backward passes of :func:`_group_terms` over weighted ordered raw moments.
+
+    :param distribution: The distribution whose state space the reward vectors are defined on.
+    :param terms: The weights, one per column, with the reward vectors of each ordering.
+    :param n_columns: The number of columns.
+    :return: Per pass, the weighted moment and its gradient of each column, ``None`` for a column without weight, or
+        ``None`` where absorption is not certain in the last epoch.
+    """
+    groups, means = _group_terms(terms)
+
+    outs = [CrossMomentGradient(distribution).compute(heads, tail, seeds) for tail, heads, seeds in groups]
+    if means is not None:
+        used = list(np.flatnonzero(np.abs(means).sum(axis=0)))
+        out = MeanGradient(distribution).compute_columns(means[:, used])
+        outs.append(None if out is None else [out[used.index(c)] if c in used else None for c in range(n_columns)])
+
+    return None if any(o is None for o in outs) else outs
+
+
 def _entries_gradients(
         distribution: 'PhaseTypeDistribution',
         entries: Sequence[Sequence[Tuple[float, Tuple[np.ndarray, ...]]]]
 ) -> Optional[List[Tuple[float, 'DemographyGradient']]]:
     """
     The weighted sums of ordered raw moments of ``PhaseTypeDistribution._moment_terms`` of several entries and their
-    gradients, by the backward passes of :func:`_group_terms` over all entries at once.
+    gradients, by the passes of :func:`_passes` over all entries at once.
 
     :param distribution: The distribution whose state space the reward vectors are defined on.
     :param entries: The coefficients with the reward vectors of each ordering, per entry.
@@ -885,15 +915,8 @@ def _entries_gradients(
 
     n = len(entries)
     terms = [(np.eye(n)[c] * coefficient, vectors) for c, entry in enumerate(entries) for coefficient, vectors in entry]
-    groups, means = _group_terms(terms)
-
-    outs = [CrossMomentGradient(distribution).compute(heads, tail, seeds) for tail, heads, seeds in groups]
-    if means is not None:
-        used = np.flatnonzero(np.abs(means).sum(axis=0))
-        out = MeanGradient(distribution).compute_columns(means[:, used])
-        outs.append(None if out is None else [out[list(used).index(c)] if c in used else None for c in range(n)])
-
-    if any(o is None for o in outs):
+    outs = _passes(distribution, terms, n)
+    if outs is None:
         return None
 
     k = max(len(vectors) for _, vectors in terms)
@@ -917,8 +940,7 @@ def _zero_gradient(distribution: 'PhaseTypeDistribution', k: int) -> 'Demography
     from .phase_type import DemographyGradient
 
     basis = _generator_basis(distribution.state_space)
-    names = [name for name in _rate_parameters(distribution.state_space.model, distribution.state_space.locus_config)
-             if basis._stencil(name) is not None]
+    names = basis.parameter_names
 
     return DemographyGradient(distribution._get_epochs_until_unbounded(k), basis.pops, basis.pairs, parameters=names)
 
