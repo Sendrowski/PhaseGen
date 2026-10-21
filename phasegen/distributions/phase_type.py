@@ -527,20 +527,22 @@ class PhaseTypeDistribution(CallableDistributionFunctions, MomentEvaluator, Mome
         .. math::
             \mu = k!\, \boldsymbol{\alpha}_{k+1} \Big(\prod_{e < E} e^{\mathbf{V}_e \Delta_e}\Big) \mathbf{z}_E,
 
-        where the Van Loan matrix :math:`\mathbf{V}_e` has :math:`k + 1` diagonal blocks :math:`\mathbf{S}_e`,
+        where the Van Loan matrix :math:`\mathbf{V}_e` has :math:`k + 1` diagonal blocks :math:`\mathbf{S}_e` and the
+        superdiagonal blocks :math:`\operatorname{diag}(\mathbf{r}_1), \dots, \operatorname{diag}(\mathbf{r}_k)`,
         :math:`\boldsymbol{\alpha}_{k+1} = (\boldsymbol{\alpha}, \mathbf{0}, \dots, \mathbf{0})`, and
-        :math:`\mathbf{z}_E` has blocks :math:`\mathbf{z}_k = \mathbf{e}`, the vector of ones, and
-        :math:`\mathbf{z}_j = (-\mathbf{T}_E)^{-1} \operatorname{diag}(\mathbf{r}_{j+1})\, \mathbf{z}_{j+1}` for
-        :math:`j < k`. Each finite epoch contributes as above, with :math:`\mathbf{g}_{e+1}` the column vector
-        :math:`\mathbf{z}_{e+1}` at its end and :math:`\partial \mathbf{V}_e / \partial \theta` holding
-        :math:`\partial \mathbf{S}_e / \partial \theta` in each diagonal block, and each block :math:`\mathbf{z}_j` is
-        differentiated through :math:`(-\mathbf{T}_E)^{-1}` like the mean. The average over the orderings and the
+        :math:`\mathbf{z}_E` has blocks :math:`\mathbf{w}_0, \dots, \mathbf{w}_k` with :math:`\mathbf{w}_k = \mathbf{e}`,
+        the vector of ones, and :math:`\mathbf{w}_j = (-\mathbf{T}_E)^{-1} \operatorname{diag}(\mathbf{r}_{j+1})\,
+        \mathbf{w}_{j+1}` for :math:`j < k`. Each finite epoch contributes as above, with :math:`\mathbf{g}_{e+1}` the
+        column vector :math:`\mathbf{z}_{e+1}` that the product carries to its end and
+        :math:`\partial \mathbf{V}_e / \partial \theta` holding :math:`\partial \mathbf{S}_e / \partial \theta` in each
+        diagonal block, and each block :math:`\mathbf{w}_j` is differentiated through :math:`(-\mathbf{T}_E)^{-1}` like
+        the mean. The average over the orderings and the
         centering, :math:`\mathbb{E}[R_1 R_2] - \mathbb{E}[R_1] \mathbb{E}[R_2]` for the covariance, follow by the
         product rule.
 
         All derivatives together cost a few moment evaluations, however many quantities there are. The result is cached
-        like the moments, and a copy is returned. :class:`~phasegen.inference.Inference` differentiates losses with these derivatives, and
-        :class:`~phasegen.gradient.Gradient` chains them through a coalescent callback.
+        like the moments, and a copy is returned. :class:`~phasegen.inference.Inference` differentiates losses with
+        these derivatives, and :class:`~phasegen.gradient.Gradient` chains them through a coalescent callback.
 
         ::
 
