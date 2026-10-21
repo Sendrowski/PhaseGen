@@ -616,7 +616,7 @@ class MeanGradient:
     def compute_columns(self, rewards: np.ndarray) -> Optional[List[Tuple[float, 'DemographyGradient']]]:
         """
         The means and gradients of several rewards, sharing the forward pass, the factorization of the last epoch and
-        the adjoint of the initial distribution.
+        its occupation times.
 
         :param rewards: The reward vectors over the states of the state space, one per column.
         :return: The mean and gradient of each column, or ``None`` where the occupation times are not defined in closed

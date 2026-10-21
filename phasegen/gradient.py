@@ -23,9 +23,10 @@ _DISTRIBUTIONS = ('sfs', 'fsfs', 'jsfs', 'sfs2', 'tree_height', 'total_branch_le
 #: moments it is handed, a smooth function of them, so that a small step leaves a truncation error of order its square.
 _MOMENT_STEP = 1e-5
 
-#: Relative step of the differences of the quantities of the coalescent over a parameter. The quantities are affine
-#: in most parameters, and a short window such as that of a pulse has boundaries whose derivatives nearly cancel, which
-#: amplifies the roundoff of a smaller step.
+#: Relative step of the differences of the quantities of the coalescent over a parameter, and of the statistic over a
+#: parameter that changes the coalescent beyond its rates. The quantities are affine in most parameters, and a short
+#: window such as that of a pulse has boundaries whose derivatives nearly cancel, which amplifies the roundoff of a
+#: smaller step.
 _PARAMETER_STEP = 1e-4
 
 #: Relative tolerance between a moment and its value recomputed by the backward pass.
@@ -49,10 +50,10 @@ class _Unsupported(BaseException):
 
 class _Read(NamedTuple):
     """
-    A moment the statistic reads: the distribution whose state space carries it, its kind, ``'mean'`` for the first
-    moment, ``'moment'`` for a higher one and ``'cov'`` for the covariance of the bins of a spectrum, the arguments of
-    that kind, the reward of the mean (``None`` for the reward of the distribution) or the order, rewards, centering
-    and permutation of a higher moment, and its value.
+    A moment the statistic reads: the distribution whose moment it is, its kind, ``'mean'`` for the first moment,
+    ``'moment'`` for a higher one and ``'cov'`` for the covariance of the bins of a spectrum, the arguments of that kind,
+    the reward of the mean (``None`` for the reward of the distribution) or the order, rewards, centering and
+    permutation of a higher moment, and its value.
     """
     dist: Any
     kind: str
