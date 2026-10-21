@@ -376,7 +376,8 @@ class MomentEvaluator:
           from every transient state of the last epoch that can carry mass. Otherwise the last epoch is integrated up to
           :attr:`TreeHeightDistribution.t_max <phasegen.distributions.TreeHeightDistribution.t_max>`.
         - A central moment of a single reward takes all lower raw moments from the closed form of the highest order,
-          whose extended vector holds in block :math:`j` the moment of the rewards :math:`j + 1, \dots, k`.
+          whose extended vector holds the moment of the last :math:`i` rewards divided by :math:`i!\, \lambda^i` in a
+          block of its own, where :math:`\lambda` is the balancing factor of the blocks.
         - Spectra share one computation across bins. The expected occupation times :math:`\mathbf{m}` of the
           transient states, which equal :math:`\boldsymbol{\alpha}_T \mathbf{U}` in a single epoch, give every bin
           mean as :math:`\mathbf{m}\, \mathbf{r}_j`, and in a single epoch the two-point occupation

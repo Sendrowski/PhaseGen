@@ -298,3 +298,49 @@ test_that("a loss reading a moment of order two without an integer literal has a
 
   expect_false(is.null(gradient$`_exact`(list(N = 1.3), list(N = c(0.1, 5)))))
 })
+
+test_that("gradients of higher moments and of the two-locus SFS are available from R", {
+  skip_if_not(phasegen_is_installed())
+
+  coal <- pg$Coalescent(n = 4L, demography = pg$Demography(pop_sizes = list(pop_0 = 1.5)))
+  th <- pg$TreeHeightReward()
+  tbl <- pg$TotalBranchLengthReward()
+
+  var <- coal$tree_height$gradient(2)
+  cross <- coal$gradient(2, rewards = list(th, tbl), center = TRUE, permute = FALSE)
+  sfs2 <- pg$Coalescent(n = 3L, loci = 2L, recombination_rate = 1)$sfs2$gradient()
+
+  expect_equal(dim(var$pop_sizes), c(1L, 1L))
+  expect_true(is.finite(cross$pop_sizes[1, 1]))
+  expect_equal(dim(sfs2$pop_sizes), c(4L, 4L, 1L, 1L))
+})
+
+test_that("the migration plot draws the ground truth and rejects unknown trajectories", {
+  skip_if_not(phasegen_is_installed())
+
+  inf <- pg$Inference(
+    bounds = list(m = c(0.01, 5)),
+    x0 = list(m = 0.5),
+    coal = function(m) pg$Coalescent(n = list(a = 2L, b = 1L), demography = pg$Demography(
+      pop_sizes = list(a = 1, b = 1),
+      migration_rates = reticulate::py_dict(list(reticulate::tuple("a", "b"), reticulate::tuple("b", "a")), list(m, 0.5))
+    )),
+    loss = function(coal, obs) (coal$tree_height$mean - obs)^2,
+    observation = 2.5,
+    n_runs = 1L,
+    pbar = FALSE
+  )
+  inf$run()
+
+  truth <- pg$Demography(
+    pop_sizes = list(a = 1, b = 1),
+    migration_rates = reticulate::py_dict(list(reticulate::tuple("a", "b"), reticulate::tuple("b", "a")), list(0.3, 0.5))
+  )
+  built <- ggplot2::ggplot_build(plot(inf, which = "migration", interval = NULL, truth = truth))
+  expect_true(any(vapply(built$data, function(layer) "linetype" %in% names(layer) && any(layer$linetype == "dashed"),
+                         logical(1))))
+
+  other <- pg$Demography(pop_sizes = list(a = 1, b = 1, c = 1),
+                         migration_rates = reticulate::py_dict(list(reticulate::tuple("a", "c")), list(0.3)))
+  expect_error(plot(inf, which = "migration", interval = NULL, truth = other), "lacks")
+})

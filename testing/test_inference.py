@@ -1096,6 +1096,50 @@ if __name__ == '__main__':
 
         plt.close('all')
 
+    def test_plot_migration_and_demography_draw_the_true_trajectories(self):
+        """The true migration rates are drawn dashed in plot_migration and plot_demography, and a true migration
+        between demes the inferred demography lacks raises."""
+        import matplotlib.pyplot as plt
+
+        coal = lambda m: pg.Coalescent(n={'a': 2, 'b': 1}, demography=pg.Demography(
+            pop_sizes={'a': 1, 'b': 1}, migration_rates={('a', 'b'): m, ('b', 'a'): 0.5}))
+        inf = pg.Inference(coal=coal, loss=lambda c, obs: float((c.tree_height.mean - obs) ** 2), observation=2.5,
+                           x0=dict(m=0.5), bounds=dict(m=(0.01, 5)), n_runs=1, pbar=False)
+        inf.run()
+
+        truth = pg.Demography(pop_sizes={'a': 1, 'b': 1}, migration_rates={('a', 'b'): 0.3, ('b', 'a'): 0.5})
+        for plot in (inf.plot_migration, inf.plot_demography):
+            ax = plot(interval=None, show=False, truth=truth)
+            self.assertTrue(any(line.get_label().endswith('(true)') and line.get_linestyle() == '--'
+                                for line in ax.get_lines()))
+
+        other = pg.Demography(pop_sizes={'a': 1, 'b': 1, 'c': 1}, migration_rates={('a', 'c'): 0.3})
+        with self.assertRaisesRegex(ValueError, 'lacks'):
+            inf.plot_migration(interval=None, show=False, truth=other)
+
+        plt.close('all')
+
+    def test_exact_gradient_of_a_covariance_loss_matches_finite_differences(self):
+        """An inference whose loss reads the mean, the variance and the covariance of the SFS reaches the same estimate
+        and Fisher information with the exact gradient as with finite differences."""
+        coal = lambda N, t: pg.Coalescent(n=5, demography=pg.Demography(pop_sizes={'pop_0': {0: 1, t: N}}))
+        target = coal(2.0, 0.4)
+        observation = (target.sfs.mean.data, target.sfs.var.data, target.sfs.cov.data)
+
+        def loss(c, obs):
+            return float(np.sum((c.sfs.mean.data - obs[0]) ** 2) + np.sum((c.sfs.var.data - obs[1]) ** 2) +
+                         np.sum((c.sfs.cov.data - obs[2]) ** 2))
+
+        results = []
+        for gradient in ('exact', 'finite_differences'):
+            inf = pg.Inference(coal=coal, loss=loss, observation=observation, x0=dict(N=1.2, t=0.6),
+                               bounds=dict(N=(0.1, 5), t=(0.05, 2)), n_runs=1, pbar=False, gradient=gradient)
+            inf.run()
+            results.append((np.array(list(inf.params_inferred.values())), inf.fisher_information().to_numpy()))
+
+        np.testing.assert_allclose(results[0][0], results[1][0], rtol=1e-5)
+        np.testing.assert_allclose(results[0][1], results[1][1], rtol=1e-4)
+
     def test_plot_pop_sizes_draws_the_true_trajectory(self):
         """The true trajectory is drawn dashed in the colour of the inferred one with the same label."""
         import matplotlib.pyplot as plt

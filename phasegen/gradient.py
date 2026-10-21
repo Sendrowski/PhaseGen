@@ -530,8 +530,8 @@ class Gradient:
         :param params: The parameters.
         :param bounds: The bounds of the parameters.
         :return: The entries and the Jacobian, or ``None`` where the statistic reads an unsupported quantity, a moment
-            is windowed, an entry is not finite, the last epoch has no closed form, the generator is not affine in the
-            rates, or the value of the backward pass differs from the moments.
+            is windowed, an entry is not finite, absorption is not certain in the last epoch, the generator is not affine
+            in the rates, or the value of the backward pass differs from the moments.
         """
         coal = self.coal(**params)
         record = self._record(coal)

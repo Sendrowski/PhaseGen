@@ -546,7 +546,8 @@ class PhaseTypeDistribution(CallableDistributionFunctions, MomentEvaluator, Mome
         :return: The derivatives.
         :raises NotImplementedError: If the moment is accumulated over a time window.
         :raises ValueError: If ``k`` is not a positive integer, if the number of rewards differs from ``k``, if a
-            reward is non-zero on an absorbing state, or if absorption is not certain in the last epoch.
+            reward is non-zero on an absorbing state, if absorption is not certain in the last epoch, or if the
+            generator is not affine in the rates.
         :raises TypeError: If ``k`` is not a number or an entry of ``rewards`` is not a
             :class:`~phasegen.rewards.Reward`.
         """

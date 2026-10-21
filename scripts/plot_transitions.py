@@ -202,7 +202,7 @@ configs = dict(
     ),
 )
 
-getattr(configs[name]['coal'], configs[name]['state_space_type'] + "_state_space").plot_rates(
+configs[name]['coal'].state_spaces[configs[name]['state_space_type']].plot_rates(
     file=os.path.splitext(out)[0],
     extension=os.path.splitext(out)[1].replace('.', ''),
     view=False,
