@@ -377,14 +377,6 @@ class _GeneratorBasis:
         #: The contractions of :meth:`contraction`, by set of states.
         self._contractions: Dict[bytes, '_Contraction'] = {}
 
-    def __getstate__(self) -> dict:
-        """
-        The state without the contractions, which are rebuilt on use.
-
-        :return: The state.
-        """
-        return {k: v for k, v in self.__dict__.items() if k != '_contractions'} | {'_contractions': {}}
-
     def contraction(self, idx: np.ndarray) -> '_Contraction':
         """
         The contraction of the basis over a set of states, memoized.

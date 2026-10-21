@@ -1082,8 +1082,7 @@ class Coalescent(AbstractCoalescent, Serializable):
 
     def _drop_state_space_caches(self, spaces: dict) -> None:
         """
-        Drop the cache and the generator basis of every built state space in ``spaces`` and set it to the first epoch
-        of the demography.
+        Drop the cache of every built state space in ``spaces`` and set it to the first epoch of the demography.
 
         :param spaces: The instance dictionary holding the state spaces, of this coalescent or of a copy of it.
         """
@@ -1091,7 +1090,6 @@ class Coalescent(AbstractCoalescent, Serializable):
 
         for space in spaces.get('_built_state_spaces', {}).values():
             space.drop_cache()
-            space._generator_basis = None
             space.epoch = epoch
 
     def __getstate__(self) -> dict:

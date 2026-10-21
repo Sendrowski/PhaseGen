@@ -19,7 +19,7 @@ from tqdm import tqdm
 
 from .demography import Demography
 from ._blas import BlasThreadLimit
-from .gradient import Gradient, _DISTRIBUTIONS
+from .gradient import Gradient
 from .distributions import Coalescent
 from .distributions.coalescent import _StateSpaces
 from .errors import ModelError
@@ -560,14 +560,11 @@ class Inference(Serializable):
         if self.gradient != 'exact' or self.method_mle.lower() not in _GRADIENT_METHODS:
             return
 
-        if Gradient(self.get_coal, lambda coal: self.loss(coal, observation)).supported(x0):
+        reason = Gradient(self.get_coal, lambda coal: self.loss(coal, observation))._unsupported_reason(x0)
+        if reason is None:
             self._logger.info('Using the exact gradient of the loss.')
         else:
-            self._logger.warning(
-                'The loss reads more than the moments of %s, the mean of sfs2 or Coalescent.moment, each with one reward '
-                'per order and no time window. Using finite differences for its gradient.',
-                ', '.join(d for d in _DISTRIBUTIONS if d != 'sfs2')
-            )
+            self._logger.warning('%s Using finite differences for the gradient of the loss.', reason)
 
     @staticmethod
     def _get_loss_and_gradient(

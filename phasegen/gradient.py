@@ -24,8 +24,10 @@ _DISTRIBUTIONS = ('sfs', 'fsfs', 'jsfs', 'sfs2', 'tree_height', 'total_branch_le
 #: moments it is handed, a smooth function of them, so that a small step leaves a truncation error of order its square.
 _MOMENT_STEP = 1e-5
 
-#: Relative step of the differences of the quantities of the coalescent over a parameter.
-_PARAMETER_STEP = 1e-6
+#: Relative step of the differences of the quantities of the coalescent over a parameter. The quantities are affine
+#: in most parameters, and a short window such as that of a pulse has boundaries whose derivatives nearly cancel, which
+#: amplifies the roundoff of a smaller step.
+_PARAMETER_STEP = 1e-4
 
 #: Relative tolerance between a moment and its value recomputed by the backward pass.
 _VALUE_RTOL = 1e-9
@@ -498,22 +500,49 @@ class Gradient:
 
     def supported(self, params: Dict[str, float]) -> bool:
         """
-        Whether the statistic reads only supported moments of state spaces whose generator is affine in the rates,
-        evaluated at some parameters. A model that cannot be evaluated there leaves the question open, which is
-        answered in favour of the exact Jacobian.
+        Whether the statistic has an exact Jacobian at some parameters: it reads only the moments listed above, of state
+        spaces whose generator is affine in the rates. A model that cannot be evaluated there leaves the question open,
+        which is answered in favour of the exact Jacobian.
 
         :param params: The parameters.
-        :return: Whether the statistic is supported.
+        :return: Whether it has.
+        """
+        return self._unsupported_reason(params) is None
+
+    def _unsupported_reason(self, params: Dict[str, float]) -> Optional[str]:
+        """
+        Why the statistic has no exact Jacobian at some parameters, see :meth:`supported`.
+
+        :param params: The parameters.
+        :return: The reason, or ``None`` if the Jacobian is exact.
         """
         try:
             record = self._record(self.coal(**params))
         except Exception:
-            return True
+            return None
+
+        if record is None:
+            return (f"The statistic reads more than the moments of {', '.join(d for d in _DISTRIBUTIONS if d != 'sfs2')}"
+                    f", the mean of sfs2 or Coalescent.moment, each with one reward per order and no time window.")
 
         try:
-            return record is not None and all(_generator_basis(read.dist.state_space) for read in record[1].reads)
-        except ValueError:
-            return False
+            for read in record[1].reads:
+                _generator_basis(self._host(read).state_space)
+        except ValueError as e:
+            return str(e)
+
+        return None
+
+    @staticmethod
+    def _host(read: _Read) -> Any:
+        """
+        The distribution whose state space carries the reward vectors of a read, that of the flattened mean for an SFS
+        of the standard coalescent.
+
+        :param read: The read.
+        :return: The distribution.
+        """
+        return read.dist._mean_rewards(read.args)[0] if read.kind == 'mean' else read.dist
 
     def _record(self, coal: Coalescent) -> Optional[Tuple[np.ndarray, _CoalescentRecorder]]:
         """

@@ -468,6 +468,14 @@ class StateSpace(ABC):
 
         return self.model._get_timescale(pop_prev) / self.model._get_timescale(pop_next)
 
+    def __getstate__(self) -> dict:
+        """
+        The state without the generator basis, which is rebuilt on use.
+
+        :return: The state.
+        """
+        return {k: v for k, v in self.__dict__.items() if k != '_generator_basis'}
+
     def __eq__(self, other) -> bool:
         """
         Check if two state spaces are equal. We do not check for equivalence of the epochs as we can
