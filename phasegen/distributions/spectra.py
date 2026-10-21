@@ -469,14 +469,21 @@ class SFSDistribution(_BinMomentsMixin, SpectrumDistribution, ABC):
         :return: The distribution, the reward matrix and the positions.
         """
         reward = self.reward if reward is None else reward
-        flatten = self._flattening_applies(1)
+        host = self._mean_host()
         bin_rewards = [CombinedReward([reward, self._get_sfs_reward(i)]) for i in self._get_indices()]
         R = np.column_stack([
-            (self._flattened_weights(r) if flatten else np.asarray(r._get(self.state_space), dtype=float))
+            (self._flattened_weights(r) if host is not self else np.asarray(r._get(self.state_space), dtype=float))
             for r in bin_rewards
         ])
 
-        return (self._tree_height if flatten else self), R, [(j + 1,) for j in range(len(bin_rewards))]
+        return host, R, [(j + 1,) for j in range(len(bin_rewards))]
+
+    def _mean_host(self) -> 'PhaseTypeDistribution':
+        """
+        The distribution whose state space carries the reward vectors of the first moment, the tree height where
+        flattening applies.
+        """
+        return self._tree_height if self._flattening_applies(1) else self
 
     def _bins(self) -> List[Tuple[Tuple[int, ...], Reward]]:
         """
@@ -1772,7 +1779,7 @@ class JointSFSDistribution(_BinMomentsMixin, SpectrumDistribution):
             for config in configs
         ])
 
-        return self, R, list(configs)
+        return self._mean_host(), R, list(configs)
 
     def _bins(self) -> List[Tuple[Tuple[int, ...], Reward]]:
         """
@@ -2187,7 +2194,7 @@ class TwoLocusSFSDistribution(SpectrumDistribution):
                 terms = [(0.5, (vectors[0, i], vectors[1, j])), (0.5, (vectors[0, j], vectors[1, i]))]
                 entries.append(((i, j), terms, x, abs(x)))
 
-        return self, entries
+        return self._mean_host(), entries
 
     def distribution(self, reward: Reward = None) -> 'RewardDistribution':
         """

@@ -197,9 +197,10 @@ def _two_deme(**p) -> pg.Coalescent:
 
 
 def _assert_loss_gradient(coal, loss, x0, bounds, observation, rtol=1e-7):
-    """The gradient of ``Inference`` against central differences of its loss."""
+    """The gradient of ``Inference`` against central differences of its loss, which it announces as exact."""
     inf = _inference(coal, loss, x0, bounds, observation)
     f = Inference._get_loss_function(observation, x0, None, inf.get_coal, loss)
+    assert Gradient(inf.get_coal, lambda c: loss(c, observation))._unsupported_reason(x0) is None
     evaluated = []
 
     def counted(c):
@@ -471,6 +472,38 @@ def test_inference_logs_exact_gradient(caplog):
 
     assert any(r.levelname == 'INFO' and 'exact gradient' in r.getMessage() for r in caplog.records)
     assert not [r for r in caplog.records if r.levelname == 'WARNING']
+
+
+def test_inference_on_the_two_locus_spectrum_uses_the_exact_gradient(caplog):
+    """An inference on the mean two-locus SFS announces the exact gradient. Regression: the check resolved the reads of
+    the mean through the rewards of a one-locus moment, which are non-zero on the absorbing states of two loci, and so
+    the optimization and the Godambe covariance used finite differences."""
+    x0, bounds = {'N1': 0.5, 'r': 0.7}, {'N1': (0.1, 5), 'r': (0.01, 5)}
+    with caplog.at_level('INFO'):
+        _inference(lambda N1, r: _two_loci(N1, r), lambda c, obs: float(np.sum(c.sfs2.mean.data ** 2)), x0, bounds,
+                   None)._announce_gradient(x0, None)
+
+    assert any('exact gradient of the loss' in r.getMessage() for r in caplog.records)
+    assert not [r for r in caplog.records if r.levelname == 'WARNING']
+
+
+@pytest.mark.parametrize('loss, reason', [
+    (lambda c: float(c.tree_height.cdf(1.0)), 'reads more than the moments'),
+    (lambda c: 1.0, 'reads no moment'),
+    (lambda c: float(c.tree_height.mean), None),
+])
+def test_unsupported_reason_names_what_the_loss_reads(loss, reason):
+    """The reason a loss has no exact gradient tells reading other quantities apart from reading no moment."""
+    coal = lambda N: pg.Coalescent(n=4, demography=pg.Demography(pop_sizes={'pop_0': {0: 1, 0.5: N}}))
+    out = Gradient(coal, loss)._unsupported_reason({'N': 1.0})
+
+    assert out is None if reason is None else reason in out
+
+
+def test_unsupported_reason_of_a_windowed_moment():
+    coal = lambda N: pg.Coalescent(n=4, start_time=0.2, demography=pg.Demography(pop_sizes={'pop_0': {0: 1, 0.5: N}}))
+
+    assert 'time window' in Gradient(coal, lambda c: float(c.tree_height.mean))._unsupported_reason({'N': 1.0})
 
 
 def test_inference_warns_on_unsupported_loss(caplog):
@@ -1279,6 +1312,24 @@ def test_scores_of_resampled_statistics_match_their_jacobians():
         np.testing.assert_allclose(score, Gradient(coal, statistic).compute(x, bounds)[1], rtol=1e-10)
 
     other = lambda c: float(c.tree_height.var)
+    assert Gradient(coal, statistics[0])._scores(x, bounds, [other]) is None
+
+
+def test_scores_of_resampled_statistics_reading_coalescent_moments():
+    """Resampled statistics reading :meth:`Coalescent.moment` share the Jacobian of the moments, although each read
+    builds its own distribution. Regression: reads were matched by distribution identity, so these fell back to one
+    Jacobian per resample."""
+    coal = lambda N, t: pg.Coalescent(n=6, demography=pg.Demography(pop_sizes={'pop_0': {0: 1, t: N}}))
+    statistics = [lambda c, y=y: float((c.moment(2) - y) ** 2) for y in (1.0, 2.0)]
+    x, bounds = dict(N=1.4, t=0.3), dict(N=(0.1, 5), t=(0.05, 2))
+
+    scores = Gradient(coal, statistics[0])._scores(x, bounds, statistics)
+
+    assert scores is not None
+    for score, statistic in zip(scores, statistics):
+        np.testing.assert_allclose(score, Gradient(coal, statistic).compute(x, bounds)[1], rtol=1e-10)
+
+    other = lambda c: float(c.moment(2, rewards=(pg.TreeHeightReward(), pg.TotalBranchLengthReward())))
     assert Gradient(coal, statistics[0])._scores(x, bounds, [other]) is None
 
 

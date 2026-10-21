@@ -170,6 +170,23 @@ class _CoalescentRecorder:
         #: Whether the statistic read an unsupported quantity.
         self.unsupported: bool = False
 
+    @property
+    def rejection(self) -> Optional[str]:
+        """
+        Why the reads have no exact Jacobian, or ``None`` if they have one.
+        """
+        if self.unsupported:
+            return (f"It reads more than the moments of {', '.join(d for d in _DISTRIBUTIONS if d != 'sfs2')}, the "
+                    f"mean of sfs2 or Coalescent.moment, each with one reward per order and no time window.")
+
+        if not self.reads:
+            return "It reads no moment of the coalescent."
+
+        if any(read.dist._resolve_window() != (0.0, np.inf) for read in self.reads):
+            return "It reads a moment in a time window."
+
+        return None
+
     def serve(self, make: Callable[[], _Read]) -> Any:
         """
         Record a read and serve its moment.
@@ -516,16 +533,15 @@ class Gradient:
         :return: The reason, or ``None`` if the Jacobian is exact.
         """
         try:
-            record = self._record(self.coal(**params))
+            _, recorder = self._evaluate(self.coal(**params))
         except Exception:
             return None
 
-        if record is None:
-            return (f"The statistic reads more than the moments of {', '.join(d for d in _DISTRIBUTIONS if d != 'sfs2')}"
-                    f", the mean of sfs2 or Coalescent.moment, each with one reward per order and no time window.")
+        if recorder.rejection is not None:
+            return recorder.rejection
 
         try:
-            for read in record[1].reads:
+            for read in recorder.reads:
                 _generator_basis(self._host(read).state_space)
         except ValueError as e:
             return str(e)
@@ -541,35 +557,38 @@ class Gradient:
         :param read: The read.
         :return: The distribution.
         """
-        return read.dist._mean_rewards(read.args)[0] if read.kind == 'mean' else read.dist
+        return read.dist._mean_host() if read.kind == 'mean' else read.dist
 
     def _record(self, coal: Coalescent) -> Optional[Tuple[np.ndarray, _CoalescentRecorder]]:
         """
         Evaluate the statistic through a recorder.
 
         :param coal: The coalescent.
-        :return: The entries and the recorder, or ``None`` if the statistic reads an unsupported quantity, a windowed
-            moment, or no moment.
+        :return: The entries and the recorder, or ``None`` where the recorder rejects the reads.
+        """
+        value, recorder = self._evaluate(coal)
+
+        return None if recorder.rejection is not None else (value, recorder)
+
+    def _evaluate(self, coal: Coalescent) -> Tuple[Optional[np.ndarray], _CoalescentRecorder]:
+        """
+        Evaluate the statistic through a recorder.
+
+        :param coal: The coalescent.
+        :return: The entries, ``None`` if the statistic read an unsupported quantity, and the recorder.
         """
         recorder = _CoalescentRecorder(coal)
 
         # a statistic from another language, such as R, raises its own error in place of the signal, which the flag of
         # the recorder identifies
         try:
-            value = self._entries(recorder)
+            return self._entries(recorder), recorder
         except BaseException as e:
             if isinstance(e, _Unsupported) or recorder.unsupported:
                 self._log.debug("The statistic reads %s, which the exact gradient does not support", e)
-                return None
+                recorder.unsupported = True
+                return None, recorder
             raise
-
-        if recorder.unsupported or not recorder.reads:
-            return None
-
-        if any(read.dist._resolve_window() != (0.0, np.inf) for read in recorder.reads):
-            return None
-
-        return value, recorder
 
     def _exact(self, params: Dict[str, float],
                bounds: Dict[str, Tuple[float, float]]) -> Optional[Tuple[np.ndarray, np.ndarray]]:
@@ -621,6 +640,7 @@ class Gradient:
 
         return value, self._chain(params, bounds, coal, out, value.shape)
 
+    @BlasThreadLimit()
     def _scores(self, params: Dict[str, float], bounds: Dict[str, Tuple[float, float]],
                 statistics: Sequence[Callable[[Coalescent], Any]]) -> Optional[List[np.ndarray]]:
         """
@@ -663,7 +683,7 @@ class Gradient:
             other = Gradient(self.coal, statistic)
             record = other._record(coal)
             if record is None or len(record[1].reads) != len(reads) or any(
-                    (a.dist, a.kind, a.args) != (b.dist, b.kind, b.args) for a, b in zip(record[1].reads, reads)):
+                    self._read_key(a) != self._read_key(b) for a, b in zip(record[1].reads, reads)):
                 return None
 
             value, recorder = record
@@ -678,6 +698,16 @@ class Gradient:
             jacobians.append((D @ moments).reshape(value.shape + (len(params),)))
 
         return jacobians
+
+    @classmethod
+    def _read_key(cls, read: _Read) -> tuple:
+        """
+        The key of a read: reads of one quantity of the same coalescent share it.
+
+        :param read: The read.
+        :return: The key.
+        """
+        return (type(read.dist),) + cls._host_key(read.dist) + (read.dist.reward, read.kind, read.args)
 
     @staticmethod
     def _host_key(host: Any) -> tuple:

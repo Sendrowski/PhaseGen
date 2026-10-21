@@ -287,7 +287,13 @@ class PhaseTypeDistribution(CallableDistributionFunctions, MomentEvaluator, Mome
         reward = self.reward if reward is None else reward
         Reward._check_accumulable(self.state_space, (reward,))
 
-        return self, np.asarray(reward._get(self.state_space), dtype=float)[:, None], [()]
+        return self._mean_host(), np.asarray(reward._get(self.state_space), dtype=float)[:, None], [()]
+
+    def _mean_host(self) -> 'PhaseTypeDistribution':
+        """
+        The distribution whose state space carries the reward vectors of the first moment.
+        """
+        return self
 
     def _differentiable(self, k: int) -> bool:
         """

@@ -564,7 +564,7 @@ class Inference(Serializable):
         if reason is None:
             self._logger.info('Using the exact gradient of the loss.')
         else:
-            self._logger.warning('%s Using finite differences for the gradient of the loss.', reason)
+            self._logger.warning('The loss has no exact gradient. %s Using finite differences.', reason)
 
     @staticmethod
     def _get_loss_and_gradient(
