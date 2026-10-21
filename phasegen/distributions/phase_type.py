@@ -500,8 +500,19 @@ class PhaseTypeDistribution(CallableDistributionFunctions, MomentEvaluator, Mome
         <phasegen.settings.Settings.expm_action_min_dim>`).
 
         The entries of the generator change linearly with the inverse coalescent time scales, the migration rates, the
-        recombination rate and the rate ``c`` of a Dirac coalescent, so :math:`\partial \mathbf{T} / \partial \theta` is
-        exact for these, and a central difference is used for the other model parameters.
+        recombination rate and the rate ``c`` of a Dirac coalescent. The generator :math:`\mathbf{S}_e` of epoch
+        :math:`e`, of which :math:`\mathbf{T}_e` is the transient block, is therefore assembled from parts built once
+        per state space,
+
+        .. math::
+            \mathbf{S}_e = \mathbf{K} + \sum_d \frac{\mathbf{C}_d}{s(N_{d,e})} + \sum_{a \neq b} m_{ab,e}\,
+            \mathbf{M}_{ab},
+
+        where :math:`s(N)` is the coalescent time scale at population size :math:`N`, :math:`\mathbf{C}_d` the
+        coalescence rates in deme :math:`d` at unit inverse time scale, :math:`\mathbf{M}_{ab}` the migration rates from
+        deme :math:`a` to deme :math:`b` at unit rate, and :math:`\mathbf{K}` the rates depending on neither, such as
+        recombination. This gives :math:`\partial \mathbf{T} / \partial \theta` exactly for these quantities, and a
+        central difference is used for the other model parameters.
 
         A higher moment is differentiated through the closed form of
         :meth:`PhaseTypeDistribution.moment() <phasegen.distributions.PhaseTypeDistribution.moment>`. The raw
@@ -510,19 +521,15 @@ class PhaseTypeDistribution(CallableDistributionFunctions, MomentEvaluator, Mome
         .. math::
             \mu = k!\, \boldsymbol{\alpha}_{k+1} \Big(\prod_{e < E} e^{\mathbf{V}_e \Delta_e}\Big) \mathbf{z}_E,
 
-        where :math:`\mathbf{V}_e` is the Van Loan matrix of epoch :math:`e` with :math:`k + 1` diagonal blocks
-        :math:`\mathbf{S}_e`, :math:`\boldsymbol{\alpha}_{k+1} = (\boldsymbol{\alpha}, \mathbf{0}, \dots, \mathbf{0})`
-        the initial distribution on its first block, and :math:`\mathbf{z}_E` the column vector of the last epoch with
-        blocks :math:`\mathbf{z}_k = \mathbf{e}` and :math:`\mathbf{z}_j = (-\mathbf{T}_E)^{-1}
-        \operatorname{diag}(\mathbf{r}_{j+1})\, \mathbf{z}_{j+1}` for :math:`j < k`. The moment is computed from the
-        last epoch backwards, so the passes exchange their roles: the row vector :math:`\mathbf{x}_e = k!\,
-        \boldsymbol{\alpha}_{k+1} \prod_{e' < e} e^{\mathbf{V}_{e'} \Delta_{e'}}` is carried forward, and epoch
-        :math:`e` contributes :math:`\mathbf{x}_e L(\mathbf{V}_e \Delta_e, \partial \mathbf{V}_e / \partial \theta\,
-        \Delta_e)\, \mathbf{z}_{e+1}`, where :math:`\mathbf{z}_{e+1}` is the column vector at the end of the epoch and
-        :math:`\partial \mathbf{V}_e / \partial \theta` holds :math:`\partial \mathbf{S}_e / \partial \theta` in each
-        diagonal block. In the last epoch, every block :math:`\mathbf{z}_j` is differentiated with the derivative of
-        :math:`(-\mathbf{T}_E)^{-1}` above. The average over the orderings and the centering by the lower moments,
-        :math:`\mathbb{E}[R_1 R_2] - \mathbb{E}[R_1] \mathbb{E}[R_2]` for the covariance, are differentiated by the
+        where the Van Loan matrix :math:`\mathbf{V}_e` has :math:`k + 1` diagonal blocks :math:`\mathbf{S}_e`,
+        :math:`\boldsymbol{\alpha}_{k+1} = (\boldsymbol{\alpha}, \mathbf{0}, \dots, \mathbf{0})`, and
+        :math:`\mathbf{z}_E` has blocks :math:`\mathbf{z}_k = \mathbf{e}`, the vector of ones, and
+        :math:`\mathbf{z}_j = (-\mathbf{T}_E)^{-1} \operatorname{diag}(\mathbf{r}_{j+1})\, \mathbf{z}_{j+1}` for
+        :math:`j < k`. Each finite epoch contributes as above, with :math:`\mathbf{g}_{e+1}` the column vector
+        :math:`\mathbf{z}_{e+1}` at its end and :math:`\partial \mathbf{V}_e / \partial \theta` holding
+        :math:`\partial \mathbf{S}_e / \partial \theta` in each diagonal block, and each block :math:`\mathbf{z}_j` is
+        differentiated through :math:`(-\mathbf{T}_E)^{-1}` like the mean. The average over the orderings and the
+        centering, :math:`\mathbb{E}[R_1 R_2] - \mathbb{E}[R_1] \mathbb{E}[R_2]` for the covariance, follow by the
         product rule.
 
         All derivatives together cost a few moment evaluations, however many quantities there are. The result is cached

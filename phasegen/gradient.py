@@ -288,13 +288,34 @@ class Gradient:
     bins of a mean SFS. By the chain rule,
 
     .. math::
-        J_{j i} = \sum_l \frac{\partial s_j}{\partial \mu_l} \sum_k \frac{\partial \mu_l}{\partial q_k}
-        \frac{\partial q_k}{\partial \theta_i},
+        J_{j i} = \sum_l \underbrace{\frac{\partial s_j}{\partial \mu_l}}_{A_{j l}}
+        \sum_k \underbrace{\frac{\partial \mu_l}{\partial q_k}}_{D_{l k}}
+        \underbrace{\frac{\partial q_k}{\partial \theta_i}}_{B_{k i}},
 
     where :math:`l` runs over the entries :math:`\mu_l` of the moments and :math:`k` over the quantities :math:`q_k`.
-    The factor :math:`\partial \mu_l / \partial q_k` is exact, from :meth:`PhaseTypeDistribution.gradient()
-    <phasegen.distributions.PhaseTypeDistribution.gradient>`. The other two are central differences of a function
-    :math:`f` of one variable :math:`x` with step :math:`h`,
+    :math:`A_{j l}` is the sensitivity of the entry :math:`s_j` of the statistic (such as a loss) to the moment entry
+    :math:`\mu_l` (a bin of the mean SFS), :math:`D_{l k}` that of :math:`\mu_l` to the quantity :math:`q_k` (the
+    population size of one deme in one epoch), and :math:`B_{k i}` that of :math:`q_k` to the parameter
+    :math:`\theta_i` (an argument of ``coal``, such as ``Ne`` in the example below). The factor :math:`D_{l k}` is an
+    exact derivative, from :meth:`PhaseTypeDistribution.gradient()
+    <phasegen.distributions.PhaseTypeDistribution.gradient>`. For a quantity other than a start time, it is
+
+    .. math::
+        D_{l k} = \sum_e \sum_{a, b} \underbrace{\frac{\partial \mu_l}{\partial S_{e, a b}}}_{G_{l, e, a b}}
+        \underbrace{\frac{\partial S_{e, a b}}{\partial q_k}}_{(\partial \mathbf{S}_e / \partial q_k)_{a b}}
+        = \sum_e \Big\langle \mathbf{G}_{l, e}, \frac{\partial \mathbf{S}_e}{\partial q_k} \Big\rangle_F,
+
+    where :math:`S_{e, a b}` is the entry in row :math:`a` and column :math:`b` of the generator :math:`\mathbf{S}_e`
+    of epoch :math:`e`, and :math:`\langle \mathbf{X}, \mathbf{Y} \rangle_F = \sum_{a, b} X_{a b} Y_{a b}` the
+    entrywise (Frobenius) inner product of two matrices. The adjoint matrix :math:`\mathbf{G}_{l, e}` is the
+    sensitivity of the moment entry :math:`\mu_l` to each entry of :math:`\mathbf{S}_e`. It depends on the reward and
+    the order of the moment but not on :math:`q_k`, and one backward pass gives it for every epoch. The derivative
+    :math:`\partial \mathbf{S}_e / \partial q_k` of the generator is the sensitivity of each entry of
+    :math:`\mathbf{S}_e` to the quantity :math:`q_k`. It depends on :math:`q_k` but not on the moment, and follows
+    from the decomposition of the generator in :meth:`PhaseTypeDistribution.gradient()
+    <phasegen.distributions.PhaseTypeDistribution.gradient>`. A start time instead moves the boundary between two
+    epochs. The factors :math:`A_{j l}` and :math:`B_{k i}` are central differences of a function :math:`f` of one
+    variable :math:`x` with step :math:`h`,
 
     .. math::
         f'(x) \approx \frac{f(x + h) - f(x - h)}{2 h},
