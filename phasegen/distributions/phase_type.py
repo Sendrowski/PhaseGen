@@ -609,7 +609,7 @@ class PhaseTypeDistribution(CallableDistributionFunctions, MomentEvaluator, Mome
         if positions == [()]:
             return gradients[0]
 
-        return DemographyGradient._stack(gradients, positions, np.shape(self.mean.data))
+        return DemographyGradient._stack(gradients, positions, self.shape)
 
     @cached_property
     def var(self) -> float | SFS:

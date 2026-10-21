@@ -1513,7 +1513,7 @@ def test_two_locus_sfs_gradient_is_that_of_its_bins():
 
     with pytest.raises(NotImplementedError, match='mean only'):
         coal.sfs2.gradient(2)
-    with pytest.raises(ValueError, match='rewards'):
+    with pytest.raises(TypeError):
         coal.sfs2.gradient(rewards=[pg.TreeHeightReward()])
     with pytest.raises(ValueError, match='order zero'):
         coal.sfs2.gradient(0)

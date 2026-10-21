@@ -236,6 +236,13 @@ class SFSDistribution(_BinMomentsMixin, SpectrumDistribution, ABC):
     _cdf_function = SFSCDF
     _quantile_function = SFSQuantileFunction
 
+    @cached_property
+    def shape(self) -> Tuple[int, ...]:
+        """
+        Shape of the SFS array, ``(n + 1,)``.
+        """
+        return int(self.lineage_config.n) + 1,
+
     @property
     def pdf(self) -> SFSDensity:
         """Per-bin SFS probability density functions (one per frequency class): callable (``pdf(t)``) and plottable."""
@@ -2110,7 +2117,7 @@ class TwoLocusSFSDistribution(SpectrumDistribution):
         """
         return k == 1
 
-    def gradient(self, k: int = 1, rewards: Sequence[Reward] = None) -> 'DemographyGradient':
+    def gradient(self, k: int = 1) -> 'DemographyGradient':
         r"""
         Exact derivatives of every bin of the mean :math:`\mathbb{E}[L^0_i L^1_j]`, a cross-moment of order two of
         the locus-0 and locus-1 bin rewards, differentiated as described in
@@ -2118,12 +2125,11 @@ class TwoLocusSFSDistribution(SpectrumDistribution):
         bins as leading axes.
 
         :param k: The order of the moment, which must be one.
-        :param rewards: Must be ``None``, the rewards being those of the bins.
         :return: The derivatives.
         :raises NotImplementedError: If ``k`` is a positive integer other than one, or the moment is accumulated over a
             time window.
-        :raises ValueError: If ``k`` is not a positive integer, if ``rewards`` is given, if absorption is not certain
-            in the last epoch, or if the generator is not affine in the rates.
+        :raises ValueError: If ``k`` is not a positive integer, if absorption is not certain in the last epoch, or if
+            the generator is not affine in the rates.
         :raises TypeError: If ``k`` is not a number.
         """
         k = _validate_order(k)
@@ -2133,32 +2139,7 @@ class TwoLocusSFSDistribution(SpectrumDistribution):
         if k != 1:
             raise NotImplementedError("The gradient of the two-locus spectrum is available for its mean only.")
 
-        if rewards is not None:
-            raise ValueError("The two-locus spectrum takes the rewards of its bins and no other rewards.")
-
-        if self._resolve_window() != (0.0, np.inf):
-            raise NotImplementedError('Gradients are available for moments accumulated until absorption only.')
-
-        return copy.deepcopy(self._mean_gradient())
-
-    @cache
-    @BlasThreadLimit()
-    def _mean_gradient(self) -> 'DemographyGradient':
-        """
-        The derivatives of :meth:`TwoLocusSFSDistribution.gradient()
-        <phasegen.distributions.TwoLocusSFSDistribution.gradient>`, cached.
-
-        :return: The derivatives.
-        :raises ValueError: If absorption is not certain in the last epoch.
-        """
-        from ._gradient import _entries_gradients
-
-        _, entries = self._mean_entries(None)
-        out = _entries_gradients(self, [terms for _, terms, _, _ in entries])
-        if out is None:
-            raise ValueError('Absorption is not certain in the last epoch, so the moment has no exact gradient.')
-
-        return DemographyGradient._stack([g for _, g in out], [pos for pos, _, _, _ in entries], self.shape)
+        return copy.deepcopy(self._gradient(1, None))
 
     def _locus_vectors(self) -> Dict[Tuple[int, int], np.ndarray]:
         """

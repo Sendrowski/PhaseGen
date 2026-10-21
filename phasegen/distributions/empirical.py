@@ -813,6 +813,14 @@ class _EmpiricalSFSMixin(_TajimaSFSMixin):  # pragma: no cover
     #: Whether the spectrum is folded.
     _folded: bool = False
 
+    @property
+    def shape(self) -> Tuple[int, ...]:
+        """
+        Shape of the SFS array, ``(n + 1,)``, as :attr:`SFSDistribution.shape
+        <phasegen.distributions.SFSDistribution.shape>`.
+        """
+        return np.shape(self.mean.data)
+
     @cached_property
     def mean(self) -> SFS:
         """
