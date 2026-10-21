@@ -1581,7 +1581,7 @@ class MomentEvaluator:
         :param tape: If given, receives the record that ``CrossMomentGradient`` differentiates, for a single head and a
             zero start time. The sparse actions are then applied by ``_TapedAction``.
         :param suffixes: Whether to return, for a single head, the raw moments of the trailing rewards ``rewards[k -
-            i:]`` for ``i = 0, ..., k``, which block ``k - i`` of the extended vector holds, one for ``i = 0``.
+            i:]`` for ``i = 0, ..., k``, read from the trailing blocks of the extended vector, one for ``i = 0``.
         :return: The kth moment accumulated until absorption, one per head, or the moments of the trailing rewards.
         :raises ValueError: If ``tape`` is given with several heads or a positive start time, or ``suffixes`` with
             several heads.

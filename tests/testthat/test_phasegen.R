@@ -343,4 +343,9 @@ test_that("the migration plot draws the ground truth and rejects unknown traject
   other <- pg$Demography(pop_sizes = list(a = 1, b = 1, c = 1),
                          migration_rates = reticulate::py_dict(list(reticulate::tuple("a", "c")), list(0.3)))
   expect_error(plot(inf, which = "migration", interval = NULL, truth = other), "lacks")
+
+  built <- ggplot2::ggplot_build(plot(inf, which = "demography", interval = NULL, truth = truth))
+  expect_true(any(vapply(built$data, function(layer) "linetype" %in% names(layer) && any(layer$linetype == "dashed"),
+                         logical(1))))
+  expect_error(plot(inf, which = "demography", interval = NULL, truth = other), "lacks")
 })

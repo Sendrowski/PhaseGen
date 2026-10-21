@@ -1136,6 +1136,24 @@ def test_parameter_jacobian_of_a_non_affine_generator_uses_differences(monkeypat
     assert any('not affine' in r.getMessage() for r in caplog.records)
 
 
+def test_inference_names_a_non_affine_generator(monkeypatch, caplog):
+    """The warning of an inference whose generator is not affine names that reason, not the moments of the loss."""
+    import phasegen.gradient
+
+    def raise_(state_space):
+        raise ValueError('The generator is not affine in the inverse time scales and migration rates.')
+
+    monkeypatch.setattr(phasegen.gradient, '_generator_basis', raise_)
+    coal = lambda N: pg.Coalescent(n=4, demography=pg.Demography(pop_sizes={'pop_0': {0: 1, 0.5: N}}))
+
+    with caplog.at_level('WARNING'):
+        _inference(coal, lambda c, obs: float(c.tree_height.var), {'N': 1.0}, {'N': (0.1, 5)}, None)._announce_gradient(
+            {'N': 1.0}, None)
+
+    messages = [r.getMessage() for r in caplog.records if r.levelname == 'WARNING']
+    assert any('not affine' in m for m in messages) and not any('reads more' in m for m in messages)
+
+
 def test_loss_gradient_of_moments_with_the_default_window():
     """A start time of zero and an infinite end time passed explicitly are no window."""
     coal = lambda N: pg.Coalescent(n=4, demography=pg.Demography(pop_sizes={'pop_0': {0: 1, 0.5: N}}))
@@ -1160,6 +1178,120 @@ def test_moments_of_one_state_space_share_backward_passes(monkeypatch):
 
     assert Gradient(coal, statistic)._exact({'N': 1.2}, {'N': (0.1, 5)}) is not None
     assert calls == [1]
+
+
+def test_gradient_of_an_order_four_cross_moment_from_one_run(monkeypatch):
+    """A central moment of order four of distinct rewards without averaging over orderings differentiates its trailing
+    moments of lengths one to three from the run of the whole ordering, and matches differences."""
+    from phasegen.distributions._gradient import CrossMomentGradient
+
+    rewards = (pg.TreeHeightReward(), pg.TotalBranchLengthReward(), pg.TotalBranchLengthReward(), pg.TreeHeightReward())
+    seeds = []
+    compute = CrossMomentGradient.compute
+    monkeypatch.setattr(CrossMomentGradient, 'compute', lambda self, heads, tail, s=None:
+                        seeds.append((len(tail), sorted(s or {}))) or compute(self, heads, tail, s))
+
+    grad = _three_epochs().gradient(4, rewards, permute=False)
+    numeric = _richardson(lambda x: float(_three_epochs(N1=x).moment(4, rewards, permute=False)), 0.4)
+
+    assert grad.pop_sizes[1, grad.pops.index('a')] == pytest.approx(numeric, rel=1e-6)
+    assert (3, [1, 2, 3]) in seeds
+
+
+def test_group_terms_reads_trailing_orderings_from_longer_runs():
+    """An ordering that ends the following rewards of a longer group is read from that group's trailing blocks, and a
+    mean no group ends with takes the mean pass."""
+    from phasegen.distributions._gradient import _group_terms
+
+    a, b, c = np.array([1.0, 0, 0]), np.array([0, 1.0, 0]), np.array([0, 0, 1.0])
+    w = np.array([1.0])
+    groups, means = _group_terms([(w, (a, b, c)), (2 * w, (b, c)), (3 * w, (c,)), (4 * w, (b,))])
+
+    assert len(groups) == 1
+    tail, heads, seeds = groups[0]
+    np.testing.assert_array_equal(heads[:, 0], a)
+    assert {i: float(v[0]) for i, v in seeds.items()} == {2: 2.0, 1: 3.0}
+    np.testing.assert_array_equal(means[:, 0], 4 * b)
+
+
+def test_epoch_contractions_are_cached_across_gradients(monkeypatch):
+    """The contractions of the generator derivatives of an epoch are kept across gradients of the same rates, also for
+    more epochs than the bound of the cache."""
+    from phasegen.distributions._gradient import _GeneratorBasis
+
+    calls = []
+    derivatives = _GeneratorBasis.parameter_derivatives
+    monkeypatch.setattr(_GeneratorBasis, 'parameter_derivatives', lambda self, epoch, idx:
+                        calls.append(1) or derivatives(self, epoch, idx))
+
+    coal = pg.Coalescent(n=4, model=pg.BetaCoalescent(alpha=1.5), demography=pg.Demography(pop_sizes={'pop_0': {0: 1, 0.5: 2}}))
+    coal.sfs.gradient(2)
+    first = len(calls)
+    coal.sfs.gradient(3)
+    assert first > 0 and len(calls) == first
+
+    # a bound below the epochs of a gradient keeps them all while it is computed
+    three = lambda: pg.Coalescent(n=4, model=pg.BetaCoalescent(alpha=1.5), demography=pg.Demography(
+        pop_sizes={'pop_0': {0: 1, 0.5: 2, 1: 0.5}}))
+    calls.clear()
+    three().sfs.gradient(2)
+    unbounded = len(calls)
+    monkeypatch.setattr('phasegen.distributions._gradient._CONTRACTION_EPOCHS', 1)
+    calls.clear()
+    three().sfs.gradient(2)
+    assert len(calls) == unbounded
+
+
+def test_supported_builds_only_the_state_spaces_of_the_passes():
+    """Checking whether a normalized SFS mean of one deme has an exact gradient builds the lineage-counting space it is
+    differentiated on, not the block-counting space of the reads. Regression: it built the latter, of 204,226 states at
+    n = 50, taking seconds and warning about its size."""
+    coal = pg.Coalescent(n=12, demography=pg.Demography(pop_sizes={'pop_0': {0: 1, 0.5: 2}}))
+    assert Gradient(lambda N: coal, lambda c: c.sfs.mean.normalize().polymorphic).supported({'N': 1.0})
+    assert coal.state_spaces['block_counting']._generator_basis is None
+
+
+def test_parameter_jacobian_by_a_pulse_time():
+    """The Jacobian by the time of a pulse, whose window has two boundaries with nearly cancelling derivatives of
+    about 5e4. Regression: a step of 1e-6 in the differences of the quantities left an error of 4e-5 relative."""
+    coal = lambda t: pg.Coalescent(n={'a': 2, 'b': 2}, demography=pg.Demography(
+        pop_sizes={'a': 1, 'b': 0.7}, migration_rates={('a', 'b'): 0.2, ('b', 'a'): 0.3},
+        events=[pg.Pulse(time=t, source='a', dest='b', proportion=0.3)]))
+    statistic = lambda c: np.array([float(c.tree_height.mean), float(c.total_branch_length.mean)])
+
+    _, jacobian = pg.Gradient(coal, statistic).compute(dict(t=0.5))
+    numeric = _richardson_wide(lambda t: statistic(coal(t)), 0.5, 1e-3)
+
+    np.testing.assert_allclose(jacobian[:, 0], numeric, rtol=1e-7)
+
+
+def test_scores_of_resampled_statistics_match_their_jacobians():
+    """The Jacobians of statistics that read the same moments, from one Jacobian of the moments, equal those computed
+    one by one."""
+    coal = lambda N, t: pg.Coalescent(n=6, demography=pg.Demography(pop_sizes={'pop_0': {0: 1, t: N}}))
+    targets = [np.array([1.0, 2, 3, 4, 5]), np.array([2.0, 1, 0.5, 3, 1])]
+    statistics = [lambda c, y=y: float(np.sum((c.sfs.var.polymorphic - y) ** 2) + c.tree_height.mean) for y in targets]
+    x, bounds = dict(N=1.4, t=0.3), dict(N=(0.1, 5), t=(0.05, 2))
+
+    scores = Gradient(coal, statistics[0])._scores(x, bounds, statistics)
+
+    for score, statistic in zip(scores, statistics):
+        np.testing.assert_allclose(score, Gradient(coal, statistic).compute(x, bounds)[1], rtol=1e-10)
+
+    other = lambda c: float(c.tree_height.var)
+    assert Gradient(coal, statistics[0])._scores(x, bounds, [other]) is None
+
+
+def test_payloads_leave_out_the_generator_basis():
+    """The generator basis built for a gradient is left out of the payloads of the coalescent and the inference,
+    and rebuilt on use."""
+    coal = pg.Coalescent(n=5, demography=pg.Demography(pop_sizes={'pop_0': {0: 1, 0.5: 2}}))
+    expected = coal.tree_height.gradient(2).pop_sizes
+    assert coal.state_spaces['lineage_counting']._generator_basis is not None
+
+    restored = pg.Coalescent.from_json(coal.to_json())
+    assert restored.state_spaces['lineage_counting']._generator_basis is None
+    np.testing.assert_allclose(restored.tree_height.gradient(2).pop_sizes, expected, rtol=1e-12)
 
 
 @pytest.mark.parametrize('case', ['lineage weight', 'locus weight', 'custom model'])
@@ -1292,6 +1424,14 @@ def test_two_locus_sfs_gradient_is_that_of_its_bins():
 
     with pytest.raises(NotImplementedError, match='mean only'):
         coal.sfs2.gradient(2)
+    with pytest.raises(ValueError, match='rewards'):
+        coal.sfs2.gradient(rewards=[pg.TreeHeightReward()])
+    with pytest.raises(ValueError, match='order zero'):
+        coal.sfs2.gradient(0)
+    with pytest.raises(TypeError):
+        coal.sfs2.gradient('a')
+    with pytest.raises(NotImplementedError, match='until absorption'):
+        pg.Coalescent(n=4, loci=2, recombination_rate=1, end_time=1.0).sfs2.gradient()
 
 
 def test_gradient_returns_a_copy_and_accepts_a_list_of_rewards():
