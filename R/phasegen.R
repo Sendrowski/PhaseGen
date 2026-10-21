@@ -1384,6 +1384,10 @@ plot.phasegen.inference.Inference <- function(x, which = c("demography", "pop_si
     return(p)
   }
 
+  if (!inherits(truth, "phasegen.demography.Demography")) {
+    stop("truth must be a Demography.", call. = FALSE)
+  }
+
   # the true trajectories with a label of the inferred ones, dashed in their colour
   true <- curve_frame(truth$`_plot_data`(curves$x, if (which == "demography") "all" else which))
   unknown <- setdiff(unique(true$series), levels(data$series))
@@ -1408,8 +1412,9 @@ plot_bootstraps <- function(x, kind, bins, title, truth = NULL) {
 
   names <- as.character(unlist(x$param_names))
 
-  if (length(truth) > 0 && (is.null(names(truth)) || any(names(truth) == ""))) {
-    stop("truth must be a named list or vector of parameter values.", call. = FALSE)
+  if (length(truth) > 0 && (inherits(truth, "python.builtin.object") || is.null(names(truth)) ||
+    any(names(truth) == "") || !all(vapply(truth, function(v) is.numeric(v) && length(v) == 1, logical(1))))) {
+    stop("truth must be a named list or vector of single parameter values.", call. = FALSE)
   }
 
   unknown <- setdiff(names(truth), names)

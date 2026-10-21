@@ -258,6 +258,10 @@ test_that("the inference plots draw the ground truth dashed", {
   expect_error(plot(inf, which = "pop_sizes", interval = NULL, truth = pg$Demography(pop_sizes = list(A = 1))),
                "lacks: A")
   expect_error(plot(inf, which = "bootstraps", truth = c(1.5)), "named list or vector")
+  expect_error(plot(inf, which = "bootstraps", truth = list(N = c(1, 2))), "single parameter values")
+  expect_error(plot(inf, which = "bootstraps", truth = list(N = NULL)), "single parameter values")
+  expect_error(plot(inf, which = "bootstraps", truth = truth), "named list or vector")
+  expect_error(plot(inf, which = "pop_sizes", interval = NULL, truth = list(N = 2)), "must be a Demography")
 })
 
 test_that("Godambe standard errors agree with Fisher ones on Poisson bins and draw intervals", {
