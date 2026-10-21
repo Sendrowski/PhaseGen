@@ -46,9 +46,9 @@ _MIN_PARAMETER_STEP = 1e-14
 #: Number of steps a parameter must be able to move towards each side of a difference.
 _STEP_MARGIN = 1000
 
-#: Number of epochs, by their rates, whose contractions of the generator derivatives are kept, or the epochs of the
-#: gradient being computed if there are more.
-_CONTRACTION_EPOCHS = 256
+#: Bytes of the contractions of the generator derivatives kept per state space for the epochs, by their rates, most
+#: recently used, beyond those of the gradient being computed.
+_CONTRACTION_BYTES = 256 * 2 ** 20
 
 
 
@@ -684,8 +684,9 @@ class _Contraction:
         self.M = {pair: np.asarray(X[self.rows, self.cols]).ravel() for pair, X in M.items()}
 
         #: The factors of the coalescence parts and the parameter derivatives at the entries, by the rates of the most
-        #: recent epochs.
+        #: recent epochs, and their bytes.
         self._epochs: 'OrderedDict[tuple, Tuple[Dict[str, float], Dict[str, np.ndarray]]]' = OrderedDict()
+        self._bytes = 0
 
     def add(self, grad: 'DemographyGradient', e: int, g: np.ndarray, scale: float) -> None:
         """
@@ -703,7 +704,9 @@ class _Contraction:
                 name: np.asarray(dS[self.rows, self.cols]).ravel()
                 for name, dS in self.basis.parameter_derivatives(epoch, self.idx).items()
             })
-            if len(self._epochs) > max(_CONTRACTION_EPOCHS, len(grad.epochs)):
+            self._bytes += self._size(key)
+            while self._bytes > _CONTRACTION_BYTES and len(self._epochs) > len(grad.epochs):
+                self._bytes -= self._size(next(iter(self._epochs)))
                 self._epochs.popitem(last=False)
         self._epochs.move_to_end(key)
         coefficients, derivatives = self._epochs[key]
@@ -714,6 +717,15 @@ class _Contraction:
             grad.migration_rates[e, j] += scale * float(self.M[pair] @ g)
         for name, dS in derivatives.items():
             grad.parameters[name] += scale * float(dS @ g)
+
+    def _size(self, key: tuple) -> int:
+        """
+        The bytes of a cached epoch: its parameter derivatives and about a kilobyte for its dictionaries.
+
+        :param key: The rates of the epoch.
+        :return: The bytes.
+        """
+        return 1024 + sum(dS.nbytes for dS in self._epochs[key][1].values())
 
 
 class CrossMomentGradient:

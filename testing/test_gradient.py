@@ -1269,10 +1269,33 @@ def test_epoch_contractions_are_cached_across_gradients(monkeypatch):
     calls.clear()
     three().sfs.gradient(2)
     unbounded = len(calls)
-    monkeypatch.setattr('phasegen.distributions._gradient._CONTRACTION_EPOCHS', 1)
+    monkeypatch.setattr('phasegen.distributions._gradient._CONTRACTION_BYTES', 1)
     calls.clear()
     three().sfs.gradient(2)
     assert len(calls) == unbounded
+
+
+def test_epoch_contractions_are_bounded_in_bytes(monkeypatch):
+    """The cached contractions of epochs at new rates, as an inference produces, stay within the byte budget.
+    Regression: the cache was bounded by 256 epochs, which a Beta coalescent of n = 30 fills with about 1.15 GB."""
+    coal = lambda N: pg.Coalescent(n=4, model=pg.BetaCoalescent(alpha=1.5), demography=pg.Demography(
+        pop_sizes={'pop_0': {0: 1, 0.5: N}}))
+    base = coal(2.0)
+    base.sfs.gradient(2)
+    contractions = list(base.state_spaces['block_counting']._generator_basis._contractions.values())
+    assert contractions
+    size = max(c._size(key) for c in contractions for key in c._epochs)
+
+    monkeypatch.setattr('phasegen.distributions._gradient._CONTRACTION_BYTES', 3 * size)
+    space = base.state_spaces['block_counting']
+    for N in np.linspace(1.5, 3, 10):
+        c = coal(N)
+        c.__dict__.setdefault('_built_state_spaces', {})['block_counting'] = space
+        c.sfs.gradient(2)
+
+    assert max(len(contraction._epochs) for contraction in contractions) == 3
+    for contraction in contractions:
+        assert contraction._bytes == sum(contraction._size(key) for key in contraction._epochs) <= 3 * size
 
 
 def test_supported_builds_only_the_state_spaces_of_the_passes():
