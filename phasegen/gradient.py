@@ -343,9 +343,9 @@ class Gradient:
     :math:`\partial s_j / \partial \mu_l`, the statistic is evaluated on the computed moments with one entry shifted,
     which needs no further moments. For :math:`\partial q_k / \partial \theta_i`, the callback builds the coalescent at
     shifted parameters, and only its quantities :math:`q_k` are read. The Jacobian costs a few evaluations of the
-    moments, whatever the number of parameters. A parameter that changes the coalescent otherwise is differentiated by
-    such a difference of the statistic, and a statistic without an exact gradient by such differences altogether, as
-    noted in the log.
+    moments per entry of the statistic, whatever the number of parameters. A parameter that changes the coalescent
+    otherwise is differentiated by such a difference of the statistic, and a statistic without an exact gradient by such
+    differences altogether, as noted in the log.
 
     ::
 

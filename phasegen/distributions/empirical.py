@@ -816,8 +816,8 @@ class _EmpiricalSFSMixin(_TajimaSFSMixin):  # pragma: no cover
     @property
     def shape(self) -> Tuple[int, ...]:
         """
-        Shape of the SFS array, ``(n + 1,)``, as :attr:`SFSDistribution.shape
-        <phasegen.distributions.SFSDistribution.shape>`.
+        Shape of the SFS array, ``(n + 1,)``, as :attr:`UnfoldedSFSDistribution.shape
+        <phasegen.distributions.UnfoldedSFSDistribution.shape>`.
         """
         return np.shape(self.mean.data)
 

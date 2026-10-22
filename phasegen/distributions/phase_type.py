@@ -451,15 +451,18 @@ class PhaseTypeDistribution(CallableDistributionFunctions, MomentEvaluator, Mome
 
         The first moment contracts the expected occupation times of the transient states with the reward vector
         :math:`\mathbf{r}`. In the last epoch :math:`M`, which lasts until absorption, these are
-        :math:`\mathbf{p}_M (-\mathbf{T}_M)^{-1}`, where :math:`\mathbf{p}_M` is the state distribution at its start, so
-        that a quantity :math:`\theta` of that epoch enters as
+        :math:`\mathbf{p}_M (-\mathbf{T}_M)^{-1}`, so that
+        :math:`\mu = \mathbf{o}_M \mathbf{r} + \mathbf{p}_M (-\mathbf{T}_M)^{-1} \mathbf{r}`, where :math:`\mathbf{p}_M`
+        is the state distribution at its start and :math:`\mathbf{o}_M` the occupation times accumulated before it. A
+        quantity :math:`\theta` of that epoch therefore enters as
 
         .. math::
             \frac{\partial \mu}{\partial \theta} = \mathbf{p}_M (-\mathbf{T}_M)^{-1}
             \frac{\partial \mathbf{T}_M}{\partial \theta} (-\mathbf{T}_M)^{-1} \mathbf{r}.
 
-        The forward pass computes the moment. It carries the row vector
-        :math:`\mathbf{x}_i = (\mathbf{p}_i, \mathbf{m}_i)` of the state distribution at the start of epoch :math:`i`
+        The finite epochs are handled in two passes, a forward pass that computes the moment and a backward pass that
+        computes its derivatives. The forward pass carries the row vector
+        :math:`\mathbf{x}_i = (\mathbf{p}_i, \mathbf{o}_i)` of the state distribution at the start of epoch :math:`i`
         and the occupation times accumulated before it through the finite epochs, from
         :math:`\mathbf{x}_1 = (\boldsymbol{\alpha}_T, \mathbf{0})`, with the exponential of the Van Loan matrix of
         :meth:`PhaseTypeDistribution.moment() <phasegen.distributions.PhaseTypeDistribution.moment>` in its occupation
@@ -476,7 +479,7 @@ class PhaseTypeDistribution(CallableDistributionFunctions, MomentEvaluator, Mome
         :math:`\mu = \mathbf{x}_M\, \mathbf{g}_M` with the column vector
         :math:`\mathbf{g}_M = ((-\mathbf{T}_M)^{-1} \mathbf{r}, \mathbf{r})`.
 
-        The backward pass computes the derivatives. It carries :math:`\mathbf{g}` through the epochs in reverse,
+        The backward pass carries :math:`\mathbf{g}` through the epochs in reverse,
 
         .. math::
             \mathbf{g}_i = e^{\mathbf{V}_i \Delta_i}\, \mathbf{g}_{i+1},
@@ -510,10 +513,10 @@ class PhaseTypeDistribution(CallableDistributionFunctions, MomentEvaluator, Mome
 
         .. math::
             \mathbf{S}_i = \mathbf{K} + \sum_d \frac{\mathbf{C}_d}{s(N_{d,i})} + \sum_{a \neq b} m_{ab,i}\,
-            \mathbf{M}_{ab},
+            \mathbf{G}_{ab},
 
         where :math:`s(N)` is the coalescent time scale at population size :math:`N`, :math:`\mathbf{C}_d` the
-        coalescence rates in deme :math:`d` at unit inverse time scale, :math:`\mathbf{M}_{ab}` the migration rates from
+        coalescence rates in deme :math:`d` at unit inverse time scale, :math:`\mathbf{G}_{ab}` the migration rates from
         deme :math:`a` to deme :math:`b` at unit rate, and :math:`\mathbf{K}` the rates depending on neither, such as
         recombination. This gives :math:`\partial \mathbf{T} / \partial \theta` exactly for these quantities, and a
         central difference is used for the other model parameters.
@@ -537,9 +540,10 @@ class PhaseTypeDistribution(CallableDistributionFunctions, MomentEvaluator, Mome
         the mean. The average over the orderings and the centering,
         :math:`\mathbb{E}[R_1 R_2] - \mathbb{E}[R_1] \mathbb{E}[R_2]` for the covariance, follow by the product rule.
 
-        All derivatives together cost a few moment evaluations, however many quantities there are. The result is cached
-        like the moments, and a copy is returned. :class:`~phasegen.inference.Inference` differentiates losses with
-        these derivatives, and :class:`~phasegen.gradient.Gradient` chains them through a coalescent callback.
+        All derivatives together cost a few moment evaluations per entry of a spectrum, however many quantities there
+        are. The result is cached like the moments, and a copy is returned. :class:`~phasegen.inference.Inference`
+        differentiates losses with these derivatives, and :class:`~phasegen.gradient.Gradient` chains them through a
+        coalescent callback.
 
         ::
 
