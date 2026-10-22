@@ -20,6 +20,10 @@ options(repr.plot.width = 4.4, repr.plot.height = 3.3)
 
 We first simulate an observation. A demography with recent exponential growth that follows a bottleneck is sampled a million times with the empirical coalescent, and each sample carries a Poisson-distributed number of mutations at a population-scaled mutation rate ``theta`` per unit of branch length. The resulting SFS has a sample size of 20.
 
+```{note}
+An SFS of real data can be obtained from a VCF file with the {class}`~sfsutils.parser.Parser` from the [``sfsutils``](https://sfsutils.readthedocs.io) package.
+```
+
 ```{code-cell} python
 :tags: [full-width]
 import numpy as np

@@ -26,6 +26,10 @@ theta <- 1
 ## Two-deme joint SFS
 The joint SFS of several demes carries information on their population sizes and on the migration between them. We sample a joint SFS of two demes ``A`` and ``B``, with four lineages from each, in the same way as the SFS of one deme in {ref}`single-deme-sfs`, here from 100,000 samples, with a population-scaled mutation rate ``theta`` per sample. Deme ``A`` declines exponentially into the past before two size changes, deme ``B`` passes through a bottleneck, and lineages migrate in both directions.
 
+```{note}
+A joint SFS of real data can be obtained from a VCF file with the {class}`~sfsutils.parser.Parser` from the [``sfsutils``](https://sfsutils.readthedocs.io) package, given the samples of each population.
+```
+
 ```{code-cell} python
 n_samples = 100_000
 
