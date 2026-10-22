@@ -5,7 +5,6 @@ occupation-time recursion for first moments, and that of the closed form of high
 """
 
 import copy
-import logging
 from collections import OrderedDict
 from typing import Callable, Dict, List, Optional, Sequence, Tuple, TYPE_CHECKING
 
@@ -605,13 +604,6 @@ class MeanGradient:
         :param distribution: The distribution whose state space and demography define the occupation times.
         """
         self.distribution = distribution
-
-    @property
-    def _log(self) -> logging.Logger:
-        """
-        The logger.
-        """
-        return logging.getLogger(f"phasegen.{type(self).__name__}")
 
     def compute_columns(self, rewards: np.ndarray) -> Optional[List[Tuple[float, 'DemographyGradient']]]:
         """

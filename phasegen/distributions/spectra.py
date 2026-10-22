@@ -208,6 +208,28 @@ class _BinMomentsMixin:
             for pos, reward in self._bins()
         ]
 
+    def _mean_rewards(
+            self,
+            reward: Reward = None
+    ) -> Tuple['PhaseTypeDistribution', np.ndarray, List[Tuple[int, ...]]]:
+        """
+        The bin rewards of the first moment, see
+        :meth:`PhaseTypeDistribution._mean_rewards() <phasegen.distributions.PhaseTypeDistribution._mean_rewards>`.
+        Where flattening applies, they are the flattened weights on the lineage-counting state space of the tree height.
+
+        :param reward: The reward multiplied with the bin rewards, by default that of the spectrum.
+        :return: The distribution, the reward matrix and the positions.
+        """
+        reward = self.reward if reward is None else reward
+        host = self._mean_host()
+        bins = self._bins()
+        R = np.column_stack([
+            self._flattened_weights(r) if host is not self else np.asarray(r._get(self.state_space), dtype=float)
+            for r in (CombinedReward([reward, bin_reward]) for _, bin_reward in bins)
+        ])
+
+        return host, R, [pos for pos, _ in bins]
+
     def _cov_entries(self) -> List[Tuple[Tuple[int, ...], List[Tuple[float, Tuple[np.ndarray, ...]]], float, float]]:
         """
         The entries of the covariance of the bins, each a central moment of two bin rewards.
@@ -461,29 +483,6 @@ class SFSDistribution(_BinMomentsMixin, SpectrumDistribution, ABC):
         pad = float(k == 0)
 
         return SFS([pad] + list(moments) + [pad] * (self.lineage_config.n - len(moments)))
-
-    def _mean_rewards(
-            self,
-            reward: Reward = None
-    ) -> Tuple['PhaseTypeDistribution', np.ndarray, List[Tuple[int, ...]]]:
-        """
-        The bin rewards of the first moment, see
-        :meth:`PhaseTypeDistribution._mean_rewards() <phasegen.distributions.PhaseTypeDistribution._mean_rewards>`.
-        Where flattening applies, they are the flattened weights on the lineage-counting state space of the tree height.
-
-        :param reward: The reward multiplied with the bin rewards, by default that of
-            :attr:`SFSDistribution.mean <phasegen.distributions.SFSDistribution.mean>`.
-        :return: The distribution, the reward matrix and the positions.
-        """
-        reward = self.reward if reward is None else reward
-        host = self._mean_host()
-        bin_rewards = [CombinedReward([reward, self._get_sfs_reward(i)]) for i in self._get_indices()]
-        R = np.column_stack([
-            (self._flattened_weights(r) if host is not self else np.asarray(r._get(self.state_space), dtype=float))
-            for r in bin_rewards
-        ])
-
-        return host, R, [(j + 1,) for j in range(len(bin_rewards))]
 
     def _mean_host(self) -> 'PhaseTypeDistribution':
         """
@@ -1766,27 +1765,6 @@ class JointSFSDistribution(_BinMomentsMixin, SpectrumDistribution):
             out[(slice(None),) + config] = acc
 
         return out
-
-    def _mean_rewards(
-            self,
-            reward: Reward = None
-    ) -> Tuple['PhaseTypeDistribution', np.ndarray, List[Tuple[int, ...]]]:
-        """
-        The bin rewards of the first moment, see
-        :meth:`PhaseTypeDistribution._mean_rewards() <phasegen.distributions.PhaseTypeDistribution._mean_rewards>`.
-
-        :param reward: The reward multiplied with the bin rewards, by default that of
-            :attr:`JointSFSDistribution.mean <phasegen.distributions.JointSFSDistribution.mean>`.
-        :return: The distribution, the reward matrix and the positions.
-        """
-        reward = self.reward if reward is None else reward
-        configs = self._get_configs()
-        R = np.column_stack([
-            np.asarray(CombinedReward([reward, JointSFSReward(config)])._get(self.state_space), dtype=float)
-            for config in configs
-        ])
-
-        return self._mean_host(), R, list(configs)
 
     def _bins(self) -> List[Tuple[Tuple[int, ...], Reward]]:
         """
