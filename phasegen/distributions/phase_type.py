@@ -443,28 +443,32 @@ class PhaseTypeDistribution(CallableDistributionFunctions, MomentEvaluator, Mome
         Exact derivatives of the :math:`k`-th moment :math:`\mu` of
         :meth:`PhaseTypeDistribution.moment() <phasegen.distributions.PhaseTypeDistribution.moment>`, of every bin for a
         spectrum, with respect to the population sizes :math:`N_{d,i}` of deme :math:`d` in epoch :math:`i`, the
-        migration rates :math:`m_{ab,i}` from deme :math:`a` to deme :math:`b`, the boundaries :math:`t_i` of the
-        epochs, the continuous parameters of the coalescent model (``alpha`` of
+        migration rates :math:`m_{ab,i}` from deme :math:`a` to deme :math:`b` in epoch :math:`i`, the boundaries
+        :math:`t_i` of the epochs, the continuous parameters of the coalescent model (``alpha`` of
         :class:`~phasegen.coalescent_models.BetaCoalescent`, ``psi`` and ``c`` of
         :class:`~phasegen.coalescent_models.DiracCoalescent`) and the recombination rate between two loci, collected in
-        a :class:`~phasegen.distributions.DemographyGradient`.
+        a :class:`~phasegen.distributions.DemographyGradient`. Any one of these parameters is denoted :math:`\theta`
+        below. Epoch :math:`i \in \{1, \dots, M\}` spans :math:`[t_{i-1}, t_i)` with :math:`t_0 = 0` and
+        :math:`t_M = \infty`, so the last epoch :math:`M` lasts until absorption.
 
         The first moment contracts the expected occupation times of the transient states with the reward vector
-        :math:`\mathbf{r}`. In the last epoch :math:`M`, which lasts until absorption, these are
-        :math:`\mathbf{p}_M (-\mathbf{T}_M)^{-1}`, so that
-        :math:`\mu = \mathbf{o}_M \mathbf{r} + \mathbf{p}_M (-\mathbf{T}_M)^{-1} \mathbf{r}`, where :math:`\mathbf{p}_M`
-        is the state distribution at its start and :math:`\mathbf{o}_M` the occupation times accumulated before it. A
-        quantity :math:`\theta` of that epoch therefore enters as
+        :math:`\mathbf{r}`, whose entry for a state is the rate at which reward accrues in it. Let
+        :math:`\mathbf{T}_i` be the generator of epoch :math:`i` restricted to the transient states,
+        :math:`\mathbf{p}_i` the distribution over the transient states at the start of epoch :math:`i`, and
+        :math:`\mathbf{o}_i` the expected time spent in each transient state before epoch :math:`i`, both row vectors.
+        The occupation times within the last epoch are :math:`\mathbf{p}_M (-\mathbf{T}_M)^{-1}`, so that
+        :math:`\mu = \mathbf{o}_M \mathbf{r} + \mathbf{p}_M (-\mathbf{T}_M)^{-1} \mathbf{r}`. Through that epoch,
+        :math:`\theta` therefore enters as
 
         .. math::
             \frac{\partial \mu}{\partial \theta} = \mathbf{p}_M (-\mathbf{T}_M)^{-1}
             \frac{\partial \mathbf{T}_M}{\partial \theta} (-\mathbf{T}_M)^{-1} \mathbf{r}.
 
-        The finite epochs are handled in two passes, a forward pass that computes the moment and a backward pass that
-        computes its derivatives. The forward pass carries the row vector
-        :math:`\mathbf{x}_i = (\mathbf{p}_i, \mathbf{o}_i)` of the state distribution at the start of epoch :math:`i`
-        and the occupation times accumulated before it through the finite epochs, from
-        :math:`\mathbf{x}_1 = (\boldsymbol{\alpha}_T, \mathbf{0})`, with the exponential of the Van Loan matrix of
+        The finite epochs before :math:`M` are handled in two passes, a forward pass that computes the moment and a
+        backward pass that computes its derivatives. The forward pass carries the row vector
+        :math:`\mathbf{x}_i = (\mathbf{p}_i, \mathbf{o}_i)` from :math:`\mathbf{x}_1 = (\boldsymbol{\alpha}_T,
+        \mathbf{0})`, where :math:`\boldsymbol{\alpha}_T` is the initial distribution restricted to the transient
+        states, using the exponential of the Van Loan matrix of
         :meth:`PhaseTypeDistribution.moment() <phasegen.distributions.PhaseTypeDistribution.moment>` in its occupation
         form,
 
@@ -474,9 +478,10 @@ class PhaseTypeDistribution(CallableDistributionFunctions, MomentEvaluator, Mome
             \int_0^{\Delta_i} e^{\mathbf{T}_i u}\, \mathrm{d}u \\ & \mathbf{I} \end{pmatrix}, \qquad
             \mathbf{x}_{i+1} = \mathbf{x}_i\, e^{\mathbf{V}_i \Delta_i},
 
-        where :math:`\mathbf{I}` is the identity. The top-left block carries :math:`\mathbf{p}` across the epoch, and
+        where :math:`\Delta_i = t_i - t_{i-1}` is the duration of epoch :math:`i`, :math:`\mathbf{I}` the identity
+        and :math:`\mathbf{0}` the zero matrix. The top-left block carries :math:`\mathbf{p}` across the epoch, and
         the top-right block adds the expected occupation times within it. The moment is
-        :math:`\mu = \mathbf{x}_M\, \mathbf{g}_M` with the column vector
+        :math:`\mu = \mathbf{x}_M\, \mathbf{g}_M` with the stacked column vector
         :math:`\mathbf{g}_M = ((-\mathbf{T}_M)^{-1} \mathbf{r}, \mathbf{r})`.
 
         The backward pass carries :math:`\mathbf{g}` through the epochs in reverse,
@@ -485,31 +490,33 @@ class PhaseTypeDistribution(CallableDistributionFunctions, MomentEvaluator, Mome
             \mathbf{g}_i = e^{\mathbf{V}_i \Delta_i}\, \mathbf{g}_{i+1},
 
         so that :math:`\mu = \mathbf{x}_i\, \mathbf{g}_i` for every epoch and the first block of :math:`\mathbf{g}_i`
-        holds the expected reward still to be collected from each transient state at the start of epoch :math:`i`. A
-        quantity :math:`\theta` of a finite epoch :math:`i` changes only :math:`e^{\mathbf{V}_i \Delta_i}`, so on
+        holds the expected reward still to be collected from each transient state at the start of epoch :math:`i`.
+        Within a finite epoch :math:`i`, :math:`\theta` changes only :math:`e^{\mathbf{V}_i \Delta_i}`, so on
         reaching epoch :math:`i` the backward pass assembles
 
         .. math::
             \frac{\partial \mu}{\partial \theta} = \mathbf{x}_i\, L\Big(\mathbf{V}_i \Delta_i,
             \frac{\partial \mathbf{V}_i}{\partial \theta} \Delta_i\Big)\, \mathbf{g}_{i+1}
 
-        for all quantities of the epoch at once, where :math:`L(\mathbf{A}, \mathbf{H})` is the Fréchet derivative of
+        for all parameters at once, where :math:`L(\mathbf{A}, \mathbf{H})` is the Fréchet derivative of
         the exponential, the first-order change of :math:`e^{\mathbf{A} + \mathbf{H}}` for a perturbation
         :math:`\mathbf{H}` of :math:`\mathbf{A}`,
 
         .. math::
-            L(\mathbf{A}, \mathbf{H}) = \int_0^1 e^{s \mathbf{A}}\, \mathbf{H}\, e^{(1 - s) \mathbf{A}}\, \mathrm{d}s.
+            L(\mathbf{A}, \mathbf{H}) = \int_0^1 e^{\sigma \mathbf{A}}\, \mathbf{H}\, e^{(1 - \sigma) \mathbf{A}}\,
+            \mathrm{d}\sigma.
 
-        The three factors are the mass arriving at the epoch, how a change of the rates redirects it, and the value of
-        the redirected mass afterwards. The integral sums a rate change at each fraction :math:`s` of the epoch, with
-        the unperturbed rates acting before and after it. It is computed on the same path as the exponential in the
+        The three factors of :math:`\partial \mu / \partial \theta` are the mass arriving at the epoch, how a change of
+        the rates redirects it, and the value of the redirected mass afterwards. Within the integral, the rate change
+        :math:`\mathbf{H}` acts at the fraction :math:`\sigma` of the epoch, with the unperturbed rates acting before
+        and after it. It is computed on the same path as the exponential in the
         forward pass, densely or by reversing the Taylor action (see :attr:`Settings.expm_action_min_dim
         <phasegen.settings.Settings.expm_action_min_dim>`).
 
-        The entries of the generator change linearly with the inverse coalescent time scales, the migration rates, the
-        recombination rate and the rate ``c`` of a Dirac coalescent. The generator :math:`\mathbf{S}_i` of epoch
-        :math:`i`, of which :math:`\mathbf{T}_i` is the transient block, is therefore assembled from parts built once
-        per state space,
+        The entries of the generator :math:`\mathbf{S}_i` of epoch :math:`i`, of which :math:`\mathbf{T}_i` is the
+        transient block, change linearly with the inverse coalescent time scales, the migration rates, the
+        recombination rate and the rate ``c`` of a Dirac coalescent. During parameter inference
+        (:class:`~phasegen.inference.Inference`), it is therefore assembled from parts built once per state space,
 
         .. math::
             \mathbf{S}_i = \mathbf{K} + \sum_d \frac{\mathbf{C}_d}{s(N_{d,i})} + \sum_{a \neq b} m_{ab,i}\,
@@ -518,30 +525,31 @@ class PhaseTypeDistribution(CallableDistributionFunctions, MomentEvaluator, Mome
         where :math:`s(N)` is the coalescent time scale at population size :math:`N`, :math:`\mathbf{C}_d` the
         coalescence rates in deme :math:`d` at unit inverse time scale, :math:`\mathbf{G}_{ab}` the migration rates from
         deme :math:`a` to deme :math:`b` at unit rate, and :math:`\mathbf{K}` the rates depending on neither, such as
-        recombination. This gives :math:`\partial \mathbf{T} / \partial \theta` exactly for these quantities, and a
-        central difference is used for the other model parameters.
+        recombination. This gives :math:`\partial \mathbf{T} / \partial \theta` exactly for these parameters, and a
+        central difference is used for the other model parameters (:class:`~phasegen.gradient.Gradient`).
 
-        A higher moment is differentiated through the closed form of
-        :meth:`PhaseTypeDistribution.moment() <phasegen.distributions.PhaseTypeDistribution.moment>`. The raw
-        cross-moment of one ordering of the rewards :math:`\mathbf{r}_1, \dots, \mathbf{r}_k` is
+        A moment of order :math:`k \ge 2` takes one reward vector :math:`\mathbf{r}_j` for each factor
+        :math:`j = 1, \dots, k` and is differentiated through the closed form of
+        :meth:`PhaseTypeDistribution.moment() <phasegen.distributions.PhaseTypeDistribution.moment>`. For one ordering
+        of the rewards, the raw cross-moment :math:`\mathbb{E}[R_1 \cdots R_k]` of the total rewards :math:`R_j`
+        accumulated under :math:`\mathbf{r}_j` is
 
         .. math::
-            \mu = k!\, \boldsymbol{\alpha}_{k+1} \Big(\prod_{i < M} e^{\mathbf{V}_i \Delta_i}\Big) \mathbf{z}_M,
+            \mu = k!\, \boldsymbol{\alpha}_{k+1} \Big(\prod_{i < M} e^{\mathbf{U}_i \Delta_i}\Big) \mathbf{z}_M.
 
-        where the Van Loan matrix :math:`\mathbf{V}_i` has :math:`k + 1` diagonal blocks :math:`\mathbf{S}_i` and the
-        superdiagonal blocks :math:`\operatorname{diag}(\mathbf{r}_1), \dots, \operatorname{diag}(\mathbf{r}_k)`,
-        :math:`\boldsymbol{\alpha}_{k+1} = (\boldsymbol{\alpha}, \mathbf{0}, \dots, \mathbf{0})`, and
-        :math:`\mathbf{z}_M` has blocks :math:`\mathbf{w}_0, \dots, \mathbf{w}_k` with
-        :math:`\mathbf{w}_k = \mathbf{e}` and :math:`\mathbf{w}_j = (-\mathbf{T}_M)^{-1}
-        \operatorname{diag}(\mathbf{r}_{j+1})\, \mathbf{w}_{j+1}` for :math:`j < k`. Each finite epoch contributes as above, with :math:`\mathbf{g}_{i+1}` the
-        column vector :math:`\mathbf{z}_{i+1}` that the product carries to its end and
-        :math:`\partial \mathbf{V}_i / \partial \theta` holding :math:`\partial \mathbf{S}_i / \partial \theta` in each
-        diagonal block, and each block :math:`\mathbf{w}_j` is differentiated through :math:`(-\mathbf{T}_M)^{-1}` like
-        the mean. The average over the orderings and the centering,
+        Here :math:`\mathbf{U}_i` is the block matrix with :math:`k + 1` copies of :math:`\mathbf{S}_i` on its diagonal
+        and :math:`\operatorname{diag}(\mathbf{r}_1), \dots, \operatorname{diag}(\mathbf{r}_k)` on its superdiagonal,
+        :math:`\boldsymbol{\alpha}_{k+1} = (\boldsymbol{\alpha}, \mathbf{0}, \dots, \mathbf{0})` places the initial
+        distribution :math:`\boldsymbol{\alpha}` in the first block, and the stacked column vector :math:`\mathbf{z}_M`
+        has blocks :math:`\mathbf{w}_0, \dots, \mathbf{w}_k`, with :math:`\mathbf{w}_k = \mathbf{e}` the vector of ones
+        and :math:`\mathbf{w}_j = (-\mathbf{T}_M)^{-1} \operatorname{diag}(\mathbf{r}_{j+1})\, \mathbf{w}_{j+1}` for
+        :math:`j < k`. The derivatives follow as for the first moment, with :math:`\mathbf{U}_i` in place of
+        :math:`\mathbf{V}_i` and each :math:`\mathbf{w}_j` differentiated through :math:`(-\mathbf{T}_M)^{-1}`. The
+        average over the :math:`k!` orderings and the centering, such as
         :math:`\mathbb{E}[R_1 R_2] - \mathbb{E}[R_1] \mathbb{E}[R_2]` for the covariance, follow by the product rule.
 
-        All derivatives together cost a few moment evaluations per entry of a spectrum, however many quantities there
-        are. The result is cached like the moments, and a copy is returned. :class:`~phasegen.inference.Inference`
+        Computing all derivatives costs a few moment evaluations per spectrum entry, independent of the number of
+        parameters. The result is cached alongside the moments, and a copy is returned. :class:`~phasegen.inference.Inference`
         differentiates losses with these derivatives, and :class:`~phasegen.gradient.Gradient` chains them through a
         coalescent callback.
 
