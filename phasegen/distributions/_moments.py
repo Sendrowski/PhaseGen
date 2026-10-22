@@ -830,17 +830,18 @@ class MomentEvaluator:
         )
 
     @cache
-    def _last_epoch_solver(self, k: int, sparse: bool) -> 'Callable':
+    def _last_epoch_solver(self, space: int, n_epochs: int, states: bytes, sparse: bool) -> 'Callable':
         """
-        The factorization of ``-T`` of the last epoch on the transient states of ``_alpha_support``, as
-        ``_lu_solver``, shared by the closed forms of order ``k``. Leaves the state space in the last epoch.
+        The factorization of ``-T`` of the last epoch on a set of transient states, as ``_lu_solver``, memoized by
+        state space, epoch list and states. The caller sets the last epoch.
 
-        :param k: The order of the moment, which selects the epochs (see ``_get_epochs_until_unbounded``).
+        :param space: The identity of the state space.
+        :param n_epochs: The length of the epoch list (see ``_get_epochs_until_unbounded``), which identifies it.
+        :param states: The transient states, as the bytes of their indices.
         :param sparse: Whether to factorize sparsely.
         :return: The solver.
         """
-        self.state_space.update_epoch(self._get_epochs_until_unbounded(k)[-1])
-        idx_t = np.where(~self.state_space.absorbing & self._alpha_support(k))[0]
+        idx_t = np.frombuffer(states, dtype=np.intp)
 
         return self._lu_solver(-self._transient_block(idx_t, sparse=sparse), sparse)
 
@@ -1651,7 +1652,7 @@ class MomentEvaluator:
             self._logger.debug(
                 "closed form (k=%d): dense LU of T (n_t=%d), %d finite epoch(s)", k, len(idx_t), len(epochs) - 1
             )
-        solve = self._last_epoch_solver(k, sparse)
+        solve = self._last_epoch_solver(id(self.state_space), len(epochs), idx_t.astype(np.intp).tobytes(), sparse)
 
         # the j-th block of the extended vector is stored divided by lamb ** (k - j), which balances the Van Loan
         # exponentials of the finite epochs, so the moment is multiplied by lamb ** k at the end. The heads share one

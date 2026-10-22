@@ -564,3 +564,22 @@ def test_central_moments_of_one_reward_from_one_closed_form(k):
     assert dist._powers_apply(k, (dist.reward,) * k, (np.inf,))
     np.testing.assert_allclose(dist._raw_powers(k, dist.reward, 0.0), raw, rtol=1e-12)
     assert float(dist.moment(k)) == pytest.approx(expected, rel=1e-10)
+
+
+def test_closed_forms_of_all_orders_share_the_last_epoch_factorization(monkeypatch):
+    """The closed forms of the orders of a moment, whose epoch lists coincide, factorize the last epoch once.
+    Regression: the factorization was kept per order, so a third cross-moment factorized the same block thrice."""
+    import traceback
+
+    calls = []
+    lu_solver = MomentEvaluator._lu_solver
+    monkeypatch.setattr(MomentEvaluator, '_lu_solver', staticmethod(lambda *a, **k: calls.append(
+        '_last_epoch_solver' in traceback.format_stack()[-2]) or lu_solver(*a, **k)))
+
+    coal = pg.Coalescent(n={'pop_0': 3, 'pop_1': 3}, demography=pg.Demography(
+        pop_sizes={'pop_0': {0: 1, 0.5: 2}, 'pop_1': 1}, migration_rates={('pop_0', 'pop_1'): 0.5,
+                                                                          ('pop_1', 'pop_0'): 0.5}))
+    tbl = pg.TotalBranchLengthReward()
+    coal.moment(3, rewards=[pg.TreeHeightReward(), tbl, tbl])
+
+    assert sum(calls) == 1
