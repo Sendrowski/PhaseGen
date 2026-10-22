@@ -96,6 +96,11 @@ class Inference(Serializable):
     observation. The minimisation is performed with a gradient-based scipy optimizer (L-BFGS-B by default),
     restarted from several initial points.
 
+    .. versionadded:: 2.2.0
+        The gradient of the loss is computed exactly where the loss reads supported moments (see
+        :class:`~phasegen.gradient.Gradient`), at a cost largely independent of the number of parameters. This
+        considerably speeds up inference, especially with many parameters.
+
     The following example infers the population size of a single deme from an observed site-frequency spectrum.
 
     ::
@@ -108,7 +113,7 @@ class Inference(Serializable):
         inf.run()
     """
     #: Default options passed to the optimization algorithm.
-    #: See https://docs.scipy.org/doc/scipy/reference/optimize.minimize-lbfgsb.html#optimize-minimize-lbfgsb
+    #: See the options of :ref:`L-BFGS-B <scipy:optimize.minimize-lbfgsb>`.
     default_opts = dict()
 
     #: Static for backward compatibility with serialized objects that lack the attribute.
@@ -205,19 +210,18 @@ class Inference(Serializable):
             so that only their rate matrices are rebuilt.
             This speeds up optimizations over demographic parameters such as population sizes or migration rates.
         :param opts: Additional options passed to the optimization algorithm.
-            See https://docs.scipy.org/doc/scipy/reference/optimize.minimize-lbfgsb.html#optimize-minimize-lbfgsb
-        :param method_mle: Method to use for optimization, a method of `scipy.optimize.minimize` that honours bounds
-            without an analytic Jacobian: Nelder-Mead, Powell, L-BFGS-B, TNC, SLSQP, COBYLA or COBYQA.
+            See the options of :ref:`L-BFGS-B <scipy:optimize.minimize-lbfgsb>`.
+        :param method_mle: Method to use for optimization, a method of :func:`scipy.optimize.minimize` that honours
+            bounds without an analytic Jacobian: :ref:`Nelder-Mead <scipy:optimize.minimize-neldermead>`,
+            :ref:`Powell <scipy:optimize.minimize-powell>`, :ref:`L-BFGS-B <scipy:optimize.minimize-lbfgsb>`,
+            :ref:`TNC <scipy:optimize.minimize-tnc>`, :ref:`SLSQP <scipy:optimize.minimize-slsqp>`,
+            :ref:`COBYLA <scipy:optimize.minimize-cobyla>` or :ref:`COBYQA <scipy:optimize.minimize-cobyqa>`.
         :param gradient: How the gradient-based methods (L-BFGS-B, TNC and SLSQP) obtain the gradient of the loss. With
             ``'exact'``, a loss that reads only the moments listed at :class:`~phasegen.gradient.Gradient` is
-            differentiated exactly, by forward and backward passes through the epochs as described in
-            :meth:`PhaseTypeDistribution.gradient() <phasegen.distributions.PhaseTypeDistribution.gradient>`, at a cost
-            of a few evaluations of the moments whatever the number of parameters, which may enter the demography,
-            the parameters of the coalescent model or the recombination rate. Any other loss is differentiated by finite
-            differences. With ``'finite_differences'``, every gradient is a finite difference of the loss. The finite
-            differences are central, with a step of ``1e-6`` times the magnitude of each parameter (at least 1), or
-            times its value on a logarithmic scale, at two evaluations of the loss per parameter. At a bound or next to
-            parameters at which the model raises or the loss is not finite they are one-sided of second order.
+            differentiated exactly (:meth:`PhaseTypeDistribution.gradient()
+            <phasegen.distributions.PhaseTypeDistribution.gradient>`), at a cost of a few moment evaluations whatever
+            the number of parameters. Other losses, and every loss with ``'finite_differences'``, are differentiated by
+            central differences.
         :param log_scale: The name or names of the parameters optimized as their logarithms, ``True`` for all of
             them, which suits population sizes and rates spanning orders of magnitude and often reduces the number of
             iterations considerably. Their sampled start points are log-uniform within the bounds. The estimates,
@@ -225,9 +229,8 @@ class Inference(Serializable):
         :param penalty: A penalty :math:`P(\\theta)` added to the loss, which receives the parameters as keyword
             arguments and returns a number, such as a smoothness penalty on the population sizes of successive epochs.
             The optimization then minimises :math:`L + P`, and :attr:`Inference.loss_inferred
-            <phasegen.inference.Inference.loss_inferred>` and the information of :meth:`Inference.fisher_information()
-            <phasegen.inference.Inference.fisher_information>` include it. Its gradient is a central difference with
-            the steps of the loss, which needs no moments, so the loss keeps its exact gradient.
+            <phasegen.inference.Inference.loss_inferred>` includes it. Its gradient is a central difference with the
+            steps of the loss, which needs no moments, so the loss keeps its exact gradient.
         :raises ValueError: If a lower bound exceeds its upper bound, ``x0`` lies outside the bounds or does not specify
             exactly the parameters in ``bounds``, ``method_mle`` is not one of the supported methods, ``gradient`` is not
             one of the supported values, ``n_runs`` or ``n_bootstraps`` is less than 1, or a parameter on a logarithmic
@@ -947,11 +950,12 @@ class Inference(Serializable):
     def bootstrap(self) -> None:
         """
         Perform bootstrapping to estimate parameter uncertainty. For each of :attr:`n_bootstraps` replicates the
-        observation :math:`y` is resampled to :math:`y^{*}` via the ``resample`` callback and the inference is rerun,
-        yielding :math:`\\hat{\\theta}^{*} = \\arg\\min_{\\theta} L(\\mathrm{coal}(\\theta),\\, y^{*})`. The spread of the
-        replicate estimates :math:`\\{\\hat{\\theta}^{*}_b\\}` estimates the sampling distribution of :math:`\\hat{\\theta}`.
-        Each replicate starts from :math:`\\hat{\\theta}`, and the replicates are stored in
-        :attr:`Inference.bootstraps <phasegen.inference.Inference.bootstraps>`.
+        observation :math:`y` is resampled to :math:`y^{*}` via the :paramref:`~phasegen.inference.Inference.resample`
+        callback and the inference is rerun, yielding :math:`\\hat{\\theta}^{*} = \\arg\\min_{\\theta}
+        L(\\mathrm{coal}(\\theta),\\, y^{*})`. The spread of the replicate estimates :math:`\\{\\hat{\\theta}^{*}_b\\}`
+        estimates the sampling distribution of :math:`\\hat{\\theta}`. Each replicate starts from
+        :math:`\\hat{\\theta}`, and the replicates are stored in :attr:`Inference.bootstraps
+        <phasegen.inference.Inference.bootstraps>`.
 
         :raises RuntimeError: If :meth:`Inference.run() <phasegen.inference.Inference.run>` has not been called.
         """
@@ -1144,13 +1148,15 @@ class Inference(Serializable):
             J = \frac{1}{n - 1} \sum_{b=1}^{n} (g_b - \bar{g})(g_b - \bar{g})^\top, \qquad
             g_b = \nabla_\theta L\big(\mathrm{coal}(\theta),\, y^{*}_b\big) \big|_{\theta = \hat{\theta}},
 
-        where :math:`y^{*}_b` are :math:`n` observations drawn with the ``resample`` callback from a generator derived
-        from :attr:`Inference.seed <phasegen.inference.Inference.seed>`, :math:`\bar{g}` is the mean of the scores
-        :math:`g_b` and the gradients are those of :meth:`Gradient.compute() <phasegen.gradient.Gradient.compute>`.
+        where :math:`y^{*}_b` are :math:`n` observations drawn with the
+        :paramref:`~phasegen.inference.Inference.resample` callback from a generator derived from :attr:`Inference.seed
+        <phasegen.inference.Inference.seed>`, :math:`\bar{g}` is the mean of the scores :math:`g_b` and the gradients
+        are those of :meth:`Gradient.compute() <phasegen.gradient.Gradient.compute>`.
 
         :param n: The number of resampled observations, at least 2.
         :return: The covariance, with the parameter names as index and columns.
-        :raises ValueError: If ``resample`` is ``None``, ``n`` is less than 2 or fewer than two scores are finite.
+        :raises ValueError: If :paramref:`~phasegen.inference.Inference.resample` is ``None``, ``n`` is less than 2 or
+            fewer than two scores are finite.
         """
         if self.resample is None:
             raise ValueError("The Godambe covariance needs the resample callback to draw observations.")
@@ -1202,22 +1208,25 @@ class Inference(Serializable):
         :math:`H^{-1}` of the observed information :math:`H` of :meth:`Inference.fisher_information()
         <phasegen.inference.Inference.fisher_information>`, which assumes that the loss :math:`L` is the negative
         log-likelihood of independent observations, such as the bins of an SFS of unlinked loci. With ``'godambe'``,
-        it is the sandwich estimate of the inverse Godambe information (Coffman et al. 2016),
+        it is the sandwich estimate of the inverse Godambe information
+        (`Coffman et al. 2016 <https://doi.org/10.1093/molbev/msv255>`__),
 
         .. math::
             \Sigma = H^{-1} J H^{-1},
 
         where :math:`J` is the covariance of the score :math:`\nabla_\theta L\big(\mathrm{coal}(\theta),\, y^{*}\big)`
-        at :math:`\hat{\theta}` over :math:`n` observations :math:`y^{*}` drawn with the ``resample`` callback, without
-        refitting. It holds for a misspecified or composite likelihood, such as that of an SFS of linked sites, when the
-        callback reproduces the sampling of the observation, for instance by a block bootstrap over the genome. The
-        draws derive from :attr:`Inference.seed <phasegen.inference.Inference.seed>`, and :math:`J` is cached.
+        at :math:`\hat{\theta}` over :math:`n` observations :math:`y^{*}` drawn with the
+        :paramref:`~phasegen.inference.Inference.resample` callback, without refitting. It holds for a misspecified or
+        composite likelihood, such as that of an SFS of linked sites, when the callback reproduces the sampling of the
+        observation, for instance by a block bootstrap over the genome. The draws derive from :attr:`Inference.seed
+        <phasegen.inference.Inference.seed>`, and :math:`J` is cached.
 
-        :math:`H^{-1}` is taken over the directions in which :math:`H` is positive. A parameter that loads on a direction
-        of zero or negative curvature, such as one the loss does not depend on, has an undefined variance, reported as
-        NaN. The covariance describes the curvature of the loss at the estimate only, so it neither reflects other
-        optima nor the uncertainty of parameters on a bound, both of which a bootstrap captures. A warning is logged
-        where :math:`H` is not positive definite or a parameter lies on a bound.
+        :math:`H^{-1}` is taken over the directions in which :math:`H` is positive. A parameter that loads on a
+        direction of zero or negative curvature, such as one the loss does not depend on, has an undefined variance,
+        reported as NaN. The covariance describes the curvature of the loss at the estimate only, so it neither reflects
+        other optima nor the uncertainty of parameters on a bound, both of which :meth:`Inference.bootstrap()
+        <phasegen.inference.Inference.bootstrap>` captures. A warning is logged where :math:`H` is not positive definite
+        or a parameter lies on a bound.
 
         ::
 
@@ -1229,8 +1238,8 @@ class Inference(Serializable):
             errors have a relative Monte-Carlo error of about :math:`1 / \sqrt{2 n}`.
         :return: The covariance, with the parameter names as index and columns.
         :raises RuntimeError: If :meth:`Inference.run() <phasegen.inference.Inference.run>` has not been called.
-        :raises ValueError: If ``method`` is unknown, or for ``'godambe'``, if ``resample`` is ``None`` or ``n`` is
-            less than 2.
+        :raises ValueError: If ``method`` is unknown, or for ``'godambe'``, if
+            :paramref:`~phasegen.inference.Inference.resample` is ``None`` or ``n`` is less than 2.
         """
         if method not in ('fisher', 'godambe'):
             raise ValueError(f"method must be 'fisher' or 'godambe', got {method!r}.")
@@ -1278,8 +1287,8 @@ class Inference(Serializable):
         :param n: The number of resampled observations of the Godambe covariance.
         :return: The standard errors, indexed by parameter name.
         :raises RuntimeError: If :meth:`Inference.run() <phasegen.inference.Inference.run>` has not been called.
-        :raises ValueError: If ``method`` is unknown, or for ``'godambe'``, if ``resample`` is ``None`` or ``n`` is
-            less than 2.
+        :raises ValueError: If ``method`` is unknown, or for ``'godambe'``, if
+            :paramref:`~phasegen.inference.Inference.resample` is ``None`` or ``n`` is less than 2.
         """
         return pd.Series(np.sqrt(np.diag(self.covariance(method, n).to_numpy())), index=self.param_names)
 
@@ -1502,8 +1511,8 @@ class Inference(Serializable):
         :return: One row per time and trajectory, with the columns ``time``, ``trajectory``, ``estimate``,
             ``standard error``, ``lower`` and ``upper``.
         :raises RuntimeError: If :meth:`Inference.run() <phasegen.inference.Inference.run>` has not been called.
-        :raises ValueError: If ``method`` is unknown, or for ``'godambe'``, if ``resample`` is ``None`` or ``n`` is
-            less than 2.
+        :raises ValueError: If ``method`` is unknown, or for ``'godambe'``, if
+            :paramref:`~phasegen.inference.Inference.resample` is ``None`` or ``n`` is less than 2.
         """
         t = self._trajectory_times(t)
         estimate, se, lower, upper = self._trajectory_band(t, kind, level, method, n)
@@ -1668,7 +1677,8 @@ class Inference(Serializable):
             file: str = None,
             kwargs: dict = None,
             ax: Optional['plt.Axes'] = None,
-            truth: Demography = None
+            truth: Demography = None,
+            include_bootstraps: bool = None
     ) -> 'plt.Axes':
         """
         Plot inferred demography.
@@ -1687,10 +1697,13 @@ class Inference(Serializable):
         :param ax: Axes to plot on.
         :param truth: The true demography, whose trajectories are drawn dashed in the colour of the inferred ones with
             the same label.
+        :param include_bootstraps: Deprecated, use ``interval``. ``True`` selects ``'bootstrap'`` and ``False``
+            ``None``.
         :return: Axes.
         :raises RuntimeError: If :meth:`Inference.run() <phasegen.inference.Inference.run>` has not been called.
-        :raises ValueError: If ``interval`` is unknown, for ``'godambe'`` if ``resample`` is ``None``, or if
-            ``truth`` has a trajectory the inferred demography lacks.
+        :raises ValueError: If ``interval`` is unknown, for ``'godambe'`` if
+            :paramref:`~phasegen.inference.Inference.resample` is ``None``, or if ``truth`` has a trajectory the
+            inferred demography lacks.
         """
         return self._plot_demography(
             t=t,
@@ -1700,7 +1713,8 @@ class Inference(Serializable):
             kwargs=kwargs,
             ax=ax,
             kind='all',
-            truth=truth
+            truth=truth,
+            include_bootstraps=include_bootstraps
         )
 
     def plot_pop_sizes(
@@ -1711,7 +1725,8 @@ class Inference(Serializable):
             file: str = None,
             kwargs: dict = None,
             ax: Optional['plt.Axes'] = None,
-            truth: Demography = None
+            truth: Demography = None,
+            include_bootstraps: bool = None
     ) -> 'plt.Axes':
         """
         Plot inferred population sizes.
@@ -1730,10 +1745,13 @@ class Inference(Serializable):
         :param ax: Axes to plot on.
         :param truth: The true demography, whose trajectories are drawn dashed in the colour of the inferred ones with
             the same label.
+        :param include_bootstraps: Deprecated, use ``interval``. ``True`` selects ``'bootstrap'`` and ``False``
+            ``None``.
         :return: Axes.
         :raises RuntimeError: If :meth:`Inference.run() <phasegen.inference.Inference.run>` has not been called.
-        :raises ValueError: If ``interval`` is unknown, for ``'godambe'`` if ``resample`` is ``None``, or if
-            ``truth`` has a trajectory the inferred demography lacks.
+        :raises ValueError: If ``interval`` is unknown, for ``'godambe'`` if
+            :paramref:`~phasegen.inference.Inference.resample` is ``None``, or if ``truth`` has a trajectory the
+            inferred demography lacks.
         """
         return self._plot_demography(
             t=t,
@@ -1743,7 +1761,8 @@ class Inference(Serializable):
             kwargs=kwargs,
             ax=ax,
             kind='pop_sizes',
-            truth=truth
+            truth=truth,
+            include_bootstraps=include_bootstraps
         )
 
     def plot_migration(
@@ -1754,7 +1773,8 @@ class Inference(Serializable):
             interval: Literal['bootstrap', 'fisher', 'godambe'] | None = 'bootstrap',
             kwargs: dict = None,
             ax: Optional['plt.Axes'] = None,
-            truth: Demography = None
+            truth: Demography = None,
+            include_bootstraps: bool = None
     ) -> 'plt.Axes':
         """
         Plot inferred migration rates.
@@ -1773,10 +1793,13 @@ class Inference(Serializable):
         :param ax: Axes to plot on.
         :param truth: The true demography, whose trajectories are drawn dashed in the colour of the inferred ones with
             the same label.
+        :param include_bootstraps: Deprecated, use ``interval``. ``True`` selects ``'bootstrap'`` and ``False``
+            ``None``.
         :return: Axes.
         :raises RuntimeError: If :meth:`Inference.run() <phasegen.inference.Inference.run>` has not been called.
-        :raises ValueError: If ``interval`` is unknown, for ``'godambe'`` if ``resample`` is ``None``, or if
-            ``truth`` has a trajectory the inferred demography lacks.
+        :raises ValueError: If ``interval`` is unknown, for ``'godambe'`` if
+            :paramref:`~phasegen.inference.Inference.resample` is ``None``, or if ``truth`` has a trajectory the
+            inferred demography lacks.
         """
         return self._plot_demography(
             t=t,
@@ -1786,8 +1809,32 @@ class Inference(Serializable):
             kwargs=kwargs,
             ax=ax,
             kind='migration',
-            truth=truth
+            truth=truth,
+            include_bootstraps=include_bootstraps
         )
+
+    def _deprecated_interval(
+            self,
+            interval: Literal['bootstrap', 'fisher', 'godambe'] | bool | None,
+            include_bootstraps: bool | None
+    ) -> Literal['bootstrap', 'fisher', 'godambe'] | None:
+        """
+        Map the deprecated ``include_bootstraps``, passed by keyword or as a boolean in the position of ``interval``,
+        to ``interval``, logging a warning.
+
+        :param interval: The interval, or a boolean passed in its position.
+        :param include_bootstraps: Whether to draw the bootstrap replicates, ``None`` if not given.
+        :return: The interval.
+        """
+        if isinstance(interval, bool):
+            interval, include_bootstraps = 'bootstrap', interval
+
+        if include_bootstraps is None:
+            return interval
+
+        self._logger.warning("include_bootstraps is deprecated, use interval='bootstrap' or interval=None.")
+
+        return 'bootstrap' if include_bootstraps else None
 
     def _plot_demography(
             self,
@@ -1798,7 +1845,8 @@ class Inference(Serializable):
             kind: Literal['pop_sizes', 'migration', 'all'],
             file: str = None,
             kwargs: dict = None,
-            truth: Demography = None
+            truth: Demography = None,
+            include_bootstraps: bool = None
     ) -> 'plt.Axes':
         """
         Plot the trajectories of :meth:`_plot_demography_data`.
@@ -1814,6 +1862,7 @@ class Inference(Serializable):
         :param file: File to save the plot to.
         :param kwargs: Additional keyword arguments passed to the plot function.
         :param truth: The true demography, drawn dashed.
+        :param include_bootstraps: Deprecated form of ``interval``.
         :return: Axes.
         """
         import matplotlib.pyplot as plt
@@ -1822,6 +1871,7 @@ class Inference(Serializable):
         if kwargs is None:
             kwargs = {}
 
+        interval = self._deprecated_interval(interval, include_bootstraps)
         inferred, bootstraps, band = self._plot_demography_data(t, kind, interval)
         true = None if truth is None else truth._plot_data(inferred.x, kind)
 

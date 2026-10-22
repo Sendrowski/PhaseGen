@@ -1,6 +1,7 @@
 """
 Test Inference class.
 """
+import logging
 import os
 import traceback
 from typing import Tuple
@@ -1892,6 +1893,31 @@ def test_plot_pop_sizes_with_fisher_intervals():
 
     with pytest.raises(ValueError, match='interval'):
         inf.plot_pop_sizes(show=False, interval='bands')
+
+
+def test_deprecated_include_bootstraps_maps_to_interval(caplog):
+    """The deprecated include_bootstraps of the trajectory plots, by keyword or as a boolean in the position of
+    interval, maps to interval='bootstrap' or None and logs a warning."""
+    import matplotlib.pyplot as plt
+
+    inf = _single_ne_inference(resample=lambda obs, rng: 2.0)
+    inf._run()
+    inf.bootstrap()
+    caplog.clear()
+
+    assert inf._deprecated_interval('fisher', None) == 'fisher'
+    assert not any('include_bootstraps' in r.getMessage() for r in caplog.records)
+
+    with caplog.at_level(logging.WARNING, logger='phasegen'):
+        assert inf._deprecated_interval('bootstrap', False) is None
+        assert inf._deprecated_interval(True, None) == 'bootstrap'
+        assert inf._deprecated_interval(False, None) is None
+
+        inf.plot_pop_sizes(show=False, include_bootstraps=False)
+        inf.plot_demography(None, False, show=False)
+
+    assert sum('include_bootstraps is deprecated' in r.getMessage() for r in caplog.records) == 5
+    plt.close('all')
 
 
 def test_log_scale_start_points_are_log_uniform():
