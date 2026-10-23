@@ -266,7 +266,7 @@ class _Host(NamedTuple):
     """
     The derivatives of the statistic by the quantities of the epochs of one state space: the epochs, demes, pairs and
     parameters of the quantities, and the derivatives of each entry of the statistic in the layout of
-    :meth:`DemographyGradient.flat() <phasegen.distributions.DemographyGradient.flat>`.
+    :meth:`DemographyGradient._flat`.
     """
     indices: List[int]
     pops: List[str]
@@ -748,10 +748,10 @@ class Gradient:
                     continue
 
                 g = results[0][1][1]
-                flat = np.zeros((n_columns, len(g.flat())))
+                flat = np.zeros((n_columns, len(g._flat())))
                 for j, (v, grad) in results:
                     adjoint[j] += v
-                    flat[j] = grad.flat()
+                    flat[j] = grad._flat()
 
                 derivatives.append(_Host([e.index for e in g.epochs], g.pops, g.pairs, list(g.parameters), flat))
 
@@ -908,7 +908,7 @@ class Gradient:
         """
         epochs = list(itertools.islice(coal.demography.epochs, max(host.indices) + 1))
 
-        return DemographyGradient.quantities([epochs[k] for k in host.indices], host.pops, host.pairs,
+        return DemographyGradient._quantities([epochs[k] for k in host.indices], host.pops, host.pairs,
                                              _rate_parameters(coal.model, coal.locus_config), host.names)
 
     @staticmethod

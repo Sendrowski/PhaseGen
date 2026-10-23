@@ -831,7 +831,7 @@ class Coalescent(AbstractCoalescent, Serializable):
         :return: The state space supporting all the rewards.
         :raises ValueError: if the rewards are not jointly compatible with any single state space.
         """
-        if Reward.requires_joint_state_space(rewards):
+        if Reward._requires_joint_state_space(rewards):
             if not Reward.support(JointBlockCountingStateSpace, rewards):
                 raise ValueError(
                     "The given rewards are not jointly compatible with any single state space: "

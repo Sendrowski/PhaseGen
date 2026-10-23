@@ -453,7 +453,7 @@ def test_reward_state_space_guards():
     assert not joint.supports(TwoLocusBlockCountingStateSpace)
 
     # a two-locus reward no longer masquerades as one requiring the (population) joint state space
-    assert not pg.Reward.requires_joint_state_space([two])
+    assert not pg.Reward._requires_joint_state_space([two])
 
     ss = TwoLocusBlockCountingStateSpace(
         lineage_config=pg.LineageConfig(3),

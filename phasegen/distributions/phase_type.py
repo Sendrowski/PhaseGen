@@ -135,11 +135,11 @@ class DemographyGradient:
         return out
 
     @staticmethod
-    def quantities(epochs: Sequence[Epoch], pops: Sequence[str], pairs: Sequence[Tuple[str, str]],
+    def _quantities(epochs: Sequence[Epoch], pops: Sequence[str], pairs: Sequence[Tuple[str, str]],
                    parameters: Dict[str, float], names: Sequence[str]) -> np.ndarray:
         """
         The population sizes, migration rates and start times of epochs and the named parameters, in the layout of
-        :meth:`DemographyGradient.flat() <phasegen.distributions.DemographyGradient.flat>`.
+        :meth:`DemographyGradient._flat`.
 
         :param epochs: The epochs.
         :param pops: The demes.
@@ -155,10 +155,10 @@ class DemographyGradient:
             [parameters[name] for name in names]
         ])
 
-    def flat(self) -> np.ndarray:
+    def _flat(self) -> np.ndarray:
         """
         The derivatives of a scalar moment as one vector, in the layout of
-        :meth:`DemographyGradient.quantities() <phasegen.distributions.DemographyGradient.quantities>` over the
+        :meth:`DemographyGradient._quantities` over the
         parameters of :attr:`DemographyGradient.parameters <phasegen.distributions.DemographyGradient.parameters>`.
         """
         return np.concatenate([

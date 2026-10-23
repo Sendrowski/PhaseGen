@@ -171,7 +171,7 @@ class Reward(ABC):
                 )
 
     @staticmethod
-    def requires_joint_state_space(rewards: Iterable['Reward']) -> bool:
+    def _requires_joint_state_space(rewards: Iterable['Reward']) -> bool:
         """
         Check whether any (possibly nested) reward can only be evaluated on the joint block-counting state space,
         i.e. supports it but neither the lineage- nor the block-counting state space (e.g. :class:`JointSFSReward`).
@@ -182,7 +182,7 @@ class Reward(ABC):
         for reward in rewards:
             # recurse into composite rewards
             if isinstance(reward, CompositeReward):
-                if Reward.requires_joint_state_space(reward.rewards):
+                if Reward._requires_joint_state_space(reward.rewards):
                     return True
             elif (
                     reward.supports(JointBlockCountingStateSpace)
