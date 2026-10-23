@@ -1483,16 +1483,22 @@ class Inference(Serializable):
         r"""
         Approximate confidence intervals of the population size and migration rate trajectories of the estimate, from
         the covariance :math:`\Sigma` of :meth:`Inference.covariance() <phasegen.inference.Inference.covariance>` by
-        the delta method. A positive trajectory value :math:`y(t)`, such as the population size of a deme at time
-        :math:`t`, has the standard error :math:`y(t)\, s(t)` with
+        the delta method. The estimated parameters are taken as approximately normal, and their covariance is
+        propagated through the demographic function :math:`f` that maps parameters to trajectories.
+
+        Since population sizes and migration rates are positive and act multiplicatively, their logs are closer to
+        normal, so the propagation is done on the log scale. A positive trajectory value :math:`y = f(\hat\theta)`,
+        such as the population size of a deme at time :math:`t`, has the standard error
 
         .. math::
-            s(t)^2 = \nabla_\theta \log y(t)^\top\, \Sigma\, \nabla_\theta \log y(t),
+            \mathrm{se}(\log y) = \sqrt{g^\top \Sigma\, g}, \qquad g = \frac{\nabla f(\hat\theta)}{f(\hat\theta)},
 
-        where :math:`\theta` are the parameters and the gradient is a central difference of the demography the
-        ``coal`` callback builds. The limits :math:`y(t)\, e^{\pm z s(t)}`, with :math:`z` the normal quantile of
-        the level, stay positive. A trajectory that is zero, such as an absent migration rate, takes limits on the
-        linear scale, clipped at zero. The intervals are local, as the covariance is.
+        where :math:`\hat\theta` are the estimated parameters and the gradient is a central difference of the
+        demography the :paramref:`~phasegen.inference.Inference.coal` callback builds. Exponentiating the normal
+        interval of :math:`\log y` gives the lower and upper confidence limits :math:`y\, e^{\pm z\, \mathrm{se}(\log
+        y)}`, with :math:`z` the normal quantile of the level, which stay positive. A trajectory that is zero, such as
+        an absent migration rate, takes limits on the linear scale, clipped at zero. The intervals are local, as the
+        covariance is.
 
         ::
 

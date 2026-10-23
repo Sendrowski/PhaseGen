@@ -514,12 +514,11 @@ class Gradient:
 
     def supported(self, params: Dict[str, float]) -> bool:
         """
-        Whether the statistic has an exact Jacobian at some parameters: it reads only the moments listed above, of state
-        spaces whose generator is affine in the rates. A model that cannot be evaluated there leaves the question open,
-        which is answered in favour of the exact Jacobian.
+        Whether the statistic has an exact Jacobian at the given parameters. This holds if it reads only the moments
+        listed in :class:`~phasegen.gradient.Gradient`, of state spaces whose generator is affine in the rates.
 
         :param params: The parameters.
-        :return: Whether it has.
+        :return: Whether the Jacobian at these parameters is exact.
         """
         return self._unsupported_reason(params) is None
 
