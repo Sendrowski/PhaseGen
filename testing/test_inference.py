@@ -2254,6 +2254,26 @@ def test_godambe_standard_error_exceeds_fisher_on_overdispersed_bins():
     assert ratio == pytest.approx(2, abs=0.2)
 
 
+@pytest.mark.parametrize('resample, method, tolerance', [
+    (_poisson_resample, 'fisher', 0.14),
+    (_negative_binomial_resample, 'godambe', 0.2),
+], ids=['poisson fisher', 'overdispersed godambe'])
+def test_standard_error_matches_the_spread_of_the_bootstrap(resample, method, tolerance):
+    """The standard error from the Fisher covariance with Poisson resampling, and from the Godambe covariance with
+    overdispersed resampling, equals the standard deviation of 400 bootstrap estimates. The ratio of the two has a
+    Monte-Carlo standard deviation of about 1 / sqrt(2 * 399) = 0.035, and the tolerance is four of them, widened for
+    the Monte-Carlo error of the Godambe covariance and the excess kurtosis of the negative binomial."""
+    inf = _linear_poisson_inference('exact', seed=1)
+    inf.resample = resample
+    inf.n_bootstraps = 400
+    inf.run()
+    inf.bootstrap()
+
+    se = inf.standard_errors(method=method, n=1000)['Ne'] if method == 'godambe' else inf.standard_errors()['Ne']
+
+    assert inf.bootstraps['Ne'].std(ddof=1) / se == pytest.approx(1, abs=tolerance)
+
+
 def test_godambe_standard_error_on_a_bound_centres_the_scores():
     """On a bound, the score of the observation is not zero, while its variance over Poisson draws still equals the
     observed information. Centring the scores keeps the Godambe standard error at the Fisher one, where the uncentred
@@ -2464,6 +2484,39 @@ def test_score_covariance_cache_is_not_serialized():
 
     assert restored._score_covariance_cache is None
     pd.testing.assert_frame_equal(restored.covariance(method='godambe', n=20), cov)
+
+
+def test_trajectory_interval_of_a_zero_rate_with_a_spread_is_linear_and_clipped(monkeypatch):
+    """A migration rate estimated at zero, whose standard error is not zero, takes the limits of the linear scale with
+    the lower one clipped at zero: with the variance 0.04 of the rate, the limits are 0 and z(0.975) * 0.2."""
+    from scipy.stats import norm
+
+    def coal(m, Ne):
+        return pg.Coalescent(n={'pop_0': 2, 'pop_1': 2}, demography=pg.Demography(
+            pop_sizes={'pop_0': 1, 'pop_1': Ne}, migration_rates={('pop_0', 'pop_1'): m}))
+
+    inf = pg.Inference(
+        bounds=dict(m=(0, 5), Ne=(0.1, 10)),
+        x0=dict(m=1, Ne=1),
+        coal=coal,
+        loss=lambda c, obs: pg.PoissonLikelihood().compute(obs.polymorphic, 1000 * c.sfs.mean.polymorphic),
+        observation=pg.SFS(np.round(1000 * coal(0.5, 2).sfs.mean.data)),
+        n_runs=1,
+        pbar=False
+    )
+    inf.run()
+
+    inf.params_inferred = inf.params_inferred | dict(m=0.0)
+    inf.dist_inferred = inf.get_coal(**inf.params_inferred)
+    cov = pd.DataFrame(np.diag([0.04, 0.01]), index=['m', 'Ne'], columns=['m', 'Ne'])
+    monkeypatch.setattr(inf, 'covariance', lambda method='fisher', n=100: cov)
+
+    row = inf.trajectory_intervals(t=np.array([0.5]), kind='migration').set_index('trajectory').loc['pop_0->pop_1']
+
+    assert row['estimate'] == 0
+    assert row['standard error'] == pytest.approx(0.2, rel=1e-6)
+    assert row['lower'] == 0
+    assert row['upper'] == pytest.approx(norm.ppf(0.975) * 0.2, rel=1e-6)
 
 
 def test_trajectory_intervals_of_all_trajectories_at_another_level():
