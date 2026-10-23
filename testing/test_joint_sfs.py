@@ -257,13 +257,15 @@ def test_jsfs_composes_with_existing_rewards(two_pop_coalescent):
 
 def test_jsfs_incompatible_reward_stacking_raises(two_pop_coalescent):
     """
-    Stacking a ``JointSFSReward`` with a reward based on a different, incompatible state space (e.g. a
-    single-population SFS reward) must raise a clear error rather than silently misroute.
+    Stacking a ``JointSFSReward`` with a reward based on a different, incompatible state space (e.g. a two-locus SFS
+    reward) must raise a clear error rather than silently misroute.
     """
     from phasegen.rewards import CombinedReward
 
     with pytest.raises(ValueError):
-        two_pop_coalescent.moment(k=1, rewards=[CombinedReward([pg.UnfoldedSFSReward(1), pg.JointSFSReward((1, 0))])])
+        two_pop_coalescent.moment(
+            k=1, rewards=[CombinedReward([pg.TwoLocusSFSReward(0, 1), pg.JointSFSReward((1, 0))])]
+        )
 
 
 def test_joint_cdf_plot_grid_honours_diagonal_reduction():

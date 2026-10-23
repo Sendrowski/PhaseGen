@@ -956,3 +956,70 @@ def test_composite_reward_and_rewards_sequence_reject_non_rewards():
 
     with pytest.raises(TypeError, match=r'rewards\[0\]'):
         coal.accumulate(1, end_times=[1.0], rewards=['tree_height'])
+
+
+def _forced(coal: pg.Coalescent, space: str) -> pg.Coalescent:
+    """The coalescent with every reward routed to the given state space."""
+    coal._select_state_space = lambda rewards: coal.state_spaces[space]
+
+    return coal
+
+
+@pytest.mark.parametrize("reward", [
+    pg.TotalBranchLengthReward(),
+    pg.TotalTreeHeightReward(),
+    pg.TreeHeightReward(),
+    pg.RestrictedReward(pg.TotalBranchLengthReward(), locus=1),
+    pg.RestrictedReward(pg.TreeHeightReward(), locus=0),
+    pg.CombinedReward([pg.TotalBranchLengthReward(), pg.LocusReward(0)]),
+], ids=['total branch length', 'total tree height', 'tree height', 'restricted total branch length',
+        'restricted tree height', 'combined with a locus reward'])
+@pytest.mark.parametrize("k", [1, 2])
+def test_two_locus_state_space_matches_lineage_counting(reward, k):
+    """The moments of the rewards of two loci on the two-locus block-counting state space, whose lineages carry the
+    loci in their descendant vectors, equal those on the lineage-counting state space."""
+    def make():
+        return pg.Coalescent(n=3, loci=2, recombination_rate=0.8,
+                             demography=pg.Demography(pop_sizes={'pop_0': {0: 1, 0.7: 3}}))
+
+    expected = _forced(make(), 'lineage_counting').moment(k, (reward,) * k)
+    observed = _forced(make(), 'two_locus_block_counting').moment(k, (reward,) * k)
+
+    assert observed == pytest.approx(expected, rel=1e-12)
+
+
+@pytest.mark.parametrize("reward", [
+    pg.UnfoldedSFSReward(1),
+    pg.UnfoldedSFSReward(3),
+    pg.FoldedSFSReward(2),
+    pg.RestrictedReward(pg.UnfoldedSFSReward(1), pop='b'),
+], ids=['singletons', 'tripletons', 'folded doubletons', 'restricted singletons'])
+@pytest.mark.parametrize("k", [1, 2])
+def test_sfs_rewards_on_the_joint_state_space_match_block_counting(reward, k):
+    """The moments of the SFS rewards on the joint block-counting state space, where the size of a block is the sum of
+    its descendant vector, equal those on the block-counting state space."""
+    def make():
+        return pg.Coalescent(n={'a': 2, 'b': 2}, demography=pg.Demography(
+            pop_sizes={'a': 1, 'b': 2}, migration_rates={('a', 'b'): 0.5, ('b', 'a'): 0.3}))
+
+    expected = _forced(make(), 'block_counting').moment(k, (reward,) * k)
+    observed = _forced(make(), 'joint_block_counting').moment(k, (reward,) * k)
+
+    assert observed == pytest.approx(expected, rel=1e-12)
+
+
+def test_rewards_combine_with_the_spectra_of_the_larger_state_spaces():
+    """A total branch length combines with a two-locus SFS reward on the two-locus state space, and an SFS reward with
+    a joint SFS reward on the joint state space."""
+    two_locus = pg.Coalescent(n=3, loci=2, recombination_rate=1)
+    rewards = [pg.TotalBranchLengthReward(), pg.TwoLocusSFSReward(0, 1)]
+
+    assert isinstance(two_locus._select_state_space(rewards), pg.TwoLocusBlockCountingStateSpace)
+    assert two_locus.moment(2, rewards) > 0
+
+    joint = pg.Coalescent(n={'a': 2, 'b': 2}, demography=pg.Demography(
+        pop_sizes={'a': 1, 'b': 1}, migration_rates={('a', 'b'): 0.5, ('b', 'a'): 0.5}))
+    rewards = [pg.UnfoldedSFSReward(1), pg.JointSFSReward((1, 0))]
+
+    assert isinstance(joint._select_state_space(rewards), pg.JointBlockCountingStateSpace)
+    assert joint.moment(2, rewards) > 0

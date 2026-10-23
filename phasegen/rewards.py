@@ -50,7 +50,8 @@ class Reward(ABC):
         :return: reward parts
         """
         # lineages per locus and deme, of the loci that have not yet reached their MRCA
-        weights = state_space.lineages.sum(axis=3) * (state_space.lineages.sum(axis=(2, 3)) > 1)[:, :, None]
+        lineages = Reward._locus_lineages(state_space)
+        weights = lineages * (lineages.sum(axis=2) > 1)[:, :, None]
 
         total = weights.sum(axis=(1, 2))
         shares = weights / np.where(total > 0, total, 1)[:, None, None]
@@ -58,6 +59,23 @@ class Reward(ABC):
         rewards = np.asarray(self._get(state_space), dtype=float) * ~state_space.absorbing
 
         return rewards[:, None, None] * shares
+
+    @staticmethod
+    def _locus_lineages(state_space: StateSpace) -> np.ndarray:
+        """
+        The number of lineages ancestral to each locus in each deme, of shape ``(n_states, n_loci, n_demes)``. In the
+        two-locus block-counting state space, a lineage is ancestral to a locus if it subtends samples there.
+
+        :param state_space: state space
+        :return: The lineage counts.
+        """
+        if isinstance(state_space, TwoLocusBlockCountingStateSpace):
+            return np.stack([
+                state_space.lineages[:, :, :, state_space.block_vectors[:, locus] > 0].sum(axis=(1, 3))
+                for locus in range(2)
+            ], axis=1)
+
+        return state_space.lineages.sum(axis=3)
 
     @staticmethod
     def _integer(value: int, name: str) -> int:
@@ -425,15 +443,17 @@ class TwoLocusSFSReward(TwoLocusBlockCountingReward):
 
     def _get_parts(self, state_space: 'TwoLocusBlockCountingStateSpace') -> np.ndarray:
         r"""
-        The lineages counted by this bin resolved by the deme they reside in, :math:`r_{l,d}(i)` being the number of
-        lineages of state :math:`i` in deme :math:`d` whose descendant count at ``locus`` equals ``count``.
+        The lineages counted by this bin resolved by locus and deme, :math:`r_{l,d}(i)` being the number of lineages of
+        state :math:`i` in deme :math:`d` whose descendant count at ``locus`` equals ``count`` for :math:`l` equal to
+        ``locus``, and zero at the other locus.
 
         :param state_space: state space
         :return: reward parts
         :raises NotImplementedError: If the state space is not supported.
         """
         if isinstance(state_space, TwoLocusBlockCountingStateSpace):
-            parts = state_space.lineages[:, :, :, self._mask(state_space)].sum(axis=3).astype(float)
+            parts = np.zeros((state_space.k, 2, state_space.lineages.shape[2]))
+            parts[:, self.locus] = state_space.lineages[:, :, :, self._mask(state_space)].sum(axis=(1, 3))
 
             return parts * ~state_space.absorbing[:, None, None]
 
@@ -466,7 +486,7 @@ class _LocusHeightReward(Reward, ABC):
         :param state_space: state space
         :return: reward parts
         """
-        lineages = state_space.lineages.sum(axis=3)
+        lineages = Reward._locus_lineages(state_space)
         per_locus = lineages.sum(axis=2)
 
         shares = lineages / np.where(per_locus > 0, per_locus, 1)[:, :, None]
@@ -497,27 +517,17 @@ class TreeHeightReward(_LocusHeightReward, LineageCountingReward, BlockCountingR
         :return: reward vector
         :raises NotImplementedError: If the state space is not supported.
         """
-        # the two-locus state space is absorbed once both loci have reached their MRCA, so it is non-absorbing while
-        # either locus still has more than one ancestral lineage (must precede the JointBlockCountingStateSpace
-        # branch, which it subclasses)
-        if isinstance(state_space, TwoLocusBlockCountingStateSpace):
-            carrying = np.stack(
-                [state_space.lineages[:, :, :, state_space.block_vectors[:, locus] > 0].sum(axis=(1, 2, 3))
-                 for locus in range(2)],
-                axis=1
-            )
-            return np.any(carrying > 1, axis=1).astype(int)
-
         if isinstance(state_space, (LineageCountingStateSpace, BlockCountingStateSpace, JointBlockCountingStateSpace)):
-            # a reward of 1 for non-absorbing states and 0 for absorbing states
-            return np.any(state_space.lineages.sum(axis=(2, 3)) > 1, axis=1).astype(int)
+            # a reward of 1 while any locus has more than one ancestral lineage
+            return np.any(self._locus_lineages(state_space).sum(axis=2) > 1, axis=1).astype(int)
 
         raise NotImplementedError(
             f'Unsupported state space type for reward {self.__class__.__name__}: {state_space.__class__.__name__}'
         )
 
 
-class TotalTreeHeightReward(_LocusHeightReward, LineageCountingReward, BlockCountingReward, JointBlockCountingReward):
+class TotalTreeHeightReward(_LocusHeightReward, LineageCountingReward, BlockCountingReward, JointBlockCountingReward,
+                            TwoLocusBlockCountingReward):
     r"""
     Reward based on tree height, unit reward per non-absorbing locus,
     :math:`r(i) = \sum_l \mathbb{1}\{\text{locus } l \text{ has } > 1 \text{ lineage in } i\}`. When using multiple
@@ -540,23 +550,17 @@ class TotalTreeHeightReward(_LocusHeightReward, LineageCountingReward, BlockCoun
         :return: reward vector
         :raises NotImplementedError: If the state space is not supported.
         """
-        # the two-locus state space encodes its loci in the blocks, not on the locus axis
-        if (
-                isinstance(state_space, (LineageCountingStateSpace, BlockCountingStateSpace, JointBlockCountingStateSpace))
-                and not isinstance(state_space, TwoLocusBlockCountingStateSpace)
-        ):
-            # sum over demes and blocks to obtain the number of ancestral lineages per locus
-            loci = state_space.lineages.sum(axis=(2, 3))
-
-            # a reward of 1 per locus that is still non-absorbing (more than one lineage), summed over loci
-            return np.sum([(loci[:, i] > 1).astype(int) for i in range(state_space.locus_config.n)], axis=0)
+        if isinstance(state_space, (LineageCountingStateSpace, BlockCountingStateSpace, JointBlockCountingStateSpace)):
+            # a reward of 1 per locus that still has more than one ancestral lineage
+            return (self._locus_lineages(state_space).sum(axis=2) > 1).sum(axis=1)
 
         raise NotImplementedError(
             f'Unsupported state space type for reward {self.__class__.__name__}: {state_space.__class__.__name__}'
         )
 
 
-class TotalBranchLengthReward(LineageCountingReward, BlockCountingReward, JointBlockCountingReward):
+class TotalBranchLengthReward(LineageCountingReward, BlockCountingReward, JointBlockCountingReward,
+                              TwoLocusBlockCountingReward):
     r"""
     Reward for total branch length: the lineage count of a state,
     :math:`r_\text{length}(i) = (\#\text{ lineages in } i)` on transient states (zero on the absorbing set), so the
@@ -579,31 +583,18 @@ class TotalBranchLengthReward(LineageCountingReward, BlockCountingReward, JointB
         :return: reward vector
         :raises NotImplementedError: If the state space is not supported.
         """
-        # the two-locus state space collapses the locus axis into the block vector, so the per-locus lineage counts
-        # below do not exist there (must precede the JointBlockCountingStateSpace branch, which it subclasses)
-        if isinstance(state_space, TwoLocusBlockCountingStateSpace):
-            raise NotImplementedError(
-                f'Unsupported state space type for reward {self.__class__.__name__}: {state_space.__class__.__name__}'
-            )
-
         if isinstance(state_space, (LineageCountingStateSpace, BlockCountingStateSpace, JointBlockCountingStateSpace)):
-            # sum over demes and blocks
-            loci = state_space.lineages.sum(axis=(2, 3))
+            # the ancestral lineages of each locus that has not yet reached its MRCA, summed over loci
+            loci = self._locus_lineages(state_space).sum(axis=2)
 
-            # number of loci
-            n_loci = state_space.locus_config.n
-
-            # multiply by number of lineages for each locus for which we have more than one lineage
-            weights = np.sum([loci[:, i] * (loci[:, i] > 1).astype(int) for i in range(n_loci)], axis=0)
-
-            return weights
+            return (loci * (loci > 1)).sum(axis=1)
 
         raise NotImplementedError(
             f'Unsupported state space type for reward {self.__class__.__name__}: {state_space.__class__.__name__}'
         )
 
 
-class SFSReward(BlockCountingReward, ABC):
+class SFSReward(BlockCountingReward, JointBlockCountingReward, ABC):
     """
     Base class for site frequency spectrum (SFS) rewards.
 
@@ -645,7 +636,32 @@ class SFSReward(BlockCountingReward, ABC):
                 f"{self.__class__.__name__} index must lie in 0, ..., {n} for {n} lineages, got {self.index}."
             )
 
-    def _get(self, state_space: BlockCountingStateSpace) -> np.ndarray:
+    def _blocks(self, state_space: StateSpace) -> np.ndarray:
+        """
+        The blocks counted by this bin. In the joint block-counting state space, the size of a block is the sum of its
+        descendant vector.
+
+        :param state_space: state space
+        :return: Boolean mask over the blocks.
+        :raises NotImplementedError: If the state space is not supported.
+        :raises ValueError: if the index lies outside ``0, ..., n``
+        """
+        sizes = self._block_sizes(state_space.lineage_config.n)
+
+        if isinstance(state_space, BlockCountingStateSpace):
+            return np.isin(np.arange(1, state_space.lineages.shape[3] + 1), sizes)
+
+        if (
+                isinstance(state_space, JointBlockCountingStateSpace)
+                and not isinstance(state_space, TwoLocusBlockCountingStateSpace)
+        ):
+            return np.isin(state_space.block_vectors.sum(axis=1), sizes)
+
+        raise NotImplementedError(
+            f'Unsupported state space type for reward {self.__class__.__name__}: {state_space.__class__.__name__}'
+        )
+
+    def _get(self, state_space: StateSpace) -> np.ndarray:
         """
         Get the reward vector.
 
@@ -654,37 +670,22 @@ class SFSReward(BlockCountingReward, ABC):
         :raises NotImplementedError: If the state space is not supported.
         :raises ValueError: if the index lies outside ``0, ..., n``
         """
-        if isinstance(state_space, BlockCountingStateSpace):
-            blocks = np.array(self._block_sizes(state_space.lineage_config.n), dtype=int) - 1
+        return state_space.lineages[:, :, :, self._blocks(state_space)].sum(axis=(1, 2, 3))
 
-            # sum over demes, loci and the selected blocks
-            return state_space.lineages[:, :, :, blocks].sum(axis=(1, 2, 3))
-
-        raise NotImplementedError(
-            f'Unsupported state space type for reward {self.__class__.__name__}: {state_space.__class__.__name__}'
-        )
-
-    def _get_parts(self, state_space: BlockCountingStateSpace) -> np.ndarray:
+    def _get_parts(self, state_space: StateSpace) -> np.ndarray:
         r"""
         The blocks counted by this bin resolved by the locus and deme they reside in,
-        :math:`r_{l,d}(i) = \sum_{b \in B} a^{(l,d)}_b(i)`, where :math:`B` are the block sizes of the bin and
-        :math:`a^{(l,d)}_b(i)` is the number of blocks of size :math:`b` in state :math:`i` at locus :math:`l` in
-        deme :math:`d`.
+        :math:`r_{l,d}(i) = \sum_{b \in B} a^{(l,d)}_b(i)`, where :math:`B` are the blocks of the bin and
+        :math:`a^{(l,d)}_b(i)` is the number of lineages carrying block :math:`b` in state :math:`i` at locus :math:`l`
+        in deme :math:`d`.
 
         :param state_space: state space
         :return: reward parts
         :raises NotImplementedError: If the state space is not supported.
         """
-        if isinstance(state_space, BlockCountingStateSpace):
-            blocks = np.array(self._block_sizes(state_space.lineage_config.n), dtype=int) - 1
+        parts = state_space.lineages[:, :, :, self._blocks(state_space)].sum(axis=3).astype(float)
 
-            parts = state_space.lineages[:, :, :, blocks].sum(axis=3).astype(float)
-
-            return parts * ~state_space.absorbing[:, None, None]
-
-        raise NotImplementedError(
-            f'Unsupported state space type for reward {self.__class__.__name__}: {state_space.__class__.__name__}'
-        )
+        return parts * ~state_space.absorbing[:, None, None]
 
     def __hash__(self) -> int:
         """
@@ -695,7 +696,7 @@ class SFSReward(BlockCountingReward, ABC):
         return hash(self.__class__.__name__ + str(self.index))
 
 
-class UnfoldedSFSReward(SFSReward, BlockCountingReward):
+class UnfoldedSFSReward(SFSReward):
     r"""
     Reward for one bin of the unfolded site-frequency spectrum: the count of branches subtending exactly ``index``
     samples, :math:`r_{\text{SFS},k}(i) = a_k(i)` with :math:`k = \text{index}` and :math:`a_k(i)` the number of
@@ -722,7 +723,7 @@ class UnfoldedSFSReward(SFSReward, BlockCountingReward):
         return [self.index] if 0 < self.index < n else []
 
 
-class FoldedSFSReward(SFSReward, BlockCountingReward):
+class FoldedSFSReward(SFSReward):
     r"""
     Reward for one bin of the folded site-frequency spectrum: the count of branches subtending ``index`` or
     :math:`n - \text{index}` samples, :math:`r(i) = a_\text{index}(i) + a_{n-\text{index}}(i)` (the two mirror
@@ -919,7 +920,7 @@ class DemeReward(LineageCountingReward, BlockCountingReward, JointBlockCountingR
         return hash(self.__class__.__name__ + str(self.pop))
 
 
-class LocusReward(LineageCountingReward):
+class LocusReward(LineageCountingReward, TwoLocusBlockCountingReward):
     """
     Reward states in which the given locus is still segregating (an indicator that the locus holds more than one
     lineage). Combining this reward with another reward through :class:`CombinedReward` restricts that reward to the
@@ -952,11 +953,11 @@ class LocusReward(LineageCountingReward):
         :raises ValueError: if the locus does not exist
         :raises NotImplementedError: if the state space is not supported
         """
-        if isinstance(state_space, LineageCountingStateSpace):
+        if isinstance(state_space, (LineageCountingStateSpace, TwoLocusBlockCountingStateSpace)):
             if not 0 <= self.locus < state_space.locus_config.n:
                 raise ValueError(f"Locus {self.locus} does not exist.")
 
-            return (state_space.lineages.sum(axis=(2, 3))[:, self.locus] > 1).astype(int)
+            return (self._locus_lineages(state_space).sum(axis=2)[:, self.locus] > 1).astype(int)
 
         raise NotImplementedError(
             f'Unsupported state space type for reward {self.__class__.__name__}: {state_space.__class__.__name__}'
@@ -1232,22 +1233,6 @@ class RestrictedReward(CompositeReward):
         :return: reward vector
         """
         return self._get_parts(state_space).sum(axis=(1, 2))
-
-    def supports(self, state_space: Type[StateSpace]) -> bool:
-        """
-        Check if the reward supports the given state space. A restriction by locus requires a state space whose
-        locus axis resolves the loci, which the lineage-counting space does and the single-locus block-counting and
-        joint block-counting spaces do trivially.
-
-        :param state_space: state space
-        :return: True if the reward supports the state space, False otherwise
-        """
-        if self.locus is not None and state_space not in (
-                LineageCountingStateSpace, BlockCountingStateSpace, JointBlockCountingStateSpace
-        ):
-            return False
-
-        return super().supports(state_space)
 
     def __hash__(self) -> int:
         """
