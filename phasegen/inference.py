@@ -69,7 +69,7 @@ _BOOTSTRAP_COLUMN_MAX = 4
 #: Height of the figure of bootstrap distributions drawn as subplots, relative to the default figure height.
 _BOOTSTRAP_HEIGHT_SCALE = 0.75
 
-#: Step of the central differences of a trajectory over a parameter, relative to its magnitude (at least 1).
+#: Step of the central differences of a trajectory over a parameter, relative to its magnitude (absolute at zero).
 _TRAJECTORY_STEP = 1e-6
 
 #: Eigenvalues of the Fisher information below this fraction of the largest count as no curvature.
@@ -1452,7 +1452,7 @@ class Inference(Serializable):
                 continue
 
             x = self.params_inferred[name]
-            h = _TRAJECTORY_STEP * max(abs(x), 1.0)
+            h = _TRAJECTORY_STEP * (abs(x) if x != 0 else 1.0)
             up, down = min(x + h, hi), max(x - h, lo)
             curves = [np.asarray(self.get_coal(**(self.params_inferred | {name: v})).demography._plot_data(t, kind).y,
                                  dtype=float) for v in (up, down)]
@@ -1469,8 +1469,9 @@ class Inference(Serializable):
         se = np.sqrt(np.maximum(variance, 0))
 
         z = norm.ppf(0.5 + level / 2)
-        lower = np.where(positive, y * np.exp(-z * se), np.maximum(y - z * se, 0))
-        upper = np.where(positive, y * np.exp(z * se), y + z * se)
+        with np.errstate(over='ignore'):
+            lower = np.where(positive, y * np.exp(-z * se), np.maximum(y - z * se, 0))
+            upper = np.where(positive, y * np.exp(z * se), y + z * se)
         se = np.where(positive, y * se, se)
 
         return estimate, se, lower, upper
@@ -1501,7 +1502,7 @@ class Inference(Serializable):
         interval of :math:`\log y` gives the lower and upper confidence limits :math:`y\, e^{\pm z\, \mathrm{se}(\log
         y)}`, with :math:`z` the normal quantile of the level, which stay positive. A trajectory that is zero, such as
         an absent migration rate, takes limits on the linear scale, clipped at zero. The intervals are local, as the
-        covariance is.
+        covariance is, and leave out the uncertainty of the times at which a trajectory changes.
 
         ::
 

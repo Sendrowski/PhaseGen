@@ -1864,7 +1864,9 @@ def test_log_scale_result_gradient_is_on_the_original_scale():
 def test_trajectory_intervals_by_the_delta_method():
     """The standard error of a population size trajectory is that of the delta method: for an epoch size estimated
     directly, its own standard error; for a time-scaled size, the error propagated through the scaling. The limits
-    stay positive and contain the estimate."""
+    are those of the normal interval of the logarithm."""
+    from scipy.stats import norm
+
     inf = pg.Inference(
         bounds=dict(Ne=(0.1, 10), r=(0.1, 10)),
         x0=dict(Ne=1, r=2),
@@ -1889,8 +1891,11 @@ def test_trajectory_intervals_by_the_delta_method():
     se_after = Ne * r * np.sqrt(grad_after @ cov @ grad_after)
 
     np.testing.assert_allclose(intervals['standard error'], [se_before, se_after], rtol=1e-5)
-    assert (intervals['lower'] > 0).all()
-    assert ((intervals['lower'] < intervals['estimate']) & (intervals['estimate'] < intervals['upper'])).all()
+
+    # the limits of a positive trajectory are those of the normal interval of its logarithm, exponentiated
+    half = norm.ppf(0.975) * intervals['standard error'] / intervals['estimate']
+    np.testing.assert_allclose(intervals['lower'], intervals['estimate'] * np.exp(-half), rtol=1e-6)
+    np.testing.assert_allclose(intervals['upper'], intervals['estimate'] * np.exp(half), rtol=1e-6)
 
 
 def test_plot_pop_sizes_with_fisher_intervals():
@@ -2530,6 +2535,36 @@ def test_trajectory_interval_of_a_zero_rate_with_a_spread_is_linear_and_clipped(
     assert row['standard error'] == pytest.approx(0.2, rel=1e-6)
     assert row['lower'] == 0
     assert row['upper'] == pytest.approx(norm.ppf(0.975) * 0.2, rel=1e-6)
+
+
+def test_trajectory_interval_of_a_tiny_rate_next_to_a_zero_bound(monkeypatch):
+    """A migration rate of 1e-7 with the lower bound 0 and the standard error 0.1 of its logarithm has that standard
+    error on the log scale. An absolute difference step clipped at the bound gave NaN, and one at a bound of 1e-8 an
+    error of a factor of two."""
+    def coal(m, Ne):
+        return pg.Coalescent(n={'pop_0': 2, 'pop_1': 2}, demography=pg.Demography(
+            pop_sizes={'pop_0': 1, 'pop_1': Ne}, migration_rates={('pop_0', 'pop_1'): m}))
+
+    inf = pg.Inference(
+        bounds=dict(m=(0, 5), Ne=(0.1, 10)),
+        x0=dict(m=1, Ne=1),
+        coal=coal,
+        loss=lambda c, obs: pg.PoissonLikelihood().compute(obs.polymorphic, 1000 * c.sfs.mean.polymorphic),
+        observation=pg.SFS(np.round(1000 * coal(0.5, 2).sfs.mean.data)),
+        n_runs=1,
+        pbar=False
+    )
+    inf.run()
+
+    m = 1e-7
+    inf.params_inferred = inf.params_inferred | dict(m=m)
+    inf.dist_inferred = inf.get_coal(**inf.params_inferred)
+    cov = pd.DataFrame(np.diag([(0.1 * m) ** 2, 0.01]), index=['m', 'Ne'], columns=['m', 'Ne'])
+    monkeypatch.setattr(inf, 'covariance', lambda method='fisher', n=100: cov)
+
+    row = inf.trajectory_intervals(t=np.array([0.5]), kind='migration').set_index('trajectory').loc['pop_0->pop_1']
+
+    assert row['standard error'] == pytest.approx(0.1 * m, rel=1e-4)
 
 
 def test_trajectory_intervals_of_all_trajectories_at_another_level():
