@@ -421,7 +421,7 @@ class Inference(Serializable):
             state['result'] = dict(state['result'])
 
         for key in callables:
-            state[f'{key}_pickled'] = dill.dumps(self.__dict__[key], recurse=True)
+            state[f'{key}_pickled'] = dill.dumps(getattr(self, key), recurse=True)
 
         return state
 

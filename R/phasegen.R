@@ -27,11 +27,11 @@ phasegen_is_installed <- function() {
 }
 
 
-# Requirement string for the Python distribution: the pinned version where one is given, version 2.0 or later otherwise
+# Requirement string for the Python distribution: the pinned version where one is given, version 2.2 or later otherwise
 py_requirement <- function(version = NULL) {
 
   if (is.null(version)) {
-    return("phasegen>=2.0")
+    return("phasegen>=2.2")
   }
 
   paste0("phasegen==", version)
@@ -45,7 +45,7 @@ py_requirement <- function(version = NULL) {
 
 #' Declare the `phasegen` Python module requirement
 #'
-#' Loading the package declares `phasegen>=2.0` on Python 3.11 to 3.14. This function declares a pinned version. The requirement is resolved
+#' Loading the package declares `phasegen>=2.2` on Python 3.11 to 3.14. This function declares a pinned version. The requirement is resolved
 #' when Python is first initialised, at which point reticulate provisions an environment satisfying it.
 #'
 #' @param version A character string specifying the version of the `phasegen` module
@@ -1295,6 +1295,7 @@ accumulation_plot <- function(source, k, end_times, rewards, center, permute, ti
 #' @param truth The ground truth, drawn dashed: for the trajectories, the true `Demography`, whose trajectories are
 #'        drawn in the colour of the inferred ones with the same label and must all be among them; for
 #'        `which = "bootstraps"`, a named list or vector of the true values of some or all parameters.
+#' @param include_bootstraps Deprecated, use `interval`. `TRUE` selects `"bootstrap"` and `FALSE` `NULL`.
 #' @param ... Unused.
 #'
 #' @return A ggplot object.
@@ -1331,7 +1332,7 @@ accumulation_plot <- function(source, k, end_times, rewards, center, permute, ti
 #' @export
 plot.phasegen.inference.Inference <- function(x, which = c("demography", "pop_sizes", "migration", "bootstraps"),
                                               t = NULL, interval = "bootstrap", kind = c("hist", "kde"),
-                                              bins = 20L, title = NULL, truth = NULL, ...) {
+                                              bins = 20L, title = NULL, truth = NULL, include_bootstraps = NULL, ...) {
 
   check_unused(...)
   which <- match.arg(which)
@@ -1340,6 +1341,7 @@ plot.phasegen.inference.Inference <- function(x, which = c("demography", "pop_si
     return(plot_bootstraps(x, match.arg(kind), bins, title, truth))
   }
 
+  interval <- x$`_deprecated_interval`(interval, include_bootstraps)
   result <- x$`_plot_demography_data`(np_or_null(t), if (which == "demography") "all" else which, interval)
   curves <- result[[1]]
   data <- curve_frame(curves)

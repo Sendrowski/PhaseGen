@@ -1,6 +1,7 @@
 """
 Test Inference class.
 """
+import copy
 import logging
 import os
 import traceback
@@ -2624,7 +2625,8 @@ def test_information_includes_the_hessian_of_the_penalty():
 
 
 def test_penalty_survives_serialization():
-    """The penalty is serialized with the other callables, and a payload without it restores no penalty."""
+    """The penalty is serialized with the other callables, and a payload without it, as from 2.1.0, restores no
+    penalty and serializes and copies again."""
     inf = _linear_poisson_inference('exact')
     inf.penalty = _quadratic_penalty
 
@@ -2636,6 +2638,8 @@ def test_penalty_survives_serialization():
     restored.__setstate__(state)
 
     assert restored.penalty is None
+    assert pg.Inference.from_json(restored.to_json()).penalty is None
+    assert copy.deepcopy(restored).penalty is None
 
 
 def test_aic_counts_the_free_parameters():

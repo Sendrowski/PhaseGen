@@ -13,6 +13,7 @@
   bins = 20L,
   title = NULL,
   truth = NULL,
+  include_bootstraps = NULL,
   ...
 )
 }
@@ -37,6 +38,8 @@ or \code{"bootstraps"} for the bootstrapped parameters.}
 \item{truth}{The ground truth, drawn dashed: for the trajectories, the true \code{Demography}, whose trajectories are
 drawn in the colour of the inferred ones with the same label and must all be among them; for
 \code{which = "bootstraps"}, a named list or vector of the true values of some or all parameters.}
+
+\item{include_bootstraps}{Deprecated, use \code{interval}. \code{TRUE} selects \code{"bootstrap"} and \code{FALSE} \code{NULL}.}
 
 \item{...}{Unused.}
 }
