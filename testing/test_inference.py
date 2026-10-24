@@ -2259,6 +2259,31 @@ def test_godambe_standard_error_matches_fisher_on_independent_poisson_bins():
     assert ratio == pytest.approx(1, abs=0.09)
 
 
+def test_godambe_standard_errors_match_fisher_for_correlated_parameters():
+    """With independent Poisson bins, the Godambe covariance of two strongly correlated parameters, the size of the
+    first epoch and the ratio of the second to it, agrees with the Fisher covariance, which needs the off-diagonal
+    entries of the score covariance. Each ratio of standard errors has a Monte-Carlo standard deviation of about
+    1 / sqrt(2 (n - 1)) = 0.022 for n = 1000, and the tolerance is four of them."""
+    inf = pg.Inference(
+        bounds=dict(Ne=(0.1, 10), r=(0.1, 10)),
+        x0=dict(Ne=1, r=2),
+        coal=lambda Ne, r: pg.Coalescent(n=5, demography=pg.Demography(pop_sizes={'pop_0': {0: Ne, 0.5: Ne * r}})),
+        loss=lambda coal, obs: pg.PoissonLikelihood().compute(
+            observed=obs.polymorphic, modelled=100 * coal.sfs.mean.polymorphic
+        ),
+        observation=pg.SFS([0, 180, 95, 70, 52, 0]),
+        resample=_poisson_resample,
+        n_runs=1,
+        seed=1,
+        pbar=False
+    )
+    inf.run()
+
+    ratio = inf.standard_errors(method='godambe', n=1000) / inf.standard_errors()
+
+    np.testing.assert_allclose(ratio[['Ne', 'r']], 1, atol=0.09)
+
+
 def test_godambe_standard_error_exceeds_fisher_on_overdispersed_bins():
     """With bins resampled with four times the Poisson variance, the variance of the score is four times the observed
     information, so the Godambe standard error is twice the Fisher one, within four Monte-Carlo standard deviations of

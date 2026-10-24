@@ -15,6 +15,10 @@ def _blas_threads():
     return [p['num_threads'] for p in threadpoolctl.threadpool_info() if p['user_api'] == 'blas']
 
 
+# the PyPI wheels on macOS link Apple Accelerate, which threadpoolctl does not see, so the limit cannot be observed
+pytestmark = pytest.mark.skipif(not _blas_threads(), reason='threadpoolctl sees no BLAS library')
+
+
 def test_moments_run_with_the_configured_blas_threads_and_restore_them(monkeypatch):
     """The BLAS libraries run with ``Settings.blas_threads`` inside a moment and with their own number after it."""
     seen = []

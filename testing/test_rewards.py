@@ -1023,3 +1023,25 @@ def test_rewards_combine_with_the_spectra_of_the_larger_state_spaces():
 
     assert isinstance(joint._select_state_space(rewards), pg.JointBlockCountingStateSpace)
     assert joint.moment(2, rewards) > 0
+
+
+def test_two_locus_rewards_refer_to_their_own_locus():
+    """On the two-locus state space, the singletons of the second locus restricted to it have the mean of a single
+    locus, and the singletons of the first locus covary with its own total branch length as at a single locus, but not
+    with that of the other locus."""
+    two_locus = pg.Coalescent(n=3, loci=2, recombination_rate=1)
+    one_locus = pg.Coalescent(n=3)
+
+    restricted = pg.RestrictedReward(pg.TwoLocusSFSReward(1, 1), locus=1)
+    assert two_locus.moment(1, [restricted]) == pytest.approx(one_locus.moment(1, [pg.UnfoldedSFSReward(1)]),
+                                                              rel=1e-12)
+
+    def length(locus):
+        return pg.RestrictedReward(pg.TotalBranchLengthReward(), locus=locus)
+
+    same = two_locus.moment(2, [pg.TwoLocusSFSReward(0, 1), length(0)])
+    other = two_locus.moment(2, [pg.TwoLocusSFSReward(0, 1), length(1)])
+
+    assert same == pytest.approx(one_locus.moment(2, [pg.UnfoldedSFSReward(1), pg.TotalBranchLengthReward()]),
+                                 rel=1e-12)
+    assert other != pytest.approx(same, rel=1e-3)
