@@ -13,8 +13,7 @@ class BlasThreadLimit(ContextDecorator):
     """
     Context manager and decorator limiting the threads of the loaded BLAS libraries to :attr:`Settings.blas_threads
     <phasegen.settings.Settings.blas_threads>` while it is entered, and restoring them on exit. Nested entries are
-    allowed. The libraries are detected once, at the first entry, which costs about 0.2 ms; an entry then costs a few
-    microseconds.
+    allowed. The libraries are detected once, at the first entry.
 
     Example::
 

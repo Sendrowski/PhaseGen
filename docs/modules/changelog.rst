@@ -3,12 +3,12 @@
 Changelog
 =========
 
-[2.2.0] - 2026-10-22
+[2.2.0] - 2026-10-24
 ^^^^^^^^^^^^^^^^^^^^
 - Differentiate inference losses exactly, at a cost independent of the number of parameters (:attr:`Inference.gradient <phasegen.inference.Inference.gradient>`), and expose the derivatives of moments of any order (:meth:`Coalescent.gradient() <phasegen.distributions.Coalescent.gradient>`, :class:`~phasegen.gradient.Gradient`).
 - Add standard errors from the Fisher information or, for linked sites, the Godambe covariance (:meth:`Inference.standard_errors() <phasegen.inference.Inference.standard_errors>`), and propagate them to the inferred trajectories (:meth:`Inference.trajectory_intervals() <phasegen.inference.Inference.trajectory_intervals>`).
 - Compare models with :meth:`Inference.aic() <phasegen.inference.Inference.aic>` and :meth:`Inference.likelihood_ratio_test() <phasegen.inference.Inference.likelihood_ratio_test>`, penalize the loss with :attr:`Inference.penalty <phasegen.inference.Inference.penalty>`, and optimize on a logarithmic scale with :attr:`Inference.log_scale <phasegen.inference.Inference.log_scale>`.
-- Speed up variances and higher moments by up to about 2x, and models with very fast rates by orders of magnitude.
+- Speed up variances and higher moments by up to an order of magnitude, and models with very fast rates on large state spaces by orders of magnitude.
 - Draw the true parameters in the inference plots with ``truth``.
 - Access the state spaces of a coalescent by short keys in :attr:`Coalescent.state_spaces <phasegen.distributions.Coalescent.state_spaces>`, deprecating the previous keys and accessors.
 - Require Python 3.11 or newer and update the supported versions of the dependencies.

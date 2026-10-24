@@ -99,7 +99,7 @@ class Inference(Serializable):
     observation. The minimisation is performed with a gradient-based scipy optimizer (L-BFGS-B by default),
     restarted from several initial points.
 
-    .. versionadded:: 2.2.0
+    .. versionchanged:: 2.2.0
         The gradient of the loss is computed exactly where the loss reads supported moments (see
         :class:`~phasegen.gradient.Gradient`), at a cost largely independent of the number of parameters. This
         considerably speeds up inference, especially with many parameters.
@@ -234,10 +234,11 @@ class Inference(Serializable):
             The optimization then minimises :math:`L + P`, and :attr:`Inference.loss_inferred
             <phasegen.inference.Inference.loss_inferred>` includes it. Its gradient is a central difference with the
             steps of the loss, which needs no moments, so the loss keeps its exact gradient.
-        :raises ValueError: If a lower bound exceeds its upper bound, ``x0`` lies outside the bounds or does not specify
-            exactly the parameters in ``bounds``, ``method_mle`` is not one of the supported methods, ``gradient`` is not
-            one of the supported values, ``n_runs`` or ``n_bootstraps`` is less than 1, or a parameter on a logarithmic
-            scale is unknown or has a lower bound that is not positive.
+        :raises ValueError: If ``do_bootstrap`` is set without ``observation`` and ``resample``, a lower bound exceeds
+            its upper bound, ``x0`` lies outside the bounds or does not specify exactly the parameters in ``bounds``,
+            ``method_mle`` is not one of the supported methods, ``gradient`` is not one of the supported values,
+            ``n_runs`` or ``n_bootstraps`` is less than 1, or a parameter on a logarithmic scale is unknown or has a
+            lower bound that is not positive.
         """
         if do_bootstrap and (observation is None or resample is None):
             raise ValueError('Observation and resample arguments must be provided for automatic bootstrapping.')
