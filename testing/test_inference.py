@@ -1065,6 +1065,18 @@ if __name__ == '__main__':
         inf.plot_bootstraps(show=False, kind='kde')
         plt.close('all')
 
+    def test_plot_bootstraps_subplots_are_three_quarters_of_the_default_height(self):
+        """The figure of the subplots has the default width and three quarters of the default height."""
+        import matplotlib.pyplot as plt
+
+        inf = self.get_fast_inference()
+        inf.bootstraps = pd.DataFrame(dict(t=[0.4, 0.6, 0.5], Ne=[0.5, 0.7, 0.6]))
+
+        ax = inf.plot_bootstraps(show=False)
+        width, height = plt.rcParams['figure.figsize']
+        np.testing.assert_allclose(ax[0].figure.get_size_inches(), [width, 0.75 * height])
+        plt.close('all')
+
     def test_plot_bootstraps_draws_the_truth(self):
         """The true value of each named parameter is drawn as a dashed vertical line, on its own axis or on the shared
         one, and an unknown name raises."""

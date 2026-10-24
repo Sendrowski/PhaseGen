@@ -66,6 +66,9 @@ _MAX_GRADIENT_FAILURES = 3
 #: Most parameters whose bootstrap distributions are drawn in a single column.
 _BOOTSTRAP_COLUMN_MAX = 4
 
+#: Height of the figure of bootstrap distributions drawn as subplots, relative to the default figure height.
+_BOOTSTRAP_HEIGHT_SCALE = 0.75
+
 #: Step of the central differences of a trajectory over a parameter, relative to its magnitude (at least 1).
 _TRAJECTORY_STEP = 1e-6
 
@@ -1632,7 +1635,9 @@ class Inference(Serializable):
             n = len(self.param_names)
             if ax is None:
                 ncols = 1 if n <= _BOOTSTRAP_COLUMN_MAX else 3
-                fig, ax = plt.subplots(int(np.ceil(n / ncols)), ncols, squeeze=False)
+                width, height = plt.rcParams['figure.figsize']
+                fig, ax = plt.subplots(int(np.ceil(n / ncols)), ncols, squeeze=False,
+                                       figsize=(width, _BOOTSTRAP_HEIGHT_SCALE * height))
                 for extra in ax.ravel()[n:]:
                     extra.set_visible(False)
             elif np.ravel(ax).size < n:

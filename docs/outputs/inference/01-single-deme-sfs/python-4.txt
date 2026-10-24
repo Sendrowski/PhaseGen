@@ -1,6 +1,6 @@
 INFO:Inference: Using the exact gradient of the loss.
 Optimizing: 100%|██████████| 10/10 [--:--<--:--, --it/s]
-INFO:Inference: Inferred parameters: (d0=0.0107, d1=0.0487, d2=0.1036, d3=0.4732, Ne0=2.4617, Ne1=2.6877, Ne2=1.1307, Ne3=0.5101, Ne4=1.5414)
+INFO:Inference: Inferred parameters: (d0=0.0290, d1=0.0552, d2=0.0874, d3=0.4585, Ne0=2.8199, Ne1=1.8838, Ne2=0.9800, Ne3=0.5060, Ne4=1.5376)
 INFO:Inference: Using the exact gradient of the loss.
 Bootstrapping: 100%|██████████| 20/20 [--:--<--:--, --it/s]
-INFO:Inference: Bootstrapped parameters: mean: (d0=0.0212, d1=0.0373, d2=0.1077, d3=0.4704, Ne0=2.5834, Ne1=2.7901, Ne2=1.1471, Ne3=0.5064, Ne4=1.5432), std: (d0=0.0182, d1=0.0158, d2=0.0169, d3=0.0719, Ne0=0.3070, Ne1=0.2448, Ne2=0.1945, Ne3=0.0349, Ne4=0.0316)
+INFO:Inference: Bootstrapped parameters: mean: (d0=0.0272, d1=0.0589, d2=0.1103, d3=0.4131, Ne0=3.0592, Ne1=1.8507, Ne2=0.9799, Ne3=0.4704, Ne4=1.5309), std: (d0=0.0055, d1=0.0273, d2=0.0506, d3=0.1410, Ne0=0.6051, Ne1=0.1333, Ne2=0.2717, Ne3=0.0986, Ne4=0.0419)

@@ -1,3 +1,3 @@
 INFO:Inference: Using the exact gradient of the loss.
 Optimizing: 100%|██████████| 10/10 [--:--<--:--, --it/s]
-INFO:Inference: Inferred parameters: (d0=0.0454, d1=0.0258, d2=0.0941, d3=0.4688, Ne0=2.6194, Ne1=1.8511, Ne2=1.0838, Ne3=0.5088, Ne4=1.5401)
+INFO:Inference: Inferred parameters: (d0=0.0527, d1=0.0136, d2=0.0979, d3=0.4709, Ne0=2.5907, Ne1=1.8471, Ne2=1.1072, Ne3=0.5094, Ne4=1.5407)
