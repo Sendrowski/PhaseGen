@@ -2348,7 +2348,9 @@ def _godambe_spied(monkeypatch, gradient: str, loss=None) -> Tuple[pd.DataFrame,
     _scores, compute = Gradient._scores, Gradient.compute
     monkeypatch.setattr(Gradient, '_scores', lambda self, *a: scores.append(_scores(self, *a)) or scores[-1])
     def spied(self, *args, **kwargs):
-        computed.extend(['_score_covariance' in traceback.format_stack()[-2]])
+        # the caller, seen through the frame of its comprehension before Python 3.12
+        callers = [f.name for f in traceback.extract_stack()[-3:-1]]
+        computed.extend([callers[1] == '_score_covariance' or callers == ['_score_covariance', '<listcomp>']])
         return compute(self, *args, **kwargs)
 
     monkeypatch.setattr(Gradient, 'compute', spied)

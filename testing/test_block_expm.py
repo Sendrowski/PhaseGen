@@ -60,11 +60,14 @@ def _cases():
 
 @pytest.mark.parametrize('name, A, n, scalar', _cases(), ids=lambda x: x if isinstance(x, str) else '')
 def test_structured_expm_matches_the_generic_one(name, A, n, scalar):
-    """The structured exponential agrees with :func:`scipy.linalg.expm` and is exactly zero below the diagonal."""
+    """The structured exponential agrees with :func:`scipy.linalg.expm` and is exactly zero below the diagonal. The
+    error of scaling and squaring grows with the norm of the matrix, as with ``tau = 1e3``, where SciPy's reference is
+    off by about 1e-10 of its largest entry on some BLAS builds."""
     E = BlockTriangularExpm(n, scalar).compute(A)
     ref = scipy.linalg.expm(A)
 
-    np.testing.assert_allclose(E, ref, rtol=0, atol=1e-12 * np.abs(ref).max())
+    tol = 1e-12 * max(1.0, np.linalg.norm(A, 1))
+    np.testing.assert_allclose(E, ref, rtol=0, atol=tol * np.abs(ref).max())
     for i in range(1, len(scalar)):
         assert not E[i * n:(i + 1) * n, :i * n].any()
 

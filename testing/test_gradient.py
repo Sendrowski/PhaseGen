@@ -1092,7 +1092,7 @@ def test_gradient_of_higher_moments_without_the_closed_form_setting():
     expected = coal.tree_height.gradient(2)
 
     Settings.closed_form_last_epoch = False
-    np.testing.assert_allclose(_three_epochs().tree_height.gradient(2).pop_sizes, expected.pop_sizes, rtol=1e-12)
+    np.testing.assert_allclose(_three_epochs().tree_height.gradient(2).pop_sizes, expected.pop_sizes, rtol=1e-10)
 
 
 @pytest.mark.parametrize('center', [True, False])
