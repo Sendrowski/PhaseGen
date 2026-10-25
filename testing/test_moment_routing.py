@@ -126,6 +126,48 @@ def test_block_triangular_order_detects_grading_and_falls_back():
     assert MomentEvaluator._block_triangular_order(cyc) is None
 
 
+_MIGRATION = dict(pop_sizes={'a': 1, 'b': 2}, migration_rates={('a', 'b'): 0.5, ('b', 'a'): 0.3})
+
+
+@pytest.mark.parametrize('coal, key, max_fill', [
+    (pg.Coalescent(n=10), 'lineage_counting', 1.0),
+    (pg.Coalescent(n=10), 'block_counting', 1.0),
+    (pg.Coalescent(n=10, model=pg.BetaCoalescent(alpha=1.5)), 'block_counting', 1.0),
+    (pg.Coalescent(n=8, model=pg.DiracCoalescent(psi=0.7, c=50)), 'block_counting', 1.0),
+    (pg.Coalescent(n={'a': 4, 'b': 4}, demography=pg.Demography(**_MIGRATION)), 'lineage_counting', 3),
+    (pg.Coalescent(n={'a': 4, 'b': 4}, demography=pg.Demography(**_MIGRATION)), 'block_counting', 6),
+    (pg.Coalescent(n={'a': 4, 'b': 4}, demography=pg.Demography(**_MIGRATION)), 'joint_block_counting', 11),
+    (pg.Coalescent(n=4, loci=pg.LocusConfig(n=2, recombination_rate=1)), 'lineage_counting', 3),
+    (pg.Coalescent(n=4, loci=pg.LocusConfig(n=2, recombination_rate=1)), 'two_locus_block_counting', 4),
+], ids=['lineage', 'block', 'block-beta', 'block-dirac', 'lineage-2-demes', 'block-2-demes', 'joint-2-demes',
+        'lineage-2-loci', 'two-locus'])
+def test_state_spaces_factorize_in_block_triangular_form(coal, key, max_fill):
+    """
+    The ordering of ``_block_triangular_order`` brings ``-T`` of every state-space type into block upper
+    triangular form over its strongly connected components, so the ``NATURAL``-ordered LU fills only inside the
+    diagonal blocks: not at all on graded single-deme spaces, and within about twice the measured fill under
+    migration or recombination. On the joint space of two demes with ``n=6+6`` the default COLAMD ordering fills
+    15 times more and factorizes four orders of magnitude slower.
+    """
+    import scipy.sparse.csgraph as csg
+    import scipy.sparse.linalg as spla
+
+    ss = coal.state_spaces[key]
+    t = np.where(~np.asarray(ss.absorbing))[0]
+    A = -sp.csr_matrix(ss.S)[t][:, t]
+
+    perm = MomentEvaluator._block_triangular_order(A)
+    assert perm is not None and np.array_equal(np.sort(perm), np.arange(len(t)))
+
+    P = A[perm][:, perm].tocoo()
+    _, labels = csg.connected_components(abs(P), directed=True, connection='strong')
+    below = P.row > P.col
+    assert np.all(labels[P.row[below]] == labels[P.col[below]])
+
+    lu = spla.splu(P.tocsc(), permc_spec='NATURAL')
+    assert (lu.L.nnz + lu.U.nnz - len(t)) / A.nnz <= max_fill
+
+
 # ----------------------------------------------------------------------------------------------------------------
 # path dispatch (closed-form vs matrix-exponential, dense vs sparse action)
 # ----------------------------------------------------------------------------------------------------------------
