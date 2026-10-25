@@ -314,30 +314,6 @@ def test_closed_form_finite_epochs_take_action_below_sparse_lu_threshold():
         assert var == pytest.approx(PhaseTypeDistribution.moment(dense.sfs, k=2, rewards=(reward, reward)), rel=1e-12)
 
 
-@pytest.mark.parametrize('force_sparse', [False, True])
-@pytest.mark.parametrize('folded', [False, True])
-def test_multi_epoch_sfs_cov_stacks_bins(force_sparse, folded):
-    """The multi-epoch SFS covariance evaluates one closed form per second bin, all first bins stacked in one extended
-    vector, and matches the per-pair cross-moments. Regression: one closed form per ordered bin pair."""
-    Settings.closed_form_sparse_min_states = 0 if force_sparse else 10 ** 9
-    Settings.expm_action_min_dim = 0 if force_sparse else 10 ** 9
-    coal = pg.Coalescent(n=6, demography=pg.Demography(pop_sizes={'pop_0': {0: 1, 0.3: 0.2, 1: 2}}))
-    sfs = coal.fsfs if folded else coal.sfs
-    indices = sfs._get_indices()
-
-    with _spy('_accumulate_closed_form') as cf:
-        cov = np.asarray(sfs.cov.data)
-    assert cf.call_count == (len(indices) if force_sparse else len(indices) * (len(indices) + 1))
-
-    mean = np.asarray(sfs.mean.data)
-    for i in indices:
-        for j in indices:
-            rewards = tuple(pg.rewards.CombinedReward([sfs.reward, sfs._get_sfs_reward(b)]) for b in (i, j))
-            m_ij = PhaseTypeDistribution.moment(sfs, k=2, rewards=rewards, center=False, permute=False)
-            m_ji = PhaseTypeDistribution.moment(sfs, k=2, rewards=rewards[::-1], center=False, permute=False)
-            assert cov[i, j] == pytest.approx((m_ij + m_ji) / 2 - mean[i] * mean[j], rel=1e-10, abs=1e-12)
-
-
 # ----------------------------------------------------------------------------------------------------------------
 # windowed (start_time > 0) higher moments  --  bug-scan-2026-07-19 #2
 # ----------------------------------------------------------------------------------------------------------------

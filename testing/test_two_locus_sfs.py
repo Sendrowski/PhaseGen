@@ -36,7 +36,7 @@ def _single_locus_cross_moment(n, model=None):
 
 
 def _mean_per_pair(dist):
-    """Mean two-locus SFS via the per-pair cross-moment path (the batched form's fallback)."""
+    """Mean two-locus SFS from the cross-moment of each pair of classes."""
     from phasegen.rewards import CombinedReward, TwoLocusSFSReward
     from phasegen.distributions.phase_type import PhaseTypeDistribution
 
@@ -52,28 +52,18 @@ def _mean_per_pair(dist):
     return (out + out.T) / 2
 
 
-@pytest.mark.parametrize("n,r", [(4, 1.0), (5, 0.5), (4, 10.0), (3, 0.0)])
-def test_batched_mean_matches_per_pair(n, r):
+@pytest.mark.parametrize("n,r,sizes", [
+    (4, 1.0, {0: 1.0}), (5, 0.5, {0: 1.0}), (4, 10.0, {0: 1.0}), (3, 0.0, {0: 1.0}),
+    (4, 1.0, {0: 1.0, 0.5: 0.3}), (4, 0.7, {0: 1.0, 0.4: 0.5, 1.0: 2.0})
+])
+def test_batched_mean_matches_per_pair(n, r, sizes):
     """
-    The batched two-locus mean (a single factored two-point contraction) must equal the per-pair cross-moment path
-    it replaces, and must actually be taken on a single-epoch demography. The factored form avoids materialising the
-    dense two-point operator ``K``, whose ``O(n_states^2)`` size makes the naive batching slower than per-pair (and
-    prohibitive at n=10) on the large two-locus state space.
+    The two-locus mean from one forward pass over the classes of both loci equals the per-pair cross-moments, in one
+    and several epochs.
     """
-    dist = pg.Coalescent(n=n, loci=2, recombination_rate=r).sfs2
+    dist = pg.Coalescent(n=n, loci=2, recombination_rate=r, demography=pg.Demography(pop_sizes={'pop_0': sizes})).sfs2
 
-    batched = dist._mean_batched()
-    assert batched is not None  # single epoch: the batched path is taken
-    np.testing.assert_allclose(np.asarray(batched.data), _mean_per_pair(dist), atol=1e-8)
-
-
-def test_batched_mean_falls_back_on_multiple_epochs():
-    """A multi-epoch demography has no single-epoch two-point closed form, so the batched mean must fall back."""
-    dem = pg.Demography(pop_sizes={'pop_0': {0: 1.0, 0.5: 0.3}})
-    dist = pg.Coalescent(n=4, loci=2, recombination_rate=1.0, demography=dem).sfs2
-
-    assert dist._mean_batched() is None
-    np.testing.assert_allclose(np.asarray(dist.mean.data), _mean_per_pair(dist), atol=1e-9)
+    np.testing.assert_allclose(np.asarray(dist.mean.data), _mean_per_pair(dist), rtol=1e-12, atol=1e-14)
 
 
 def test_two_locus_to_json_round_trip():

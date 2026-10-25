@@ -19,8 +19,9 @@ from testing import TestCase
 
 _HI, _LO = 10 ** 12, 0
 
-# the closed-form / batched dispatch entry points (every one is gated on ``_use_closed_form``)
-_CF_ENTRY_POINTS = ("_accumulate_closed_form", "_occupation_times", "_two_point_occupation")
+# the closed-form / batched dispatch entry points, and the factorization of the last epoch that the closed forms of
+# every order and the second moments of spectra share
+_CF_ENTRY_POINTS = ("_accumulate_closed_form", "_occupation_times", "_last_epoch_solver")
 
 
 @contextlib.contextmanager
@@ -110,7 +111,7 @@ _CASES = {
     "2-deme jsfs.mean": lambda: pg.Coalescent(n={'pop_0': 2, 'pop_1': 2}, demography=_MIG).jsfs.mean.data,
     "2-epoch 2-deme jsfs.mean":
         lambda: pg.Coalescent(n={'pop_0': 2, 'pop_1': 2}, demography=_MIG_2EPOCH).jsfs.mean.data,
-    # joint-SFS second moments, batched through the shared two-point occupation (single and multi epoch)
+    # joint-SFS second moments, from one forward pass over all bins (single and multi epoch)
     "2-deme jsfs.cov": lambda: pg.Coalescent(n={'pop_0': 2, 'pop_1': 2}, demography=_MIG).jsfs.cov,
     "2-deme jsfs.var": lambda: pg.Coalescent(n={'pop_0': 2, 'pop_1': 2}, demography=_MIG).jsfs.var.data,
     "2-epoch 2-deme jsfs.cov":
@@ -163,20 +164,18 @@ def test_disabled_uses_only_matrix_exponential(name):
     assert sum(counts.values()) == 0, f"{name}: closed-form/batched path used while disabled: {counts}"
 
 
-# the documented dispatch: which closed-form / batched entry points each moment kind reaches when enabled.
-# (covariances also touch ``_occupation_times`` because they subtract the batched mean.)
+# the documented dispatch: which closed-form / batched entry points each moment kind reaches when enabled
 _EXPECTED_PATHS = {
-    "tree_height.mean": {"_accumulate_closed_form"},
-    "tree_height.var": {"_accumulate_closed_form"},
+    "tree_height.mean": {"_accumulate_closed_form", "_last_epoch_solver"},
+    "tree_height.var": {"_accumulate_closed_form", "_last_epoch_solver"},
     # single-population SFS mean flattens (k=1, standard) onto the occupation of the lineage-counting space
     "sfs.mean": {"_occupation_times"},
-    # the cov's mean flattens onto the lineage-counting occupation, and the covariance uses the two-point operator
-    "sfs.cov 1-epoch": {"_two_point_occupation", "_occupation_times"},
-    # multi-epoch covariance: the batched single-epoch operator is declined (returns None) -> stacked closed form
-    "sfs.cov 3-epoch": {"_two_point_occupation", "_occupation_times", "_accumulate_closed_form"},
+    # the covariances take their means and cross-moments from one forward pass closed in the last epoch
+    "sfs.cov 1-epoch": {"_last_epoch_solver"},
+    "sfs.cov 3-epoch": {"_last_epoch_solver"},
     # joint SFS is multi-population, so flattening does not apply: mean uses the batched occupation
     "jsfs.mean": {"_occupation_times"},
-    "jsfs.cov": {"_two_point_occupation", "_occupation_times"},
+    "jsfs.cov": {"_last_epoch_solver"},
 }
 
 

@@ -6,7 +6,7 @@ import itertools
 import math
 from abc import ABC, abstractmethod
 from ..caching import cached_property, cache
-from typing import Dict, List, Mapping, NoReturn, Tuple, Iterable, Optional, Sequence, Union, TYPE_CHECKING
+from typing import Dict, List, Mapping, NoReturn, Tuple, Iterable, Sequence, Union, TYPE_CHECKING
 import numpy as np
 from .._blas import BlasThreadLimit
 from ..errors import ModelError
@@ -229,6 +229,18 @@ class _BinMomentsMixin:
         ])
 
         return host, R, [pos for pos, _ in bins]
+
+    @cached_property
+    def _second_moments(self) -> Tuple[List[Tuple[int, ...]], np.ndarray, np.ndarray]:
+        """
+        The means and the second cross-moments of the polymorphic bins, from one forward pass over all bins, see
+        ``MomentEvaluator._bin_second_moments``. Cached so that the covariance and the variance share it.
+
+        :return: The positions of the bins, their means and their cross-moments.
+        """
+        bins = self._bins()
+
+        return [pos for pos, _ in bins], *self._bin_second_moments([CombinedReward([self.reward, r]) for _, r in bins])
 
     def _cov_entries(self) -> List[Tuple[Tuple[int, ...], List[Tuple[float, Tuple[np.ndarray, ...]]], float, float]]:
         """
@@ -829,101 +841,17 @@ class SFSDistribution(_BinMomentsMixin, SpectrumDistribution, ABC):
         return float(accumulation[0]) if scalar else accumulation
 
     @cached_property
-    def _cov_batched(self) -> Optional[TwoSFS]:
-        """
-        Batched 2-SFS covariance, contracting ``_two_point_occupation`` with the stacked bin rewards as in
-        ``PhaseTypeDistribution.moment``.
-
-        :return: The covariance, or ``None`` when not applicable, and the caller evaluates per pair.
-        """
-        if not Settings.closed_form_last_epoch:
-            return None
-
-        two_point = self._two_point_occupation()
-        if two_point is None:
-            return None
-
-        m, solve, idx_t = two_point
-        ss = self.state_space
-        indices = self._get_indices()
-        R = np.column_stack([
-            np.asarray(CombinedReward([self.reward, self._get_sfs_reward(i)])._get(ss), dtype=float)[idx_t]
-            for i in indices
-        ])
-
-        sfs_matrix = (m[:, None] * R).T @ solve(R)  # R^T diag(m) (-T)^{-1} R (one ordering)
-        self._logger.debug("sfs.cov: centering with the outer product of bin means")
-        mean = np.asarray(self.mean.data)[indices]
-        cov = (sfs_matrix + sfs_matrix.T) - np.outer(mean, mean)
-
-        out = np.zeros((self.lineage_config.n + 1, self.lineage_config.n + 1))
-        for a, ia in enumerate(indices):
-            out[ia, indices] = cov[a]
-        return TwoSFS(out)
-
-    def _cov_stacked(self) -> bool:
-        """
-        Whether :attr:`cov` evaluates the cross-moments of the bin pairs in closed form, stacked over the first bin.
-
-        :return: Whether the stacked closed form applies.
-        """
-        _, end_time = self._resolve_window()
-
-        return bool(
-            np.isinf(end_time) and Settings.closed_form_last_epoch and self._absorption_certain_in_last_epoch(2)
-        )
-
-    @cached_property
     @BlasThreadLimit()
     def cov(self) -> TwoSFS:
         """
         Covariance matrix across site-frequency counts, evaluated as described in
         :meth:`PhaseTypeDistribution.moment() <phasegen.distributions.PhaseTypeDistribution.moment>`.
         """
-        batched = self._cov_batched
-        if batched is not None:
-            self._logger.debug("sfs.cov: batched (shared two-point occupation)")
-            return batched
+        positions, mean, cross = self._second_moments
+        indices = [pos[0] for pos in positions]
 
-        indices = self._get_indices()
-        bin_rewards = [CombinedReward([self.reward, self._get_sfs_reward(i)]) for i in indices]
-        start_time, _ = self._resolve_window()
-
-        if self._cov_stacked():
-            self._logger.debug("sfs.cov: closed form over %d bin pairs, stacked over the first bin", len(indices) ** 2)
-            Reward._check_accumulable(self.state_space, bin_rewards)
-
-            # the cross-moment of each bin pair, one evaluation per second bin
-            cross = np.column_stack([
-                self._accumulate_closed_form(2, (r, r), start_time, heads=bin_rewards) for r in bin_rewards
-            ])
-
-            if np.isnan(cross).any():
-                raise ModelError(
-                    "NaN value encountered when computing moment. "
-                    "This is likely due to an ill-conditioned rate matrix."
-                )
-        else:
-            self._logger.debug("sfs.cov: per-pair matrix exponential over %d bin pairs", len(indices) ** 2)
-
-            # cross-moment of each bin pair (serial)
-            cross = np.array([
-                [
-                    PhaseTypeDistribution.moment(self, k=2, permute=False, center=False, rewards=(r_i, r_j))
-                    for r_j in bin_rewards
-                ]
-                for r_i in bin_rewards
-            ])
-
-        # re-structure the results to a matrix form
-        sfs = np.zeros((self.lineage_config.n + 1, self.lineage_config.n + 1))
-        sfs[np.ix_(indices, indices)] = cross
-
-        # get matrix of marginal moments
-        m2 = np.outer(self.mean.data, self.mean.data)
-
-        # calculate covariances
-        cov = (sfs + sfs.T) / 2 - m2
+        cov = np.zeros((self.lineage_config.n + 1, self.lineage_config.n + 1))
+        cov[np.ix_(indices, indices)] = cross - np.outer(mean, mean)
 
         return TwoSFS(cov)
 
@@ -934,14 +862,12 @@ class SFSDistribution(_BinMomentsMixin, SpectrumDistribution, ABC):
         Variance of the branch length of each frequency class, the diagonal of
         :attr:`UnfoldedSFSDistribution.cov <phasegen.distributions.UnfoldedSFSDistribution.cov>`.
         """
-        batched = self._cov_batched
-        if batched is not None:
-            return SFS(np.diag(np.asarray(batched.data)))
+        positions, mean, cross = self._second_moments
 
-        if 'cov' in self.__dict__ and self._cov_stacked():
-            return SFS(np.diag(np.asarray(self.cov.data)))
+        var = np.zeros(self.lineage_config.n + 1)
+        var[[pos[0] for pos in positions]] = np.diag(cross) - mean ** 2
 
-        return self.moment(k=2, center=True)
+        return SFS(var)
 
     def get_cov(self, i: int, j: int) -> float:
         """
@@ -1831,15 +1757,13 @@ class JointSFSDistribution(_BinMomentsMixin, SpectrumDistribution):
         Variance of the branch length of each joint site-frequency spectrum bin, the diagonal of
         :attr:`JointSFSDistribution.cov <phasegen.distributions.JointSFSDistribution.cov>`.
         """
-        batched = self._cov_batched
-        if batched is not None:
-            configs, cov = batched
-            out = np.zeros(self.shape)
-            for a, config in enumerate(configs):
-                out[config] = cov[a, a]
-            return JointSFS(out, pop_names=self.lineage_config.pop_names)
+        configs, mean, cross = self._second_moments
 
-        return self.moment(k=2, center=True)
+        out = np.zeros(self.shape)
+        for a, config in enumerate(configs):
+            out[config] = cross[a, a] - mean[a] ** 2
+
+        return JointSFS(out, pop_names=self.lineage_config.pop_names)
 
     def get_cov(
             self,
@@ -1865,37 +1789,6 @@ class JointSFSDistribution(_BinMomentsMixin, SpectrumDistribution):
         )
 
     @cached_property
-    def _cov_batched(self) -> Optional[Tuple[List[Tuple[int, ...]], np.ndarray]]:
-        """
-        Batched joint-SFS covariance, contracting ``_two_point_occupation`` with the stacked bin rewards as in
-        ``PhaseTypeDistribution.moment``. Cached so that ``cov`` and ``var`` share one solve.
-
-        :return: ``(configs, cov)`` with ``cov`` the bins-by-bins covariance over the polymorphic ``configs``, or
-            ``None`` when not applicable, and callers evaluate per pair.
-        """
-        if not Settings.closed_form_last_epoch:
-            return None
-
-        two_point = self._two_point_occupation()
-        if two_point is None:
-            return None
-
-        m, solve, idx_t = two_point
-        ss = self.state_space
-        configs = self._get_configs()
-        R = np.column_stack([
-            np.asarray(CombinedReward([self.reward, JointSFSReward(config)])._get(ss), dtype=float)[idx_t]
-            for config in configs
-        ])
-
-        sfs_matrix = (m[:, None] * R).T @ solve(R)  # R^T diag(m) (-T)^{-1} R (one ordering)
-        self._logger.debug("jsfs.cov: centering with the outer product of bin means")
-        mean = np.array([self.mean.data[config] for config in configs])
-        cov = (sfs_matrix + sfs_matrix.T) - np.outer(mean, mean)
-
-        return configs, cov
-
-    @cached_property
     @BlasThreadLimit()
     def cov(self) -> np.ndarray:
         """
@@ -1904,26 +1797,13 @@ class JointSFSDistribution(_BinMomentsMixin, SpectrumDistribution):
         between bins ``(a_0, ..., a_{P-1})`` and ``(b_0, ..., b_{P-1})``. Evaluated as described in
         :meth:`PhaseTypeDistribution.moment() <phasegen.distributions.PhaseTypeDistribution.moment>`.
         """
-        batched = self._cov_batched
-        if batched is not None:
-            self._logger.debug("jsfs.cov: batched (shared two-point occupation)")
-            configs, cov = batched
-            out = np.zeros(self.shape + self.shape)
-            for a, config_a in enumerate(configs):
-                for b, config_b in enumerate(configs):
-                    out[tuple(config_a) + tuple(config_b)] = cov[a, b]
-            return out
-
-        configs = self._get_configs()
-        pairs = [(a, b) for a in configs for b in configs]
-
-        self._logger.debug("jsfs.cov: per-pair matrix exponential over %d config pairs", len(pairs))
-
-        results = [self.get_cov(a, b) for a, b in pairs]
+        configs, mean, cross = self._second_moments
+        cov = cross - np.outer(mean, mean)
 
         out = np.zeros(self.shape + self.shape)
-        for (a, b), result in zip(pairs, results):
-            out[tuple(a) + tuple(b)] = result
+        for a, config_a in enumerate(configs):
+            for b, config_b in enumerate(configs):
+                out[config_a + config_b] = cov[a, b]
 
         return out
 
@@ -2330,57 +2210,25 @@ class TwoLocusSFSDistribution(SpectrumDistribution):
         and evaluated as described in
         :meth:`PhaseTypeDistribution.moment() <phasegen.distributions.PhaseTypeDistribution.moment>`.
         """
-        batched = self._mean_batched()
-        if batched is not None:
-            return batched
+        indices = self._get_indices()
+        _, cross = self._second_moments
 
-        n = self.lineage_config.n
-        indices = [(i, j) for i in self._get_indices() for j in self._get_indices()]
-
-        results = [
-            PhaseTypeDistribution.moment(self, k=2, permute=False, center=False, rewards=self._bin_rewards(i, j))
-            for i, j in indices
-        ]
-
-        out = np.zeros((n + 1, n + 1))
-        for (i, j), result in zip(indices, results):
-            out[i, j] = result
+        out = np.zeros((self.lineage_config.n + 1,) * 2)
+        out[np.ix_(indices, indices)] = cross[:len(indices), len(indices):]
 
         # symmetrize over the two (exchangeable) loci, as for the single-locus SFS covariance
         return TwoLocusSFS((out + out.T) / 2)
 
-    def _mean_batched(self) -> Optional[TwoLocusSFS]:
+    @cached_property
+    def _second_moments(self) -> Tuple[np.ndarray, np.ndarray]:
         """
-        Batched mean two-locus SFS, contracting ``_two_point_occupation`` with the stacked per-locus bin rewards as in
-        ``PhaseTypeDistribution.moment``.
+        The means and the second cross-moments of the rewards of the polymorphic classes at locus 0 and then at locus
+        1, from one forward pass, see ``MomentEvaluator._bin_second_moments``.
 
-        :return: The mean two-locus SFS, or ``None`` when not applicable, and the caller evaluates per pair.
+        :return: The means and the cross-moments.
         """
-        two_point = self._two_point_occupation()
-        if two_point is None:
-            return None
-
-        m, solve, idx_t = two_point
-        ss = self.state_space
-        indices = self._get_indices()
-        R0 = np.column_stack([
-            np.asarray(CombinedReward([self.reward, TwoLocusSFSReward(0, i)])._get(ss), dtype=float)[idx_t]
-            for i in indices
-        ])
-        R1 = np.column_stack([
-            np.asarray(CombinedReward([self.reward, TwoLocusSFSReward(1, j)])._get(ss), dtype=float)[idx_t]
-            for j in indices
-        ])
-
-        uncentered = (m[:, None] * R0).T @ solve(R1) + solve(R0).T @ (m[:, None] * R1)
-
-        n = self.lineage_config.n
-        out = np.zeros((n + 1, n + 1))
-        for a, ia in enumerate(indices):
-            out[ia, indices] = uncentered[a]
-
-        # symmetrize over the two (exchangeable) loci, as the per-pair path does
-        return TwoLocusSFS((out + out.T) / 2)
+        return self._bin_second_moments([CombinedReward([self.reward, TwoLocusSFSReward(locus, i)])
+                                         for locus in (0, 1) for i in self._get_indices()])
 
     def sample_per_locus(self, n_samples: int, seed: Union[int, np.random.Generator] = None) -> Tuple[np.ndarray, np.ndarray]:
         r"""
@@ -2501,11 +2349,8 @@ class TwoLocusSFSDistribution(SpectrumDistribution):
 
         :return: The means and variances, keyed by bin.
         """
-        indices = self._get_indices()
+        mean, cross = self._second_moments
 
-        def moment(i: int, k: int) -> float:
-            reward = CombinedReward([self.reward, TwoLocusSFSReward(0, i)])
-            return PhaseTypeDistribution.moment(self, k=k, center=k == 2, rewards=(reward,) * k)
-
-        return {i: moment(i, 1) for i in indices}, {i: moment(i, 2) for i in indices}
+        return ({i: float(mean[a]) for a, i in enumerate(self._get_indices())},
+                {i: float(cross[a, a] - mean[a] ** 2) for a, i in enumerate(self._get_indices())})
 

@@ -99,27 +99,22 @@ class MomentEvaluator:
     _epochs_cache: Dict[int, Tuple[List[Epoch], bool]]
 
     @staticmethod
-    def _van_loan_matrix(R, S, k: int = 1, sparse: bool = False, heads: int = 1) -> 'sp.spmatrix | np.ndarray':
+    def _van_loan_matrix(R, S, k: int = 1, sparse: bool = False) -> 'sp.spmatrix | np.ndarray':
         r"""
         The Van Loan matrix of ``PhaseTypeDistribution.moment``, assembled directly as sparse CSR when ``sparse``.
-        With several ``heads`` (sparse only), the first block row and column are repeated once per head, each head
-        coupled to the shared second block by its own reward.
 
-        :param R: List of reward vectors, one per head followed by the rewards 2, ..., k.
+        :param R: List of length k of reward vectors.
         :param S: Intensity matrix (dense or sparse, matching ``sparse``).
         :param k: The order of the moment.
         :param sparse: Whether to build a sparse matrix.
-        :param heads: The number of first blocks.
-        :return: Van Loan matrix of :math:`(k + h) \times (k + h)` blocks for :math:`h` heads.
+        :return: Van Loan matrix of :math:`(k + 1) \times (k + 1)` blocks.
         """
         if sparse:
-            blocks = [[None] * (k + heads) for _ in range(k + heads)]
-            for i in range(k + heads):
+            blocks = [[None] * (k + 1) for _ in range(k + 1)]
+            for i in range(k + 1):
                 blocks[i][i] = S
-                if heads - 1 <= i < k + heads - 1:
+                if i < k:
                     blocks[i][i + 1] = sp.diags(R[i])
-            for a in range(heads - 1):
-                blocks[a][heads] = sp.diags(R[a])
             return sp.bmat(blocks, format='csr')
 
         O = np.zeros_like(S)
@@ -380,9 +375,8 @@ class MomentEvaluator:
           block of its own, where :math:`\lambda` is the balancing factor of the blocks.
         - Spectra share one computation across bins. The expected occupation times :math:`\mathbf{m}` of the
           transient states, which equal :math:`\boldsymbol{\alpha}_T \mathbf{U}` in a single epoch, give every bin
-          mean as :math:`\mathbf{m}\, \mathbf{r}_j`, and in a single epoch the two-point occupation
-          :math:`\operatorname{diag}(\mathbf{m})\, \mathbf{U}` gives every covariance at once. For one population
-          under the :class:`~phasegen.coalescent_models.StandardCoalescent`, the mean SFS is computed on the smaller
+          mean as :math:`\mathbf{m}\, \mathbf{r}_j`. For one population under the
+          :class:`~phasegen.coalescent_models.StandardCoalescent`, the mean SFS is computed on the smaller
           lineage-counting state space (:attr:`Settings.flatten_block_counting
           <phasegen.settings.Settings.flatten_block_counting>`).
 
@@ -1576,7 +1570,6 @@ class MomentEvaluator:
             k: int,
             rewards: Sequence[Reward],
             start_time: float = 0.0,
-            heads: Sequence[Reward] = None,
             tape: _ClosedFormTape = None,
             suffixes: bool = False
     ) -> np.ndarray:
@@ -1586,30 +1579,19 @@ class MomentEvaluator:
         finite epochs from ``start_time`` on applied backwards to the extended vector, and last the entry distribution
         propagated to ``start_time``.
 
-        With ``heads``, each head takes the place of the first reward in turn. The blocks of the extended vector after
-        the first do not depend on the first reward, so one extended vector holds a first block per head and the
-        remaining blocks once, and a single LU and, on the sparse action, a single action per epoch serve every head.
-
         :param k: The order of the moment, at least 1.
         :param rewards: Sequence of k rewards (a single ordering).
         :param start_time: The non-negative start time.
-        :param heads: Rewards each substituted for the first of ``rewards``. By default, the first of ``rewards``.
-        :param tape: If given, receives the record that ``CrossMomentGradient`` differentiates, for a single head and a
-            zero start time. The sparse actions are then applied by ``_TapedAction``.
-        :param suffixes: Whether to return, for a single head, the raw moments of the trailing rewards ``rewards[k -
-            i:]`` for ``i = 0, ..., k``, read from the trailing blocks of the extended vector, one for ``i = 0``.
-        :return: The kth moment accumulated until absorption, one per head, or the moments of the trailing rewards.
-        :raises ValueError: If ``tape`` is given with several heads or a positive start time, or ``suffixes`` with
-            several heads.
+        :param tape: If given, receives the record that ``CrossMomentGradient`` differentiates, for a zero start time.
+            The sparse actions are then applied by ``_TapedAction``.
+        :param suffixes: Whether to return the raw moments of the trailing rewards ``rewards[k - i:]`` for ``i = 0,
+            ..., k``, read from the trailing blocks of the extended vector, one for ``i = 0``.
+        :return: The kth moment accumulated until absorption, as an array of one entry, or the moments of the trailing
+            rewards.
+        :raises ValueError: If ``tape`` is given with a positive start time.
         """
-        heads = tuple(rewards[:1]) if heads is None else tuple(heads)
-        m = len(heads)
-
-        if tape is not None and (m > 1 or start_time > 0):
-            raise ValueError("A closed form is recorded for a single head from time zero only.")
-
-        if suffixes and m > 1:
-            raise ValueError("The moments of the trailing rewards are returned for a single head only.")
+        if tape is not None and start_time > 0:
+            raise ValueError("A closed form is recorded from time zero only.")
 
         epochs = self._get_epochs_until_unbounded(k)
         self._check_demography_conditioning(epochs)
@@ -1635,13 +1617,6 @@ class MomentEvaluator:
         sparse = self._solve_sparse(len(idx_t))
         use_action = not self._dense_expm_is_faster(k, epochs, start_time)
 
-        # the dense exponential of the stacked Van Loan matrix grows with the cube of the number of heads, so there each
-        # head is evaluated on its own
-        if m > 1 and not use_action:
-            return np.concatenate([
-                self._accumulate_closed_form(k, (h,) + tuple(rewards[1:]), start_time) for h in heads
-            ])
-
         if sparse:
             self._logger.debug(
                 "closed form (k=%d): sparse LU (splu) of T (n_t=%d >= %d), %s exponential, %d finite epoch(s)",
@@ -1655,11 +1630,9 @@ class MomentEvaluator:
         solve = self._last_epoch_solver(id(self.state_space), len(epochs), idx_t.astype(np.intp).tobytes(), sparse)
 
         # the j-th block of the extended vector is stored divided by lamb ** (k - j), which balances the Van Loan
-        # exponentials of the finite epochs, so the moment is multiplied by lamb ** k at the end. The heads share one
-        # factor, whose reward scale spans every head.
+        # exponentials of the finite epochs, so the moment is multiplied by lamb ** k at the end
         r_all = [np.asarray(r._get(self.state_space), dtype=float) for r in rewards]
-        r_heads = [np.asarray(h._get(self.state_space), dtype=float) for h in heads]
-        scale = self._reward_scale(r_heads + r_all[1:])
+        scale = self._reward_scale(r_all)
         lamb = self._get_regularization_factor(self.state_space.S, scale=scale)
 
         # reward diagonals restricted to the transient states (the off-diagonal Van Loan reward blocks are diagonal)
@@ -1670,13 +1643,11 @@ class MomentEvaluator:
         for j in range(k - 1, 0, -1):
             nu[j] = solve(r_t[j] * nu[j + 1]) / lamb
 
-        # the extended vector holds the first block of each head, then the blocks 1, ..., k shared by the heads
-        z = np.zeros((m + k) * n)
-        for a, r_h in enumerate(r_heads):
-            z[a * n + idx_t] = solve(r_h[idx_t] * nu[1]) / lamb
+        z = np.zeros((k + 1) * n)
+        z[idx_t] = solve(r_t[0] * nu[1]) / lamb
         for j in range(1, k + 1):
-            z[(m - 1 + j) * n + idx_t] = nu[j]
-        z[(m - 1 + k) * n + idx_a] = e[idx_a]
+            z[j * n + idx_t] = nu[j]
+        z[k * n + idx_a] = e[idx_a]
 
         if tape is not None:
             tape.epochs, tape.idx_t, tape.solve, tape.lamb = epochs, idx_t, solve, lamb
@@ -1691,7 +1662,7 @@ class MomentEvaluator:
         # steps and Van Loan matrices do not depend on the extended vector, so they are gathered first and the dense
         # exponentials evaluated in stacks.
         steps = []
-        R = [r._get(self.state_space) for r in heads + tuple(rewards[1:])]
+        R = [r._get(self.state_space) for r in rewards]
         for i_epoch, epoch in reversed(list(enumerate(epochs[:-1]))):
             if epoch.end_time <= start_time:
                 break
@@ -1704,7 +1675,7 @@ class MomentEvaluator:
 
             if use_action:
                 r_vecs = [np.asarray(r, dtype=float) for r in R]
-                V = self._van_loan_matrix(r_vecs, self._epoch_csr(i_epoch) * lamb_e, k, sparse=True, heads=m)
+                V = self._van_loan_matrix(r_vecs, self._epoch_csr(i_epoch) * lamb_e, k, sparse=True)
                 steps.append((i_epoch, duration, lamb_e, V * tau))
             else:
                 steps.append((i_epoch, duration, lamb_e, (self._dense_rate_matrix() * lamb_e, tau)))
@@ -1715,11 +1686,9 @@ class MomentEvaluator:
             ], n, [False] * (k + 1))
 
         for i_epoch, duration, lamb_e, op in steps:
-            z[:(m - 1) * n] *= (lamb / lamb_e) ** k
-
             if tape is None:
-                lamb = self._rebase(z[(m - 1) * n:], lamb, lamb_e, k, n)
-                z = Backend.expm_multiply(op, z, blocks=k + m) if use_action else next(exps) @ z
+                lamb = self._rebase(z, lamb, lamb_e, k, n)
+                z = Backend.expm_multiply(op, z, blocks=k + 1) if use_action else next(exps) @ z
                 continue
 
             rebase = np.ones_like(z)
@@ -1728,7 +1697,7 @@ class MomentEvaluator:
 
             if use_action:
                 step = _VanLoanStep(i_epoch, epochs[i_epoch], duration, rebase, z.copy(), op.tocsr())
-                step.action = _TapedAction(step.A, blocks=k + m)
+                step.action = _TapedAction(step.A, blocks=k + 1)
                 z, step.checkpoints = step.action.apply(z)
             else:
                 S, tau = op
@@ -1759,14 +1728,12 @@ class MomentEvaluator:
                 factorial(i) * lamb ** i * float(alpha_ext[:n] @ z[(k - i) * n:(k - i + 1) * n]) for i in range(1, k + 1)
             ])
 
-        return factorial(k) * lamb ** k * np.array([
-            float(alpha_ext @ np.concatenate([z[a * n:(a + 1) * n], z[m * n:]])) for a in range(m)
-        ])
+        return np.array([factorial(k) * lamb ** k * float(alpha_ext @ z)])
 
     def _dense_expm_is_faster(self, k: int, epochs: List[Epoch], start_time: float) -> bool:
         """
-        Whether the dense exponentials of ``_accumulate_closed_form``, those of the finite epochs and of the propagation
-        to ``start_time``, are cheaper than the sparse action: below :attr:`Settings.expm_action_min_dim
+        Whether the dense exponentials of ``_accumulate_closed_form`` and ``_bin_second_moments``, those of the finite
+        epochs and of the propagation to ``start_time``, are cheaper than the sparse action: below :attr:`Settings.expm_action_min_dim
         <phasegen.settings.Settings.expm_action_min_dim>` in the Van Loan dimension, where the summed 1-norm of the
         steps ``S tau``, each increased by ``_ACTION_STEP_NORM_OFFSET``, exceeds ``_DENSE_EXPM_STEP_NORM`` times the
         cube of the dimension. Leaves the state space in the last epoch.
@@ -2083,57 +2050,173 @@ class MomentEvaluator:
 
         return m, idx_t
 
-    def _two_point_occupation(self) -> Optional[Tuple[np.ndarray, 'Callable', np.ndarray]]:
+    @staticmethod
+    def _forward_operator(S: sp.csr_matrix, R: np.ndarray, rewarded: np.ndarray, cu: float, cw: float) -> sp.csr_matrix:
         """
-        Factors of the two-point occupation matrix ``K = diag(m) (-T)^{-1}`` of ``PhaseTypeDistribution.moment``,
-        defined for a single epoch without an accumulation window, so that ``R^T K R = (m * R)^T solve(R)`` for a
-        stack of reward columns ``R``. ``K`` is never formed, and the LU of ``-T`` is sparse from
-        :attr:`Settings.closed_form_sparse_min_states <phasegen.settings.Settings.closed_form_sparse_min_states>`
-        transient states on. Other cases return ``None`` and callers evaluate per pair.
+        The transpose of the generator of the forward pass of ``_bin_second_moments`` for the column action, of
+        ``2 m + 1`` blocks of the size of ``S``: ``S`` on the diagonal blocks of ``p`` and each ``u_a``, ``diag(r_a) /
+        cu`` from ``p`` to ``u_a`` and ``diag(c) / cw`` from ``u_a`` to ``w_a``, with ``c`` the indicator of the states
+        where some reward is non-zero, so that the vector is stationary once the rewards are collected.
 
-        :return: ``(m, solve, idx_t)`` with ``m = alpha (-T)^{-1}`` and ``solve`` applying ``(-T)^{-1}``, over the
-            transient states ``idx_t``, or ``None`` when not applicable (caller falls back).
+        :param S: The rate matrix.
+        :param R: The reward vectors ``r_a`` as columns.
+        :param rewarded: The indicator ``c``.
+        :param cu: The factor ``u_a`` is stored against.
+        :param cw: The factor of ``w_a`` relative to ``u_a``.
+        :return: The transposed generator.
         """
-        if not (Settings.closed_form_last_epoch and self._tree_height.end_time is None):
-            return None
+        n, m = R.shape
+        St = S.T.tocsr()
+        states = np.arange(n)
+        rewarded = np.flatnonzero(rewarded)
+        bins, bins_rewarded = np.repeat(np.arange(m), n), np.repeat(np.arange(m), rewarded.size)
 
-        if self._tree_height.start_time > 0:
-            # the two-point occupation is a double integral over ``s < u``; the windowed (start_time > 0) version is
-            # not the full one minus a box, so the batched covariance cannot subtract it the way the mean does. Fall
-            # back to the per-pair path, which accumulates each pair over ``[start_time, absorption]`` directly.
-            self._logger.debug(
-                "two-point occupation: start_time=%.3g > 0; using per-pair covariance (windowed two-point occupation "
-                "not batched)", self._tree_height.start_time
-            )
-            return None
+        coupling = sp.csr_matrix((
+            np.concatenate([R.T.ravel() / cu, np.full(m * rewarded.size, 1.0 / cw)]),
+            (np.concatenate([(1 + bins) * n + np.tile(states, m), (1 + m + bins_rewarded) * n + np.tile(rewarded, m)]),
+             np.concatenate([np.tile(states, m), (1 + bins_rewarded) * n + np.tile(rewarded, m)]))
+        ), shape=((2 * m + 1) * n,) * 2)
 
-        epochs = self._get_epochs_until_unbounded(2)
+        return (sp.block_diag([St] * (m + 1) + [sp.csr_matrix((m * n, m * n))], format='csr') + coupling).tocsr()
 
-        # only the single-epoch closed form is used; the multi-epoch ODE is stiffness-fragile (see docstring)
-        if len(epochs) > 1:
-            self._logger.debug(
-                "two-point occupation: %d epochs; using per-pair matrix-exponential (multi-epoch closed form "
-                "disabled)", len(epochs)
-            )
-            return None
+    @staticmethod
+    def _forward_van_loan(S: np.ndarray, r: np.ndarray, rewarded: np.ndarray, cu: float, cw: float) -> np.ndarray:
+        """
+        The dense generator of the forward pass of ``_bin_second_moments`` restricted to one bin, the blocks of ``p``,
+        ``u_a`` and ``w_a`` of ``_forward_operator`` untransposed.
 
-        if not self._absorption_certain_in_last_epoch(2):
-            return None
+        :param S: The rate matrix.
+        :param r: The reward vector ``r_a``.
+        :param rewarded: The indicator ``c`` of ``_forward_operator``.
+        :param cu: The factor ``u_a`` is stored against.
+        :param cw: The factor of ``w_a`` relative to ``u_a``.
+        :return: The matrix of three blocks in each dimension.
+        """
+        n = S.shape[0]
+        V = np.zeros((3 * n, 3 * n))
+        V[:n, :n] = S
+        V[n:2 * n, n:2 * n] = S
+        V[:n, n:2 * n] = np.diag(r / cu)
+        V[n:2 * n, 2 * n:] = np.diag(rewarded / cw)
 
-        self.state_space.update_epoch(epochs[-1])
-        self._check_numerical_stability(self.state_space.S, 0)
-        absorbing = self.state_space.absorbing
-        # only the states that can carry mass; see ``_alpha_support``
-        idx_t = np.where(~absorbing & self._alpha_support(2))[0]
+        return V
 
-        sparse = self._solve_sparse(len(idx_t))
-        neg_t = -self._transient_block(idx_t, sparse=sparse)
-        solve = self._lu_solver(neg_t, sparse)
-        m = solve.T(np.asarray(self.state_space.alpha, dtype=float)[idx_t])
+    @BlasThreadLimit()
+    def _bin_second_moments(self, rewards: Sequence[Reward]) -> Tuple[np.ndarray, np.ndarray]:
+        """
+        The means ``E[R_a]`` and the second cross-moments ``E[R_a R_b]`` of the rewards over the accumulation window of
+        the distribution, by the forward pass of ``PhaseTypeDistribution.moment`` shared by all rewards. The finite
+        epochs take the stacked sparse action, or one dense exponential per reward where ``_dense_expm_is_faster``
+        (closed form) or below ``Settings.expm_action_min_dim`` (window), and the unbounded last epoch is closed with
+        one factorization of ``-T``.
+
+        :param rewards: The rewards.
+        :return: The means, of shape ``(m,)``, and the cross-moments, of shape ``(m, m)``, for ``m`` rewards.
+        :raises ValueError: If a reward is not accumulable, see ``Reward._check_accumulable``.
+        :raises ModelError: If a moment is not a number.
+        """
+        ss = self.state_space
+        start, end = self._resolve_window()
+        closed = bool(np.isinf(end) and Settings.closed_form_last_epoch and self._absorption_certain_in_last_epoch(2))
+
+        if closed:
+            epochs = self._get_epochs_until_unbounded(2)
+            self._check_demography_conditioning(epochs)
+            finite = list(enumerate(epochs[:-1]))
+            use_action = not self._dense_expm_is_faster(2, epochs, start)
+        else:
+            if np.isinf(end):
+                end = self._get_time_to_absorption()
+            finite = []
+            for i_epoch, epoch in enumerate(self.demography.epochs):
+                finite.append((i_epoch, epoch))
+                if epoch.end_time >= end:
+                    break
+            ss.update_epoch(finite[0][1])
+            use_action = 3 * ss.k >= Settings.expm_action_min_dim
+
+        n = ss.k
+        vectors = [np.asarray(r._get(ss), dtype=float) for r in rewards]
+        Reward._check_accumulable(ss, rewards, vectors)
+        R = np.column_stack(vectors)
+        m = R.shape[1]
+        scale = self._reward_scale(list(R.T))
+        rewarded = (R != 0).any(axis=1).astype(float)
 
         self._logger.debug(
-            "two-point occupation: single-epoch closed form diag(m)(-T)^-1, %s LU (n_t=%d)",
-            'sparse' if sparse else 'dense', len(idx_t)
+            "second moments of %d rewards over [%.3g, %.3g]: forward pass by the %s, %d finite epoch(s)%s", m, start,
+            end, "stacked sparse action" if use_action else "dense exponential per reward", len(finite),
+            ", closed last epoch" if closed else ""
         )
 
-        return m, solve, idx_t
+        # x = [p, u_1, ..., u_m, w_1, ..., w_m], with u_a stored divided by cu and w_a by cu * cw
+        x = np.zeros((2 * m + 1) * n)
+        x[:n] = ss.alpha
+        cu = cw = 1.0
+
+        with np.errstate(over='ignore', divide='ignore', invalid='ignore', under='ignore'):
+            for i_epoch, epoch in finite:
+                ss.update_epoch(epoch)
+                self._check_numerical_stability(ss.S, i_epoch)
+                t0, t1 = epoch.start_time, epoch.end_time if closed else min(epoch.end_time, end)
+
+                if t0 < start:
+                    x[:n] = self._propagate_plain(x[:n], min(t1, start) - t0, use_action)
+                    t0 = start
+
+                if t1 <= t0:
+                    continue
+
+                # balance each epoch on its own rates, an exact diagonal similarity (see ``_rebase``)
+                cu_new = self._get_regularization_factor(ss.S, t1 - t0, scale)
+                cw_new = self._get_regularization_factor(ss.S, t1 - t0)
+                x[n:(m + 1) * n] *= cu / cu_new
+                x[(m + 1) * n:] *= cu * cw / (cu_new * cw_new)
+                cu, cw = cu_new, cw_new
+
+                if use_action:
+                    A = self._forward_operator(sp.csr_matrix(ss.S), R, rewarded, cu, cw) * (t1 - t0)
+                    x = Backend.expm_multiply(A, x, blocks=2 * m + 1, depth=3)
+                    continue
+
+                S = self._dense_rate_matrix()
+                exps = self._block_expms([
+                    lambda a=a: self._forward_van_loan(S, R[:, a], rewarded, cu, cw) * (t1 - t0) for a in range(m)
+                ], n, [False, False, True])
+                p, U, W = x[:n], x[n:(m + 1) * n].reshape(m, n), x[(m + 1) * n:].reshape(m, n)
+                y = np.empty_like(x)
+                for a, E in enumerate(exps):
+                    if a == 0:
+                        y[:n] = p @ E[:n, :n]
+                    y[(1 + a) * n:(2 + a) * n] = p @ E[:n, n:2 * n] + U[a] @ E[n:2 * n, n:2 * n]
+                    y[(1 + m + a) * n:(2 + m + a) * n] = p @ E[:n, 2 * n:] + U[a] @ E[n:2 * n, 2 * n:] + W[a]
+                x = y
+
+            p = x[:n]
+            U = x[n:(m + 1) * n].reshape(m, n) * cu
+            W = x[(m + 1) * n:].reshape(m, n) * (cu * cw)
+            mean = U.sum(axis=1)
+            ordered = W @ R  # [a, b]: reward a collected before reward b
+
+            if closed:
+                # w_a(inf) r_b = w_a(t_L) r_b + (u_a(t_L) + m_L * r_a) (-T)^{-1} r_b with m_L = p(t_L) (-T)^{-1}
+                last = epochs[-1]
+                ss.update_epoch(last)
+                self._check_numerical_stability(ss.S, len(epochs) - 1)
+                if start > last.start_time:
+                    p = self._propagate_plain(p, start - last.start_time, use_action)
+
+                idx_t = np.where(~ss.absorbing & self._alpha_support(2))[0]
+                sparse = self._solve_sparse(len(idx_t))
+                solve = self._last_epoch_solver(id(ss), len(epochs), idx_t.astype(np.intp).tobytes(), sparse)
+                R_t = R[idx_t]
+                m_last = solve.T(p[idx_t])
+                mean = mean + m_last @ R_t
+                ordered = ordered + (U[:, idx_t] + m_last * R_t.T) @ solve(R_t)
+
+        if np.isnan(mean).any() or np.isnan(ordered).any():
+            raise ModelError(
+                "NaN value encountered when computing moment. This is likely due to an ill-conditioned rate matrix."
+            )
+
+        return mean, ordered + ordered.T

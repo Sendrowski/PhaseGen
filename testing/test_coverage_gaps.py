@@ -172,29 +172,27 @@ class CoverageGapsTestCase(TestCase):
             self.assertEqual(np.asarray(emp.mean).shape, (6,))
             self.assertEqual(np.asarray(emp.cov).shape, (6, 6))
 
-    def test_sfs_cov_batched_is_cached(self):
-        """SFSDistribution._cov_batched is memoized, so accessing sfs.corr (which reads both var and cov, each of
-        which needs the shared two-point occupation) runs the expensive solve only once, without changing results."""
-        import phasegen.distributions.spectra as sp
+    def test_sfs_second_moments_are_cached(self):
+        """The second moments of the SFS are memoized, so accessing sfs.corr, which reads the variance and the
+        covariance, runs the forward pass over the bins once, without changing results."""
+        from phasegen.distributions._moments import MomentEvaluator
 
-        # reference correlation before instrumenting the solve
         reference = np.asarray(pg.Coalescent(n=6).sfs.corr.data).copy()
 
         calls = {'n': 0}
-        original = sp.SFSDistribution._two_point_occupation
+        original = MomentEvaluator._bin_second_moments
 
         def counting(self, *args, **kwargs):
             calls['n'] += 1
             return original(self, *args, **kwargs)
 
-        sp.SFSDistribution._two_point_occupation = counting
+        MomentEvaluator._bin_second_moments = counting
         try:
-            corr = np.asarray(pg.Coalescent(n=6).sfs.corr.data)
+            sfs = pg.Coalescent(n=6).sfs
+            corr = np.asarray(sfs.corr.data)
+            sfs.var
         finally:
-            # the method is inherited from the moment-evaluator mixin, so it is removed rather than assigned back:
-            # assigning would leave a shadowing entry in ``SFSDistribution.__dict__`` that later patches of the base
-            # class never reach
-            del sp.SFSDistribution._two_point_occupation
+            MomentEvaluator._bin_second_moments = original
 
-        self.assertEqual(calls['n'], 1)  # a single shared solve, not one per var and cov
+        self.assertEqual(calls['n'], 1)
         np.testing.assert_allclose(corr, reference)

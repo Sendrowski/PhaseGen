@@ -46,11 +46,12 @@ class _GrowthBound:
     A bound :math:`G(f) \ge f^{-1} \int_0^f \|\exp(s \mathbf{A})\|_1\, ds` for
     :meth:`Backend._stationary() <phasegen.expm.Backend._stationary>`. With :math:`\mathbf{A} = \mathbf{D} + \mathbf{N}`
     split into its :math:`L` diagonal blocks :math:`\mathbf{D}` and the strictly block triangular rest
-    :math:`\mathbf{N}`, the Dyson series of :math:`\exp(s \mathbf{A})` ends after :math:`L` terms, so that
+    :math:`\mathbf{N}`, the Dyson series of :math:`\exp(s \mathbf{A})` ends after :math:`d` terms, where
+    :math:`d \le L` is the length of the longest chain of blocks that :math:`\mathbf{N}` couples plus one, so that
 
     .. math::
         G(f) = \min_{p \in \{1, \infty\}} c_p \Big( \varphi(f m_p) + e^{f m_p}
-        \sum_{j=1}^{L-1} \frac{(f \beta_p)^j}{(j + 1)!} \Big),
+        \sum_{j=1}^{d-1} \frac{(f \beta_p)^j}{(j + 1)!} \Big),
 
     with :math:`m_p = \max(0, \mu_p(\mathbf{D}))` the positive part of the logarithmic :math:`p`-norm,
     :math:`\mu_1(\mathbf{D}) = \max_j (d_{jj} + \sum_{i \ne j} |d_{ij}|)` and :math:`\mu_\infty(\mathbf{D}) =
@@ -59,11 +60,12 @@ class _GrowthBound:
     the :math:`\infty`-norm bound to the 1-norm. For a transposed generator and :math:`L = 1`, :math:`G = 1`.
     """
 
-    def __init__(self, a, abs_a, blocks: int = 1) -> None:
+    def __init__(self, a, abs_a, blocks: int = 1, depth: int = None) -> None:
         r"""
         :param a: Square matrix :math:`\mathbf{A}`.
         :param abs_a: Its entrywise absolute value.
         :param blocks: The number :math:`L` of equal diagonal blocks.
+        :param depth: The number :math:`d` of terms of the Dyson series, by default :math:`L`.
         """
         coo = scipy.sparse.coo_matrix(abs_a)
         dim = a.shape[0]
@@ -72,6 +74,9 @@ class _GrowthBound:
 
         #: The number of blocks :math:`L`.
         self.blocks: int = blocks
+
+        #: The number of terms :math:`d` of the Dyson series.
+        self.depth: int = blocks if depth is None else depth
 
         #: The triples :math:`(c_p, m_p, \beta_p)` for :math:`p = 1, \infty`.
         self.norms: list = []
@@ -85,7 +90,7 @@ class _GrowthBound:
         :param f: The fraction :math:`f \ge 0`.
         :return: :math:`G(f)`, possibly infinite.
         """
-        j = np.arange(1, self.blocks)
+        j = np.arange(1, self.depth)
         out = np.inf
         with np.errstate(over='ignore', invalid='ignore'):
             for c, m, beta in self.norms:
@@ -290,7 +295,14 @@ class Backend(ABC):
         return cls._writable(cls.backend.compute(m))
 
     @classmethod
-    def expm_multiply(cls, a, b: np.ndarray, action: Callable = None, blocks: int = 1) -> np.ndarray:
+    def expm_multiply(
+            cls,
+            a,
+            b: np.ndarray,
+            action: Callable = None,
+            blocks: int = 1,
+            depth: int = None
+    ) -> np.ndarray:
         """
         Compute the action of the matrix exponential, :math:`\\exp(\\mathbf{A})\\mathbf{v}` (``exp(a) @ b``), via the
         active backend, as a writable NumPy array. An argument of 1-norm above ``_ACTION_STEP_NORM`` is applied in steps
@@ -301,6 +313,7 @@ class Backend(ABC):
         :param b: Vector or thin matrix.
         :param action: The action ``exp(a) @ b`` of one step, by default that of the active backend.
         :param blocks: The number of equal diagonal blocks of ``a`` outside of which it is strictly block triangular.
+        :param depth: The length of the longest chain of blocks that ``a`` couples plus one, by default ``blocks``.
         :return: ``exp(a) @ b``.
         """
         action = cls.backend.compute_action if action is None else action
@@ -310,7 +323,7 @@ class Backend(ABC):
             return cls._writable(action(a, b))
 
         abs_a, v, done = abs(a), b, 0.0
-        growth = _GrowthBound(a, abs_a, blocks)
+        growth = _GrowthBound(a, abs_a, blocks, depth)
         for f in cls._step_fractions(norm):
             v = cls._writable(action(a * (f - done), v))
             done = f
