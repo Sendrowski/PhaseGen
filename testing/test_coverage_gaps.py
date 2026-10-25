@@ -182,13 +182,15 @@ class CoverageGapsTestCase(TestCase):
         calls = {'n': 0}
         original = MomentEvaluator._bin_second_moments
 
+        sfs = pg.Coalescent(n=6).sfs
+
+        # the pass of the flattened spectrum runs on its tree height, which is not counted
         def counting(self, *args, **kwargs):
-            calls['n'] += 1
+            calls['n'] += self is sfs
             return original(self, *args, **kwargs)
 
         MomentEvaluator._bin_second_moments = counting
         try:
-            sfs = pg.Coalescent(n=6).sfs
             corr = np.asarray(sfs.corr.data)
             sfs.var
         finally:

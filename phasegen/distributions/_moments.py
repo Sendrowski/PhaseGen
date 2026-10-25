@@ -25,6 +25,7 @@ from ..settings import Settings
 from ..state_space import BlockCountingStateSpace
 
 from ._gradient import _ClosedFormTape, _OccupationStep, _TapedAction, _VanLoanStep
+from ._kingman import KingmanBlockKernel
 from ._common import _make_hashable, _validate_order, _validate_reward_count, _validate_rewards, \
     _validate_start_time
 
@@ -375,10 +376,10 @@ class MomentEvaluator:
           block of its own, where :math:`\lambda` is the balancing factor of the blocks.
         - Spectra share one computation across bins. The expected occupation times :math:`\mathbf{m}` of the
           transient states, which equal :math:`\boldsymbol{\alpha}_T \mathbf{U}` in a single epoch, give every bin
-          mean as :math:`\mathbf{m}\, \mathbf{r}_j`. For one population under the
-          :class:`~phasegen.coalescent_models.StandardCoalescent`, the mean SFS is computed on the smaller
-          lineage-counting state space (:attr:`Settings.flatten_block_counting
-          <phasegen.settings.Settings.flatten_block_counting>`).
+          mean as :math:`\mathbf{m}\, \mathbf{r}_j`.
+        - For one population and one locus under the :class:`~phasegen.coalescent_models.StandardCoalescent`, the
+          first moments and the second moments of the SFS bins are computed on the smaller lineage-counting state
+          space (:attr:`Settings.flatten_block_counting <phasegen.settings.Settings.flatten_block_counting>`).
 
         .. rubric:: References
 
@@ -809,7 +810,8 @@ class MomentEvaluator:
         """
         Whether the raw moments up to order ``k`` are read from one closed form by :meth:`_raw_powers`: where the
         rewards are equal, the end times infinite, :attr:`Settings.closed_form_last_epoch
-        <phasegen.settings.Settings.closed_form_last_epoch>` set and absorption certain in the last epoch.
+        <phasegen.settings.Settings.closed_form_last_epoch>` set, the moment not flattened and absorption certain in
+        the last epoch.
 
         :param k: The order.
         :param rewards: The rewards.
@@ -820,6 +822,7 @@ class MomentEvaluator:
                 all(r == rewards[0] for r in rewards[1:]) and
                 bool(np.isinf(end_times).all()) and
                 Settings.closed_form_last_epoch and
+                not self._flattening_applies(k, rewards) and
                 self._absorption_certain_in_last_epoch(k)
         )
 
@@ -904,32 +907,35 @@ class MomentEvaluator:
             rewards: Sequence[Reward] = None,
             start_time: float = 0.0
     ) -> np.ndarray:
-        """
-        Evaluate the kth (non-central) moment at different end times using the lineage counting state space.
+        r"""
+        Evaluate the kth (non-central) moment at different end times using the lineage counting state space. The
+        second moment of the bin rewards ``a`` and ``b`` collected in this order is
+        :math:`2 \sum_{i \in a, j \in b} X_{ij}`, see ``KingmanBlockKernel.contract``.
 
-        :param k: The order of the moment.
+        :param k: The order of the moment, 1 or 2.
         :param end_times: Sequence of end times or end time when to evaluate the moment.
         :param rewards: Sequence of k rewards. By default, the reward of the underlying distribution.
         :param start_time: Time from which to start accumulation.
         :return: The moment accumulated at the specified times or time.
-        :raises ValueError: If the state space is not a :class:`~phasegen.state_space.BlockCountingStateSpace`, or if
-            k is not 1, or if there are multiple populations or loci or if the coalescent model is not the standard
-            coalescent.
+        :raises ValueError: If the moment is not flattened, see ``_flattening_applies``.
         """
+        rewards = (self.reward,) * k if rewards is None else tuple(rewards)
 
-        if not isinstance(self.state_space, BlockCountingStateSpace):
-            raise ValueError("Flattened accumulation is only supported for BlockCountingStateSpace.")
+        if not self._flattening_applies(k, rewards):
+            raise ValueError(
+                "Flattened accumulation is only supported for the first moment and for the second moment of SFS bins "
+                "on the block-counting state space of a single population and a single locus under the standard "
+                "coalescent."
+            )
 
-        if k != 1:
-            raise ValueError("Flattened accumulation is only supported for k = 1.")
+        if k == 2:
+            n = self.lineage_config.n
+            a, b = (np.asarray(self._sfs_reward_block_sizes(r, n)) - 1 for r in rewards)
+            cross = self._tree_height._level_cross_moments(tuple(end_times), float(start_time))[1]
 
-        if self.lineage_config.n_pops != 1 or self.locus_config.n != 1:
-            raise ValueError("Flattened accumulation is only supported for a single population and a single locus.")
+            return 2 * cross[:, a][:, :, b].sum(axis=(1, 2))
 
-        if not isinstance(self.state_space.model, StandardCoalescent):
-            raise ValueError("Flattened accumulation is only supported for standard coalescent.")
-
-        weights = self._flattened_weights(rewards[0] if rewards else self.reward)
+        weights = self._flattened_weights(rewards[0])
 
         # Create a custom reward that returns the weights.
         weighted_reward = CustomReward(lambda _: weights)
@@ -937,6 +943,38 @@ class MomentEvaluator:
         return self._tree_height._accumulate(
             k=k, end_times=end_times, rewards=(weighted_reward,), start_time=start_time
         )
+
+    @_make_hashable
+    @cache
+    def _level_cross_moments(self, end_times: Sequence[float], start_time: float) -> np.ndarray:
+        r"""
+        The ordered cross-moments :math:`X_{ij}` of ``KingmanBlockKernel.contract`` of the branch lengths subtending
+        :math:`i` and :math:`j` samples, from the ordered two-point occupation :math:`M_{ab} = \mathbb{E}
+        \int\!\!\int_{t_\mathrm{start} < s < u < t} \mathbb{1}\{X_s = a\} \mathbb{1}\{X_u = b\}\, \mathrm{d}s\,
+        \mathrm{d}u` of the transient states :math:`a, b` of the lineage-counting state space of this distribution, with
+        :math:`X_s` the state at time :math:`s` and :math:`t` an end time. ``_bin_second_moments`` of the indicator
+        rewards of the states gives :math:`M + M^\top`, and :math:`M` is upper triangular, the states being ordered by
+        decreasing number of lineages.
+
+        :param end_times: The end times.
+        :param start_time: The start time.
+        :return: The expected occupation of each transient state, of shape ``(len(end_times), n - 1)``, and
+            :math:`X_{ij}`, of shape ``(len(end_times), n - 1, n - 1)``.
+        """
+        idx_t = np.where(~self.state_space.absorbing)[0]
+        levels = [CustomReward(lambda space, a=a: (np.arange(space.k) == a).astype(float)) for a in idx_t]
+        kernel = KingmanBlockKernel(self.lineage_config.n)
+
+        means = np.zeros((len(end_times), len(idx_t)))
+        cross = np.zeros((len(end_times), len(idx_t), len(idx_t)))
+        for i, end_time in enumerate(end_times):
+            if end_time > start_time:
+                means[i], occupation = self._bin_second_moments(levels, start_time, end_time)
+                occupation = np.triu(occupation)
+                occupation[np.diag_indices_from(occupation)] /= 2
+                cross[i] = kernel.contract(occupation)
+
+        return means, cross
 
     def _flattened_weights(self, reward: Reward) -> np.ndarray:
         """
@@ -1050,7 +1088,7 @@ class MomentEvaluator:
 
         # flattening takes precedence over the closed form (it shrinks the state space, which dominates the cost) and
         # re-enters this method on the lineage-counting state space, where the flattened reward is checked
-        if self._flattening_applies(k):
+        if self._flattening_applies(k, rewards):
             self._logger.debug("accumulate (k=%d): flattened block-counting", k)
             return self._accumulate_flattened(k, end_times, rewards, start_time)
 
@@ -1765,19 +1803,31 @@ class MomentEvaluator:
 
         return norm > _DENSE_EXPM_STEP_NORM * dim ** 3
 
-    def _flattening_applies(self, k: int) -> bool:
+    def _flattening_applies(self, k: int, rewards: Sequence[Reward] = None) -> bool:
         """
         Whether the block-counting state space can be flattened onto the lineage-counting state space for this
-        moment: the first moment of the standard coalescent on a single population and a single locus. Takes
-        precedence over the closed form and the batched occupation.
+        moment of the standard coalescent on a single population and a single locus: the first moment of any reward,
+        and the second moment of two rewards that are each an unfolded or folded SFS bin with polymorphic blocks.
+        Takes precedence over the closed form and the batched occupation.
+
+        :param k: The order of the moment.
+        :param rewards: The rewards, required for the second moment.
+        :return: Whether to flatten.
         """
-        return (
+        if not (
                 Settings.flatten_block_counting and
-                k == 1 and
                 isinstance(self.state_space, BlockCountingStateSpace) and
                 isinstance(self.state_space.model, StandardCoalescent) and
                 self.lineage_config.n_pops == 1 and
                 self.locus_config.n == 1
+        ):
+            return False
+
+        if k == 1:
+            return True
+
+        return k == 2 and rewards is not None and len(rewards) == 2 and all(
+            self._sfs_reward_block_sizes(r, self.lineage_config.n) is not None for r in rewards
         )
 
     def _transient_block(self, idx_t: np.ndarray, sparse: bool = False) -> 'sp.spmatrix | np.ndarray':
@@ -2101,8 +2151,43 @@ class MomentEvaluator:
 
         return V
 
+    def _bin_second_moments_flattened(
+            self,
+            rewards: Sequence[Reward],
+            start_time: float = None,
+            end_time: float = None
+    ) -> Tuple[np.ndarray, np.ndarray]:
+        """
+        The means and the cross-moments of ``_bin_second_moments`` for SFS bin rewards flattened onto the
+        lineage-counting state space, from the occupation and the cross-moments of ``_level_cross_moments``, the
+        latter summed over the block sizes of each bin.
+
+        :param rewards: The bin rewards, each flattened as in ``_flattening_applies``.
+        :param start_time: The start time. By default, that of the distribution.
+        :param end_time: The end time. By default, that of the distribution, or absorption.
+        :return: The means and the cross-moments.
+        """
+        n = self.lineage_config.n
+        start, end = self._resolve_window(start_time, end_time)
+        self._logger.debug("second moments of %d SFS bins flattened onto the lineage-counting state space", len(rewards))
+
+        # the block sizes counted by each bin
+        F = np.zeros((len(rewards), n - 1))
+        for a, r in enumerate(rewards):
+            F[a, np.asarray(self._sfs_reward_block_sizes(r, n)) - 1] = 1.0
+
+        occupation, cross = (x[0] for x in self._tree_height._level_cross_moments((end,), start))
+        mean = occupation @ np.column_stack([self._flattened_weights(r) for r in rewards])[:n - 1]
+
+        return mean, F @ (cross + cross.T) @ F.T
+
     @BlasThreadLimit()
-    def _bin_second_moments(self, rewards: Sequence[Reward]) -> Tuple[np.ndarray, np.ndarray]:
+    def _bin_second_moments(
+            self,
+            rewards: Sequence[Reward],
+            start_time: float = None,
+            end_time: float = None
+    ) -> Tuple[np.ndarray, np.ndarray]:
         """
         The means ``E[R_a]`` and the second cross-moments ``E[R_a R_b]`` of the rewards over the accumulation window of
         the distribution, by the forward pass of ``PhaseTypeDistribution.moment`` shared by all rewards. The finite
@@ -2111,12 +2196,17 @@ class MomentEvaluator:
         one factorization of ``-T``.
 
         :param rewards: The rewards.
+        :param start_time: The start time. By default, that of the distribution.
+        :param end_time: The end time. By default, that of the distribution, or absorption.
         :return: The means, of shape ``(m,)``, and the cross-moments, of shape ``(m, m)``, for ``m`` rewards.
         :raises ValueError: If a reward is not accumulable, see ``Reward._check_accumulable``.
         :raises ModelError: If a moment is not a number.
         """
+        if rewards and all(self._flattening_applies(2, (r, r)) for r in rewards):
+            return self._bin_second_moments_flattened(rewards, start_time, end_time)
+
         ss = self.state_space
-        start, end = self._resolve_window()
+        start, end = self._resolve_window(start_time, end_time)
         closed = bool(np.isinf(end) and Settings.closed_form_last_epoch and self._absorption_certain_in_last_epoch(2))
 
         if closed:

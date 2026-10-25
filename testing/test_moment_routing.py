@@ -275,6 +275,7 @@ def test_closed_form_finite_epochs_dense_on_stiff_rates():
     assert action.call_count == 0
 
     # the block-counting space of 17 lineages is not stiff and keeps the sparse action
+    Settings.flatten_block_counting = False
     sfs = pg.Coalescent(n=17, demography=th.demography).sfs
     reward = pg.rewards.CombinedReward([sfs.reward, sfs._get_sfs_reward(2)])
     with patch.object(Backend, 'expm_multiply', side_effect=Backend.expm_multiply) as action:

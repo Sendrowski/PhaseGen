@@ -18,6 +18,13 @@ from phasegen.settings import Settings
 _THREE = {0: 1.0, 0.4: 0.3, 1.2: 2.0}
 
 
+@pytest.fixture(autouse=True)
+def _unflattened():
+    """The single-deme spectra of the standard coalescent take the forward pass on the block-counting state space.
+    The conftest restores the setting."""
+    Settings.flatten_block_counting = False
+
+
 def _single(n=5, sizes=None, model=None, start_time=0, end_time=None) -> pg.Coalescent:
     """One deme with three epochs by default."""
     return pg.Coalescent(n=n, model=model, demography=pg.Demography(pop_sizes={'pop_0': sizes or _THREE}),

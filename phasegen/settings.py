@@ -37,8 +37,8 @@ class Settings(metaclass=_SettingsMeta):
     The attributes are class-level and read directly (e.g. ``Settings.use_pbar = True``). Assigning a name that is
     not declared here raises :class:`AttributeError`.
     """
-    #: Whether to evaluate the mean site-frequency spectrum of a single population and locus under the standard
-    #: coalescent on the lineage-counting state space, see :meth:`PhaseTypeDistribution.moment()
+    #: Whether to compute the moments of the site-frequency spectrum of a single population and locus under the
+    #: standard coalescent on the smaller lineage-counting state space, see :meth:`PhaseTypeDistribution.moment()
     #: <phasegen.distributions.PhaseTypeDistribution.moment>`.
     flatten_block_counting: bool = True
 
