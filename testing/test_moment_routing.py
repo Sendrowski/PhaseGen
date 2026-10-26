@@ -15,7 +15,7 @@ import scipy.sparse as sp
 
 import phasegen as pg
 from phasegen.settings import Settings
-from phasegen.distributions import PhaseTypeDistribution
+from phasegen.distributions import PhaseTypeDistribution, TreeHeightDistribution
 from phasegen.distributions._moments import MomentEvaluator
 from phasegen.expm import Backend
 
@@ -624,14 +624,16 @@ def _bin_variance(coal: pg.Coalescent) -> float:
     return PhaseTypeDistribution.moment(sfs, k=2, rewards=(reward, reward))
 
 
-def _dispatch(read) -> list:
-    """The shapes and the outcomes of every dense-against-action decision taken while evaluating ``read``."""
+def _dispatch(read, spectra_only: bool = False) -> list:
+    """The shapes and the outcomes of every dense-against-action decision taken while evaluating ``read``, without
+    those of the tree heights propagated alongside a spectrum if ``spectra_only``."""
     seen = []
     original = MomentEvaluator._dense_expm_is_faster
 
     def spy(self, *args, **kwargs):
         dense = original(self, *args, **kwargs)
-        seen.append((args[:3], dense))
+        if not (spectra_only and isinstance(self, TreeHeightDistribution)):
+            seen.append((args[:3], dense))
         return dense
 
     with patch.object(MomentEvaluator, '_dense_expm_is_faster', spy):
@@ -643,21 +645,22 @@ def _dispatch(read) -> list:
 _BETA = pg.BetaCoalescent(alpha=1.5)
 
 
-@pytest.mark.parametrize('read, dense', [
-    (lambda: _one_deme(10).tree_height.var, True),
-    (lambda: _bin_variance(_one_deme(15, model=_BETA)), False),
-    (lambda: _one_deme(10, end_time=1.5).tree_height.var, True),
-    (lambda: _bin_variance(_one_deme(15, model=_BETA, end_time=1.5)), False),
-    (lambda: _one_deme(8, model=_BETA).sfs.mean, True),
-    (lambda: _one_deme(15, model=_BETA).sfs.mean, False),
-    (lambda: _one_deme(8, model=_BETA).sfs._mean_occupation_grid(np.linspace(0.1, 3, 30)), True),
-    (lambda: _one_deme(15, model=_BETA).sfs._mean_occupation_grid(np.linspace(0.1, 3, 30)), False),
+@pytest.mark.parametrize('read, dense, spectrum', [
+    (lambda: _one_deme(10).tree_height.var, True, False),
+    (lambda: _bin_variance(_one_deme(15, model=_BETA)), False, True),
+    (lambda: _one_deme(10, end_time=1.5).tree_height.var, True, False),
+    (lambda: _bin_variance(_one_deme(15, model=_BETA, end_time=1.5)), False, True),
+    (lambda: _one_deme(8, model=_BETA).sfs.mean, True, True),
+    (lambda: _one_deme(15, model=_BETA).sfs.mean, False, True),
+    (lambda: _one_deme(8, model=_BETA).sfs._mean_occupation_grid(np.linspace(0.1, 3, 30)), True, True),
+    (lambda: _one_deme(15, model=_BETA).sfs._mean_occupation_grid(np.linspace(0.1, 3, 30)), False, True),
 ], ids=['closed form 30', 'closed form 528', 'window 30', 'window 528', 'occupation 42', 'occupation 350',
         'time grid 44', 'time grid 352'])
-def test_every_caller_takes_the_dense_exponential_on_small_spaces_and_the_action_on_large(read, dense):
+def test_every_caller_takes_the_dense_exponential_on_small_spaces_and_the_action_on_large(read, dense, spectrum):
     """The closed-form and windowed moments, the occupation times and the occupation on a time grid each decide
-    through ``_dense_expm_is_faster``, dense on spaces of a few tens of states and the action on hundreds."""
-    seen = _dispatch(read)
+    through ``_dense_expm_is_faster``, dense on spaces of a few tens of states and the action on hundreds. The tree
+    height a spectrum propagates alongside decides on its own space."""
+    seen = _dispatch(read, spectra_only=spectrum)
 
     assert seen and all(outcome is dense for _, outcome in seen)
 
@@ -796,3 +799,100 @@ def test_transform_rule_boundaries():
         assert reward._takes_action(dim, batch, 2, epochs())
         Settings.expm_action_min_dim = dim + 1
         assert not reward._takes_action(dim, batch, 2, epochs())
+
+
+# ----------------------------------------------------------------------------------------------------------------
+# the tree-height distribution functions decide by the same cost model
+# ----------------------------------------------------------------------------------------------------------------
+
+def _two_demes(n: int, sizes=1.0, migration: float = 1.0) -> pg.Coalescent:
+    """Two demes of ``n`` lineages each, the first of the given sizes."""
+    return pg.Coalescent(n={'a': n, 'b': n}, demography=pg.Demography(
+        pop_sizes={'a': sizes, 'b': 1.0}, migration_rates={('a', 'b'): migration, ('b', 'a'): migration}))
+
+
+def _forced(dense: bool):
+    """Force every dense-against-action decision to ``dense``."""
+    return patch.object(MomentEvaluator, '_dense_expm_is_faster', lambda self, *args, **kwargs: dense)
+
+
+@pytest.mark.parametrize('end, dense', [(1e-3, False), (None, True)], ids=['short horizon', 'to absorption'])
+def test_tree_height_sweep_decides_once_by_the_cost_model(end, dense):
+    """On 230 states, five equispaced times within a short horizon take one interval action, while a hundred up to
+    the time of almost sure absorption reuse one dense exponential, as one decision for the whole sweep."""
+    th = _two_demes(10).tree_height
+    t = np.linspace(0, th.t_max if end is None else end, 5 if end else 100)
+
+    seen = _dispatch(lambda: th._sweep(t))
+
+    assert seen == [((230, 230, 1), dense)]
+
+
+def test_tree_height_sweep_values_do_not_depend_on_the_decision():
+    """The CDF and density of the sweep agree between the dense exponentials and the action, across epochs and on
+    an irregular grid with an infinite time."""
+    th = _two_demes(3, sizes=_THREE_EPOCHS).tree_height
+    t = np.concatenate([np.sort(np.random.default_rng(0).uniform(0, th.t_max, 40)), [np.inf]])
+
+    with _forced(True):
+        dense = th._sweep(t)
+    with _forced(False):
+        action = th._sweep(t)
+
+    np.testing.assert_allclose(action[0], dense[0], rtol=0, atol=1e-13)
+    np.testing.assert_allclose(action[1], dense[1], rtol=0, atol=1e-13 * dense[1].max())
+
+
+def test_sweep_steps_count_one_action_per_run_and_one_exponential_per_step_length():
+    """A sweep takes one interval action per run of several equal steps and one action per other step and per
+    remainder to an epoch end, one dense exponential per epoch and step length, and neither for an infinite time."""
+    th = _one_deme(4).tree_height
+
+    # [0, 0.4): three steps of 0.05 and the remainder 0.25; [0.4, 1.2): two steps of 0.3 and the remainder 0.2
+    plan = th._sweep_plan(np.array([0.05, 0.1, 0.15, 0.7, 1.0, np.inf]))
+    steps, n_dense = th._sweep_steps(plan)
+
+    assert [e.start_time for e, _ in steps] == [0, 0, 0.4, 0.4]
+    assert [tau for _, tau in steps] == pytest.approx([0.15, 0.25, 0.6, 0.2])
+    assert n_dense == 4
+    assert [len(runs) for _, runs, _ in plan] == [1, 1, 1]
+
+
+@pytest.mark.parametrize('read, k, dense', [
+    (lambda: pg.Coalescent(n=10).tree_height, 10, True),
+    (lambda: _two_demes(10).tree_height, 230, True),
+], ids=['10 states', '230 states'])
+def test_quantile_grid_decides_once_by_the_cost_model(read, k, dense):
+    """The quantile grid weighs the dense propagators of its expected segment widths, per epoch below ``t_max``,
+    against an action per expected advance, over twice the span of the grid."""
+    th = read()
+    t_max = th.t_max
+    seen = []
+    original = MomentEvaluator._dense_expm_is_faster
+
+    def spy(self, *args, **kwargs):
+        seen.append(args)
+        return original(self, *args, **kwargs)
+
+    with patch.object(MomentEvaluator, '_dense_expm_is_faster', spy):
+        th.quantile(0.5)
+
+    from phasegen.distributions.phase_type import _ExpmFunction
+    d_action, d_dense, count, steps, n_dense = seen[-1]
+    assert (d_action, d_dense, count) == (k, k, 1)
+    assert len(steps) == _ExpmFunction._expected_advances
+    assert sum(tau for _, tau in steps) == pytest.approx(2 * t_max)
+    assert n_dense == _ExpmFunction._expected_widths
+    assert original(th, *seen[-1]) is dense
+
+
+def test_quantile_grid_values_do_not_depend_on_the_decision():
+    """The quantiles read off the grid agree between the dense propagators and the action to the tolerance of the
+    grid."""
+    q = np.array([0.01, 0.5, 0.99])
+    with _forced(True):
+        dense = _two_demes(3, sizes=_THREE_EPOCHS).tree_height.quantile(q)
+    with _forced(False):
+        action = _two_demes(3, sizes=_THREE_EPOCHS).tree_height.quantile(q)
+
+    np.testing.assert_allclose(action, dense, rtol=1e-8)

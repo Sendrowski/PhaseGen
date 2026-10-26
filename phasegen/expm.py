@@ -13,11 +13,11 @@ Three operations are exposed: the dense matrix exponential :math:`\\exp(\\mathbf
 multiples of :math:`\\mathbf{A}`
 (:meth:`ExpmBackend.compute_action_interval() <phasegen.expm.ExpmBackend.compute_action_interval>`).
 
-A registered backend reaches the Van Loan evaluation of moments, the tree-height distribution functions and the
-mutational configurations. The Laplace transform of an accumulated reward always calls SciPy. The occupation times of
-spectra call SciPy above :attr:`Settings.closed_form_sparse_min_states
-<phasegen.settings.Settings.closed_form_sparse_min_states>` and :attr:`Settings.expm_action_min_dim
-<phasegen.settings.Settings.expm_action_min_dim>`, and the registered backend below them.
+A registered backend reaches the Van Loan evaluation of moments and the tree-height distribution functions. The
+Laplace transform of an accumulated reward always calls SciPy. The occupation times of spectra call SciPy above
+:attr:`Settings.closed_form_sparse_min_states <phasegen.settings.Settings.closed_form_sparse_min_states>` and
+:attr:`Settings.expm_action_min_dim <phasegen.settings.Settings.expm_action_min_dim>`, and the registered backend below
+them.
 """
 import logging
 from abc import ABC, abstractmethod

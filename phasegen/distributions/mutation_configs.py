@@ -12,16 +12,14 @@ import numpy as np
 import scipy.sparse as sp
 
 from ..demography import Demography
-from ..expm import Backend
 from ..initial import InitialDistribution
 from ..lineage import LineageConfig
 from ..locus import LocusConfig
 from ..rewards import CombinedReward, Reward, SumReward, TreeHeightReward, UnitReward
 from ..settings import Settings
 from ..state_space import StateSpace
+from ._uniformization import _Uniformization
 from .phase_type import PhaseTypeDistribution, TreeHeightDistribution
-
-expm = Backend.expm
 
 #: Largest number of floats held by the single-epoch lattice memo of one distribution before it is cleared.
 _LATTICE_MEMO_MAX_FLOATS = 2 ** 25
@@ -608,11 +606,11 @@ class SpectrumDistribution(_DefaultLayoutMixin, PhaseTypeDistribution, ABC):
         - In a single epoch, the resolvent is one dense inverse. It is cached for the most recent layout and
           :math:`\theta`, with the row vectors :math:`\mathbf{x}_\mathbf{c} \mathbf{U}` of all count vectors evaluated
           so far, so a configuration costs one vector-matrix product per new count vector.
-        - Over several epochs, the linear solves use a sparse LU factorization once :math:`L n_T` reaches
-          :attr:`Settings.closed_form_sparse_min_states <phasegen.settings.Settings.closed_form_sparse_min_states>`,
-          and the exponentials become sparse actions once it reaches
-          :attr:`Settings.expm_action_min_dim <phasegen.settings.Settings.expm_action_min_dim>`. The probabilities of
-          all :math:`L` count vectors are cached for the most recent layout and :math:`\theta`.
+        - Over several epochs, each finite epoch is applied by uniformization, and the last epoch is solved count
+          vector by count vector with one factorization, sparse from
+          :attr:`Settings.closed_form_sparse_min_states <phasegen.settings.Settings.closed_form_sparse_min_states>`
+          transient states on. The probabilities of all :math:`L` count vectors are cached for the most recent layout
+          and :math:`\theta`.
         - ``get_mutation_configs(order='probability')`` climbs from the empty configuration to a local maximum of the
           probability, then expands outward with a priority queue. The order is exactly descending if every other
           configuration has a neighbour, one mutation apart, of at least equal probability.
@@ -673,6 +671,19 @@ class SpectrumDistribution(_DefaultLayoutMixin, PhaseTypeDistribution, ABC):
 
         return non_absorbing, alpha, R
 
+    def _transient_rates(self, non_absorbing: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
+        """
+        The dense sub-intensity matrix of the current epoch and the absorption rate of each transient state, summed
+        over the rates into the absorbing states so that it is exactly zero where there are none.
+
+        :param non_absorbing: The mask of the transient states.
+        :return: ``(S, e)``.
+        """
+        rows = self.state_space.S[non_absorbing, :]
+        S, out = rows[:, non_absorbing], rows[:, ~non_absorbing]
+
+        return (S.toarray() if sp.issparse(S) else np.asarray(S)), np.asarray(out.sum(axis=1), dtype=float).ravel()
+
     def _get_resolvent(self, layout: MutationLayout, theta: float) -> Tuple:
         r"""
         Single-epoch resolvent :math:`\mathbf{U} = (\theta \operatorname{diag}(\bar{\mathbf{r}}) - \mathbf{T}_1)^{-1}`,
@@ -693,9 +704,7 @@ class SpectrumDistribution(_DefaultLayoutMixin, PhaseTypeDistribution, ABC):
 
         non_absorbing, alpha, R = self._mutation_rewards(layout)
 
-        S = self.state_space.S[non_absorbing, :][:, non_absorbing]
-        S = S.toarray() if sp.issparse(S) else np.asarray(S)
-        e = -S @ np.ones(S.shape[0])
+        S, e = self._transient_rates(non_absorbing)
         r_total = R.sum(axis=0)
 
         leaking = self._leaking_states(S, e, r_total)
@@ -773,9 +782,7 @@ class SpectrumDistribution(_DefaultLayoutMixin, PhaseTypeDistribution, ABC):
         epochs = []
         for epoch in self._get_epochs_until_unbounded():
             self.state_space.update_epoch(epoch)
-            S = self.state_space.S[non_absorbing, :][:, non_absorbing]
-            S = S.toarray() if sp.issparse(S) else np.asarray(S)
-            e = -S @ np.ones(S.shape[0])
+            S, e = self._transient_rates(non_absorbing)
             tau = None if np.isinf(epoch.end_time) else epoch.end_time - epoch.start_time
             epochs.append((S, e, tau, self._leaking_states(S, e, r_total)))
 
@@ -849,54 +856,46 @@ class SpectrumDistribution(_DefaultLayoutMixin, PhaseTypeDistribution, ABC):
         # the one-mutation shifts of each bin, as (source node, target node) pairs
         shifts = [[(a, b) for a, b, i in edges if i == j] for j in range(J)]
 
-        sparse = self._solve_sparse(nt)
-        action = nt >= Settings.expm_action_min_dim
+        # the one-mutation shifts into each node, as (source node, bin) pairs, all from earlier nodes
+        incoming = [[] for _ in range(L)]
+        for a, b, i in edges:
+            incoming[b].append((a, i))
 
-        def build_generator(S: np.ndarray) -> 'np.ndarray | sp.spmatrix':
-            diag = S - theta * np.diag(r_total)
-            if sparse:
-                A = sp.kron(sp.identity(L, format='csr'), sp.csr_matrix(diag), format='csr')
-                for i in range(J):
-                    N = sp.csr_matrix(([1.0] * len(shifts[i]), tuple(zip(*shifts[i])) if shifts[i] else ([], [])),
-                                      shape=(L, L))
-                    A = A + sp.kron(N, sp.diags(theta * R[i]), format='csr')
-                return A
-
-            A = np.zeros((nt, nt))
-            for a in range(L):
-                A[a * m:(a + 1) * m, a * m:(a + 1) * m] = diag
-            for a, b, i in edges:
-                A[a * m:(a + 1) * m, b * m:(b + 1) * m] = np.diag(theta * R[i])
+        def build_generator(S: np.ndarray) -> sp.csr_matrix:
+            A = sp.kron(sp.identity(L, format='csr'), sp.csr_matrix(S - theta * np.diag(r_total)), format='csr')
+            for i in range(J):
+                N = sp.csr_matrix(([1.0] * len(shifts[i]), tuple(zip(*shifts[i])) if shifts[i] else ([], [])),
+                                  shape=(L, L))
+                A = A + sp.kron(N, sp.diags(theta * R[i]), format='csr')
             return A
 
-        def occupation(M: 'np.ndarray | sp.spmatrix', b: np.ndarray, leaking: Optional[np.ndarray]) -> np.ndarray:
-            if leaking is None:
-                return self._lu_solver(M.T, sparse)(b)
-
-            # the occupation of the closed classes enters no equation of the others and exits nowhere
-            k = np.tile(leaking, L)
-            occ = np.zeros(nt)
-            occ[k] = self._lu_solver(M[k][:, k].T, sparse)(b[k])
-            return occ
+        def occupation(S: np.ndarray, v: np.ndarray, leaking: Optional[np.ndarray]) -> np.ndarray:
+            """
+            The row vector x with x (-A) = v, by substitution in node order: x_b = (v_b + sum_a x_a theta diag(r_i))
+            (theta diag(r) - S)^{-1}, every term non-negative. The occupation of the closed classes enters no
+            equation of the others and exits nowhere.
+            """
+            k = np.arange(m) if leaking is None else np.flatnonzero(leaking)
+            solve = self._lu_solver((theta * np.diag(r_total) - S)[np.ix_(k, k)].T, self._solve_sparse(k.size))
+            x, V = np.zeros((L, m)), v.reshape(L, m)
+            for b in range(L):
+                rhs = V[b].copy()
+                for a, i in incoming[b]:
+                    rhs += x[a] * theta * R[i]
+                x[b, k] = solve(rhs[k])
+            return x
 
         v = np.zeros(nt)
         v[:m] = alpha
 
         p = np.zeros(L)
         for S, e, tau, leaking in epochs:
-            A = build_generator(S)
-
             if tau is None:
-                p += occupation(-A, v, leaking).reshape(L, m) @ e
+                p += occupation(S, v, leaking) @ e
                 break
 
-            if action:
-                u = Backend.expm_multiply(A.T * tau, v)
-            else:
-                u = v @ expm((A.toarray() if sparse else A) * tau)
-
-            p += occupation(A, u - v, leaking).reshape(L, m) @ e
-            v = u
+            v, occ = _Uniformization(build_generator(S)).propagate(v, tau)
+            p += occ.reshape(L, m) @ e
 
         probs = dict(zip(nodes, p.tolist()))
 
