@@ -511,8 +511,8 @@ class PhaseTypeDistribution(CallableDistributionFunctions, MomentEvaluator, Mome
         the rates redirects it, and the value of the redirected mass afterwards. Within the integral, the rate change
         :math:`\mathbf{H}` acts at the fraction :math:`\sigma` of the epoch, with the unperturbed rates acting before
         and after it. It is computed on the same path as the exponential in the
-        forward pass, densely or by reversing the Taylor action (see :attr:`Settings.expm_action_min_dim
-        <phasegen.settings.Settings.expm_action_min_dim>`).
+        forward pass, densely or by reversing the Taylor action (see :attr:`Settings.expm_method
+        <phasegen.settings.Settings.expm_method>`).
 
         The entries of the generator :math:`\mathbf{S}_i` of epoch :math:`i`, of which :math:`\mathbf{T}_i` is the
         transient block, change linearly with the inverse coalescent time scales, the migration rates, the
@@ -1642,10 +1642,9 @@ class TreeHeightDistribution(PhaseTypeDistribution, DensityAwareDistribution):
 
     .. rubric:: Implementation
 
-    - The state probabilities are propagated from point to point in ascending order, with the exponentials formed
-      densely or applied as sparse actions as :attr:`Settings.expm_action_min_dim
-      <phasegen.settings.Settings.expm_action_min_dim>` selects. Equally spaced points share one exponential per step
-      length.
+    - The state probabilities are propagated from point to point in ascending order, with the exponentials evaluated
+      as :attr:`Settings.expm_method <phasegen.settings.Settings.expm_method>` selects. Equally spaced points share
+      one exponential per step length.
     - The quantile is read from the log-survival grid of :class:`~phasegen.distributions.QuantileFunction` on
       :math:`[0, t_\mathrm{max}]`, with :math:`t_\mathrm{max}` given by :attr:`TreeHeightDistribution.t_max
       <phasegen.distributions.TreeHeightDistribution.t_max>`. Each node carries the exact negative log-survival

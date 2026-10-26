@@ -194,20 +194,20 @@ def test_matrix_exponential_path_when_closed_form_disabled():
     assert dispatch.call_count >= 1
 
 
-def test_sparse_action_path_taken_below_threshold():
-    """A zero ``expm_action_min_dim`` forces the sparse matrix-exponential action (``_action_operator``)."""
+def test_sparse_action_path_forced():
+    """``Settings.expm_method = 'action'`` forces the sparse matrix-exponential action (``_action_operator``)."""
     Settings.closed_form_last_epoch = False
-    Settings.expm_action_min_dim = 0
+    Settings.expm_method = 'action'
     coal = pg.Coalescent(n=5)
     with _spy('_action_operator') as action:
         _ = coal.tree_height.mean
     assert action.call_count >= 1
 
 
-def test_dense_expm_path_taken_above_threshold():
-    """A huge ``expm_action_min_dim`` keeps the dense Van Loan exponential (no action path)."""
+def test_dense_expm_path_forced():
+    """``Settings.expm_method = 'dense'`` keeps the dense Van Loan exponential (no action path)."""
     Settings.closed_form_last_epoch = False
-    Settings.expm_action_min_dim = 10 ** 12
+    Settings.expm_method = 'dense'
     coal = pg.Coalescent(n=5)
     with _spy('_action_operator') as action:
         _ = coal.tree_height.mean
@@ -221,7 +221,7 @@ def test_accumulate_restores_input_order_for_unsorted_times(force_sparse):
     moments for >= 3 unsorted times, with both the dense and the sparse-action exponential of ``_accumulate_windowed``.
     """
     Settings.closed_form_last_epoch = False
-    Settings.expm_action_min_dim = 0 if force_sparse else 10 ** 12
+    Settings.expm_method = 'action' if force_sparse else 'dense'
 
     th = pg.Coalescent(n=5).tree_height
     times = [3.0, 0.5, 2.0, 1.0]  # >= 3 entries and unsorted -> exposes the permutation bug
@@ -265,7 +265,7 @@ def test_windowed_sfs_mean_flattens(end_time, folded):
 
 def test_closed_form_finite_epochs_dense_on_stiff_rates():
     """The finite epochs of the closed form use the dense Van Loan exponential on stiff rates below
-    ``expm_action_min_dim`` even where the last-epoch LU is sparse. Regression: a sparse LU forced the sparse action,
+    the dimension cap of ``Settings.expm_method = 'auto'`` even where the last-epoch LU is sparse. Regression: a sparse LU forced the sparse action,
     15 to 30 times slower on lineage-counting chains from 256 states on."""
     Settings.closed_form_sparse_min_states = 0
     th = pg.Coalescent(n=10, demography=pg.Demography(pop_sizes={'pop_0': {0: 1, 0.3: 0.2, 1: 2}})).tree_height
@@ -282,7 +282,7 @@ def test_closed_form_finite_epochs_dense_on_stiff_rates():
         PhaseTypeDistribution.moment(sfs, k=2, rewards=(reward, reward))
     assert action.call_count > 0
 
-    Settings.expm_action_min_dim = 0
+    Settings.expm_method = 'action'
     assert m == pytest.approx(pg.Coalescent(n=10, demography=th.demography).tree_height.moment(2, start_time=0.2),
                               rel=1e-10)
 
@@ -308,11 +308,10 @@ def test_closed_form_finite_epochs_take_action_below_sparse_lu_threshold():
         var = PhaseTypeDistribution.moment(sfs, k=2, rewards=(reward, reward))
     assert action.call_count > 0
 
-    Settings.expm_action_min_dim = 10 ** 9
-    with patch('phasegen.distributions._moments._EXPM_COST_RATIO', 0.0):
-        dense = pg.Coalescent(n=coal._lineages.lineage_dict, demography=coal.demography)
-        np.testing.assert_allclose(mean, dense.sfs.mean.data, rtol=1e-12)
-        assert var == pytest.approx(PhaseTypeDistribution.moment(dense.sfs, k=2, rewards=(reward, reward)), rel=1e-12)
+    Settings.expm_method = 'dense'
+    dense = pg.Coalescent(n=coal._lineages.lineage_dict, demography=coal.demography)
+    np.testing.assert_allclose(mean, dense.sfs.mean.data, rtol=1e-12)
+    assert var == pytest.approx(PhaseTypeDistribution.moment(dense.sfs, k=2, rewards=(reward, reward)), rel=1e-12)
 
 
 # ----------------------------------------------------------------------------------------------------------------
@@ -543,7 +542,7 @@ def test_accumulate_passes_nan_end_time_through(caplog, force_sparse):
     """A NaN end time gives a NaN moment without a warning and leaves the other end times unchanged. Regression: it
     logged a warning blaming an ill-conditioned rate matrix."""
     Settings.closed_form_last_epoch = False
-    Settings.expm_action_min_dim = 0 if force_sparse else 10 ** 12
+    Settings.expm_method = 'action' if force_sparse else 'dense'
     th = pg.Coalescent(n=4, demography=pg.Demography(pop_sizes={'pop_0': {0: 1, 0.5: 2}})).tree_height
 
     with caplog.at_level('WARNING'):
@@ -667,8 +666,8 @@ def test_every_caller_takes_the_dense_exponential_on_small_spaces_and_the_action
 
 def test_dense_expm_rule_boundaries():
     """Dense exactly where the summed step norm and the fixed costs reach the cost of the dense exponentials, that of a
-    pass recorded for its gradient scaled up, never at or above ``Settings.expm_action_min_dim`` in their size or
-    without steps, and dense without reading a generator when the fixed costs alone exceed it."""
+    pass recorded for its gradient scaled up, never from the size at which ``Settings.expm_method = 'auto'`` caps them
+    on or without steps, and dense without reading a generator when the fixed costs alone exceed it."""
     from phasegen.distributions import _moments
 
     sfs = _one_deme(10).sfs
@@ -681,7 +680,7 @@ def test_dense_expm_rule_boundaries():
     for epoch, tau in steps[:-1]:
         ss.update_epoch(epoch)
         norm += float(abs(ss.S).sum(axis=0).max()) * tau
-    ratio = ((norm + 2 * _moments._ACTION_STEP_NORM_OFFSET) * (d_action + _moments._ACTION_DIM_OFFSET) /
+    ratio = ((norm + 2 * _moments._ACTION_STEP_NORM_OFFSET) * (d_action + _moments._MOMENT_COST.offset) /
              (count * 2 * d_dense ** 3))
 
     with patch.object(_moments, '_EXPM_COST_RATIO', ratio * (1 + 1e-9)):
@@ -693,10 +692,10 @@ def test_dense_expm_rule_boundaries():
     with patch.object(_moments, '_EXPM_COST_RATIO', ratio / _moments._TAPED_DENSE_COST * (1 - 1e-9)):
         assert sfs._dense_expm_is_faster(d_action, d_dense, count, steps, taped=True)
     with patch.object(_moments, '_EXPM_COST_RATIO', ratio * (1 - 1e-9)):
-        Settings.expm_action_min_dim = d_dense
-        assert not sfs._dense_expm_is_faster(d_action, d_dense, count, steps)
-        Settings.expm_action_min_dim = d_dense + 1
-        assert sfs._dense_expm_is_faster(d_action, d_dense, count, steps)
+        with patch.object(_moments, '_EXPM_ACTION_MIN_DIM', d_dense):
+            assert not sfs._dense_expm_is_faster(d_action, d_dense, count, steps)
+        with patch.object(_moments, '_EXPM_ACTION_MIN_DIM', d_dense + 1):
+            assert sfs._dense_expm_is_faster(d_action, d_dense, count, steps)
         assert not sfs._dense_expm_is_faster(d_action, d_dense, count, [(epochs[-1], 0.0)])
 
     # the fixed costs alone decide without reading a generator
@@ -763,7 +762,7 @@ def test_transform_takes_dense_exponentials_on_small_spaces_and_the_action_on_la
 
 def test_transform_rule_boundaries():
     """The transform takes the action exactly where the bound of the cost model for its batch exceeds the summed Taylor
-    step norm, always from ``Settings.expm_action_min_dim`` on, and the dense exponentials without reading a norm
+    step norm, always from the dimension at which ``Settings.expm_method = 'auto'`` caps the dense exponentials on, and the dense exponentials without reading a norm
     where the fixed costs of the actions alone exceed them."""
     from phasegen.distributions import reward, _moments
 
@@ -776,9 +775,9 @@ def test_transform_rule_boundaries():
     taylor = reward._TaylorAction(diag, off_norm).norm + reward._TaylorAction(2 * diag, 2 * off_norm).norm
 
     # the ratio at which the bound equals the norm, by linearity of the bound in the ratio
-    unit = MomentEvaluator._dense_expm_norm_bound(dim, dim, 1, 2, 2, batch=batch)
+    unit = _moments._TRANSFORM_COST.bound(dim, dim, 1, 2, 2, batch=batch)
     with patch.object(_moments, '_EXPM_COST_RATIO', 0.0):
-        offset = MomentEvaluator._dense_expm_norm_bound(dim, dim, 1, 2, 2, batch=batch)
+        offset = _moments._TRANSFORM_COST.bound(dim, dim, 1, 2, 2, batch=batch)
     ratio = _moments._EXPM_COST_RATIO * (taylor - offset) / (unit - offset)
 
     with patch.object(_moments, '_EXPM_COST_RATIO', ratio * (1 + 1e-9)):
@@ -795,10 +794,78 @@ def test_transform_rule_boundaries():
     with patch.object(_moments, '_EXPM_COST_RATIO', 0.0):
         assert not reward._takes_action(dim, batch, 2, unread())
 
-        Settings.expm_action_min_dim = dim
-        assert reward._takes_action(dim, batch, 2, epochs())
-        Settings.expm_action_min_dim = dim + 1
-        assert not reward._takes_action(dim, batch, 2, epochs())
+        with patch.object(_moments, '_EXPM_ACTION_MIN_DIM', dim):
+            assert reward._takes_action(dim, batch, 2, epochs())
+        with patch.object(_moments, '_EXPM_ACTION_MIN_DIM', dim + 1):
+            assert not reward._takes_action(dim, batch, 2, epochs())
+
+
+def _flattened(n: int) -> pg.Coalescent:
+    """One deme with three epochs, on the lineage-counting space."""
+    return pg.Coalescent(n=n, demography=pg.Demography(pop_sizes={'pop_0': _THREE_EPOCHS}))
+
+
+_MOMENT_SITES = {
+    'closed form': lambda: _one_deme(6).tree_height.var,
+    'window': lambda: _one_deme(6, end_time=1.5).tree_height.var,
+    'occupation': lambda: _one_deme(6, model=_BETA).sfs.mean,
+    'time grid': lambda: _one_deme(6, model=_BETA).sfs.accumulate(1, np.linspace(0.1, 3, 10)),
+    'stacked pass': lambda: _one_deme(6, model=_BETA).sfs.cov,
+    'flattened levels': lambda: _flattened(8).sfs.cov,
+    'tree-height sweep': lambda: _one_deme(6).tree_height.cdf(np.linspace(0, 4, 20)),
+    'quantile grid': lambda: _one_deme(6).tree_height.quantile(0.5),
+    'gradient': lambda: _one_deme(5).tree_height.gradient(),
+}
+
+_TRANSFORM_SITES = {
+    'transform': lambda: _one_deme(5).distribution(pg.TotalBranchLengthReward()).cdf(np.array([0.5, 2.0])),
+    'taylor': lambda: _one_deme(5).joint(pg.TreeHeightReward(), pg.TotalBranchLengthReward()).lst_taylor(-0.5j),
+    'jump heights': lambda: _one_deme(4).joint(pg.TreeHeightReward(), pg.TotalBranchLengthReward()).conditional(
+        'a', 1.0).mean,
+}
+
+
+@pytest.mark.parametrize('method', ['dense', 'action'])
+@pytest.mark.parametrize('site', list(_MOMENT_SITES) + list(_TRANSFORM_SITES))
+def test_expm_method_forces_its_path_at_every_site(site, method):
+    """``Settings.expm_method`` forces the dense exponentials or the action at every decision of the moments, the
+    distribution functions and the Laplace transforms, whatever the cost model would choose."""
+    Settings.expm_method = method
+
+    if site in _MOMENT_SITES:
+        seen = [dense for _, dense in _dispatch(_MOMENT_SITES[site])]
+        assert seen and all(dense is (method == 'dense') for dense in seen)
+    else:
+        seen = [action for _, _, action in _transform_dispatch(_TRANSFORM_SITES[site])]
+        assert seen and all(action is (method == 'action') for action in seen)
+
+
+@pytest.mark.parametrize('value', ['Dense', 'sparse', 1500, None, True])
+def test_expm_method_rejects_other_values(value):
+    """Any value of ``Settings.expm_method`` other than ``'auto'``, ``'dense'`` and ``'action'`` raises, leaving the
+    setting unchanged."""
+    with pytest.raises(ValueError, match='expm_method'):
+        Settings.expm_method = value
+
+    assert Settings.expm_method == 'auto'
+
+
+@pytest.mark.parametrize('d_action, d_dense, count, n_actions, n_dense, batch', [
+    (10, 10, 1, 1, 1, 1), (230, 230, 1, 7, 3, 1), (90, 30, 4, 2, 2, 1), (1499, 1499, 3, 40, 1, 1),
+    (40, 40, 1, 2, 2, 8), (627, 627, 1, 44, 44, 64), (3, 3, 1, 1, 1, 1000),
+])
+def test_cost_profiles_reproduce_the_fitted_bounds(d_action, d_dense, count, n_actions, n_dense, batch):
+    """The moment and transform profiles give exactly the bounds of the fitted rules, with K = 0.17 and gamma = 20,
+    F = 1 (4 for a taped pass) and d0 = 1e4 for the moments, and F = 0.36 and d0 = 3000 for a transform batch."""
+    from phasegen.distributions import _moments
+
+    for taped in (False, True):
+        expected = (0.17 * (4 if taped else 1) * 1 * count * n_dense * d_dense ** 3 / (1 * d_action + 10000)
+                    - 20 * n_actions)
+        assert _moments._MOMENT_COST.bound(d_action, d_dense, count, n_actions, n_dense, taped=taped) == expected
+
+    expected = 0.17 * 0.36 * batch * count * n_dense * d_dense ** 3 / (batch * d_action + 3000) - 20 * n_actions
+    assert _moments._TRANSFORM_COST.bound(d_action, d_dense, count, n_actions, n_dense, batch=batch) == expected
 
 
 # ----------------------------------------------------------------------------------------------------------------

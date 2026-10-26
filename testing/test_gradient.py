@@ -97,7 +97,7 @@ def _assert_mean_gradient(n, stat: str, model=None, n_epochs: int = 3, seed: int
 def test_mean_gradient_matches_central_differences(n, stat, model, action):
     """The gradient over sizes, migration rates and epoch start times, on the dense and on the sparse-action path."""
     if action:
-        Settings.expm_action_min_dim = 0
+        Settings.expm_method = 'action'
     _assert_mean_gradient(n, stat, model)
 
 
@@ -132,7 +132,7 @@ def test_mean_gradient_at_zero_migration_rate(action):
     """The derivative by a migration rate of zero, from the right. Regression: the gradient was taken on the sparsity
     pattern of the generator of the epoch, which lacks the migration entries at a rate of zero, about 70 times off."""
     if action:
-        Settings.expm_action_min_dim = 0
+        Settings.expm_method = 'action'
 
     def tree_height(m):
         return pg.Coalescent(n={'pop_0': 2, 'pop_1': 2}, demography=pg.Demography(
@@ -756,7 +756,7 @@ def test_gradient_of_higher_moments_matches_differences(moment, gradient, sparse
     """The derivatives of central, raw and cross moments of order two and three by a population size, an epoch start
     time, a migration rate and alpha, on the dense exponentials and the sparse actions and solves."""
     if sparse:
-        monkeypatch.setattr(Settings, 'expm_action_min_dim', 1)
+        monkeypatch.setattr(Settings, 'expm_method', 'action')
         monkeypatch.setattr(Settings, 'closed_form_sparse_min_states', 1)
 
     grad = gradient(_three_epochs())
@@ -897,7 +897,7 @@ def test_gradient_by_recombination_rate_near_zero(n, r, action, expected):
     reverse pass of the action and of the sparse last epoch then lacked, so the derivative came out as -0.480 for n=3
     on the action path and -1.418 for n=5 on the sparse last epoch. At r=1e-9, the central difference of the generator
     shrank its step to 1e-12 and lost three digits to cancellation."""
-    Settings.expm_action_min_dim = 0 if action else 10 ** 9
+    Settings.expm_method = 'action' if action else 'dense'
 
     assert _two_locus(n, r).tree_height.gradient().parameters['recombination_rate'] == pytest.approx(expected,
                                                                                                     rel=1e-8)
@@ -1415,11 +1415,11 @@ def test_sfs_mean_and_gradient_by_beta_alpha_close_to_two_on_the_action_path(mon
         return pg.Coalescent(n=6, model=pg.BetaCoalescent(alpha=2 - 1e-7), demography=pg.Demography(
             pop_sizes={'pop_0': {0: 1, 0.5: 2, 1.5: 0.5}}))
 
-    monkeypatch.setattr(Settings, 'expm_action_min_dim', 10 ** 9)
+    monkeypatch.setattr(Settings, 'expm_method', 'dense')
     dense = coal().sfs
     mean, grad = dense.mean.data, dense.gradient()
 
-    monkeypatch.setattr(Settings, 'expm_action_min_dim', 0)
+    monkeypatch.setattr(Settings, 'expm_method', 'action')
     monkeypatch.setattr(_expm_multiply, '_expm_multiply_simple_core', counted_core)
     monkeypatch.setattr(_TapedAction, '_terms', counted_terms)
     action = coal().sfs

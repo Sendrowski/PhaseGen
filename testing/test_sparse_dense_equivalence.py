@@ -4,7 +4,7 @@ Equivalence of sparse and dense rate-matrix construction (and the moment paths t
 The rate matrix is stored densely for small state spaces and sparsely once the transient count exceeds
 :attr:`Settings.dense_rate_matrix_max_states` (see :attr:`StateSpace.S`). Likewise the moment
 paths switch to sparse linear algebra (expm-action, sparse closed-form LU) above
-:attr:`Settings.expm_action_min_dim` / :attr:`Settings.closed_form_sparse_min_states`. These thresholds only
+:attr:`Settings.expm_method` / :attr:`Settings.closed_form_sparse_min_states`. These settings only
 change *how* a result is computed, never *what*; this module pins that down at small, fast sizes by forcing the
 construction sparse-vs-dense and the moment paths sparse-vs-dense and asserting bit-for-bit (construction) and
 floating-point (moments) agreement across every state-space type.
@@ -140,13 +140,13 @@ def test_moment_paths_sparse_matches_dense(label, make, get):
     """Forcing the moment paths fully sparse vs fully dense yields the same statistic to floating-point tolerance."""
     # fully dense: dense rate matrix and dense expm / closed-form everywhere
     Settings.dense_rate_matrix_max_states = _HUGE
-    Settings.expm_action_min_dim = _HUGE
+    Settings.expm_method = 'dense'
     Settings.closed_form_sparse_min_states = _HUGE
     dense = get(make())
 
     # fully sparse: sparse rate matrix and sparse expm-action / closed-form everywhere
     Settings.dense_rate_matrix_max_states = 0
-    Settings.expm_action_min_dim = 0
+    Settings.expm_method = 'action'
     Settings.closed_form_sparse_min_states = 0
     sparse = get(make())
 
@@ -203,7 +203,7 @@ def _three_epoch_single():
 
 
 # joint-reward inversion on multi-epoch spaces with the bounded epochs of the transform propagated by dense Pade
-# exponentials or by the Taylor action, forced through ``expm_action_min_dim`` and the cost ratio of the cost model. The cases cover the shifted transform
+# exponentials or by the Taylor action, forced through ``expm_method``. The cases cover the shifted transform
 # (``lst``, the cosine CDF and density), its Taylor coefficients over the polynomial ring (``lst_taylor``), the
 # conditional mean with its jump heights, the marginal, and a sparse-stored final epoch.
 JOINT_ACTION_CASES = [
@@ -218,19 +218,14 @@ JOINT_ACTION_CASES = [
 
 
 @pytest.mark.parametrize("label, make, cf_min", JOINT_ACTION_CASES, ids=[c[0] for c in JOINT_ACTION_CASES])
-def test_joint_inversion_action_matches_dense(label, make, cf_min, monkeypatch):
+def test_joint_inversion_action_matches_dense(label, make, cf_min):
     """The transform of a joint reward distribution, its Taylor coefficients, CDF, density, conditional mean and
     marginal agree whether the bounded epochs use dense Pade exponentials or the Taylor action."""
     pts = [(-1j * 0.5, -1j * 0.7), (-1j * 2.0, 1j * 3.0), (np.inf, -1j * 2.0), (-1j * 3.0, np.inf)]
     xs, ys = np.array([0.3, 0.8, 1.4]), np.array([0.35, 0.9, 1.6])
 
-    from phasegen.distributions import _moments
-    ratio = _moments._EXPM_COST_RATIO
-
-    def evaluate(action_min_dim):
-        Settings.expm_action_min_dim = action_min_dim
-        # a zero cost of the dense exponentials makes the cost model choose them below the threshold
-        monkeypatch.setattr(_moments, '_EXPM_COST_RATIO', 0.0 if action_min_dim == _HUGE else ratio)
+    def evaluate(method):
+        Settings.expm_method = method
         Settings.closed_form_sparse_min_states = cf_min
         Settings.cos_terms_2d = 24
         jd = make()
@@ -244,7 +239,7 @@ def test_joint_inversion_action_matches_dense(label, make, cf_min, monkeypatch):
             marginal_cdf=np.asarray(jd.marginal('b').cdf(ys), dtype=float),
         )
 
-    dense, action = evaluate(_HUGE), evaluate(0)
+    dense, action = evaluate('dense'), evaluate('action')
 
     for key in dense:
         np.testing.assert_allclose(action[key], dense[key], atol=1e-9, rtol=1e-7, err_msg=f"{label}: {key}")
@@ -263,19 +258,17 @@ def test_taylor_action_rejects_non_finite_matrices():
 def test_taylor_action_in_norm_sorted_chunks_matches_dense(monkeypatch):
     """The transform and its Taylor coefficients at many arguments, propagated by the Taylor action in chunks of
     rows sorted by shift size, equal the dense exponentials at every argument in its original position."""
-    from phasegen.distributions import reward, _moments
+    from phasegen.distributions import reward
 
     jd = pg.Coalescent(n=5, demography=_three_epoch_single()).sfs.joint(1, 2)
     s_a = np.array([0.3, -40j, 2.0, 0.1j, -7 + 3j, 15.0, 0.0, -2j])
     s_b = s_a[::-1].copy()
 
-    Settings.expm_action_min_dim = _HUGE
-    with monkeypatch.context() as m:
-        m.setattr(_moments, '_EXPM_COST_RATIO', 0.0)
-        dense = jd.lst_batch(s_a, s_b)
-        dense_taylor = np.array([jd.lst_taylor(x, on='a', order=2) for x in s_a])
+    Settings.expm_method = 'dense'
+    dense = jd.lst_batch(s_a, s_b)
+    dense_taylor = np.array([jd.lst_taylor(x, on='a', order=2) for x in s_a])
 
-    Settings.expm_action_min_dim = 0
+    Settings.expm_method = 'action'
     monkeypatch.setattr(reward, '_LST_VECTOR_ENTRIES', 1)
     np.testing.assert_allclose(jd.lst_batch(s_a, s_b), dense, rtol=1e-9, atol=1e-12)
     np.testing.assert_allclose(jd._lst_taylor_batch(s_a, 'a', 2), dense_taylor, rtol=1e-9, atol=1e-12)

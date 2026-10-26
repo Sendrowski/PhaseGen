@@ -15,9 +15,9 @@ multiples of :math:`\\mathbf{A}`
 
 A registered backend reaches the Van Loan evaluation of moments and the tree-height distribution functions. The
 Laplace transform of an accumulated reward always calls SciPy. The occupation times of spectra call SciPy above
-:attr:`Settings.closed_form_sparse_min_states <phasegen.settings.Settings.closed_form_sparse_min_states>` and
-:attr:`Settings.expm_action_min_dim <phasegen.settings.Settings.expm_action_min_dim>`, and the registered backend below
-them.
+:attr:`Settings.closed_form_sparse_min_states <phasegen.settings.Settings.closed_form_sparse_min_states>` and where
+:attr:`Settings.expm_method <phasegen.settings.Settings.expm_method>` selects the action, and the registered backend
+otherwise.
 """
 import logging
 from abc import ABC, abstractmethod

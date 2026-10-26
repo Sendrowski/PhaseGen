@@ -12,8 +12,8 @@ import phasegen as pg
 from phasegen.settings import Settings
 
 #: force the dense / action path respectively
-DENSE = 10 ** 9
-ACTION = 0
+DENSE = 'dense'
+ACTION = 'action'
 
 
 def _demography(pop_sizes, migration_rate=1.0, two_epoch=False):
@@ -31,10 +31,10 @@ def _demography(pop_sizes, migration_rate=1.0, two_epoch=False):
 
 def _both_paths(make, get):
     """Compute the statistic with the dense and the action path."""
-    Settings.expm_action_min_dim = DENSE
+    Settings.expm_method = DENSE
     dense = np.asarray(get(make()))
 
-    Settings.expm_action_min_dim = ACTION
+    Settings.expm_method = ACTION
     action = np.asarray(get(make()))
 
     return dense, action
@@ -153,11 +153,11 @@ def test_tree_height_terms_bounded_by_beta_alpha_close_to_two():
     def tree_height():
         return pg.Coalescent(n=6, model=pg.BetaCoalescent(alpha=2 - 1e-6)).tree_height
 
-    Settings.expm_action_min_dim = DENSE
+    Settings.expm_method = DENSE
     th = tree_height()
     pdf, cdf = th.pdf(t), th.cdf(t)
 
-    Settings.expm_action_min_dim = ACTION
+    Settings.expm_method = ACTION
     core, terms = _expm_multiply._expm_multiply_simple_core, [0]
 
     def counted(A, B, t_, mu, m_star, s, *args, **kwargs):
@@ -175,8 +175,8 @@ def test_tree_height_terms_bounded_by_beta_alpha_close_to_two():
     assert 0 < terms[0] < 40000
 
 
-@pytest.mark.parametrize('dim', [ACTION, DENSE])
-def test_occupation_grid_reuses_propagators(dim):
+@pytest.mark.parametrize('method', [ACTION, DENSE])
+def test_occupation_grid_reuses_propagators(method):
     """
     The batched mean accumulation of a spectrum over an equally spaced grid crossing epoch boundaries, with a start
     time, forms one dense exponential per epoch and step length, or takes one interval action per run on the sparse
@@ -185,7 +185,7 @@ def test_occupation_grid_reuses_propagators(dim):
     from unittest.mock import patch
     from phasegen.distributions._moments import MomentEvaluator
 
-    Settings.expm_action_min_dim = dim
+    Settings.expm_method = method
     Settings.flatten_block_counting = False
     sfs = pg.Coalescent(n=6, demography=_demography({'pop_0': 1.0}, two_epoch=True)).sfs
     t = np.linspace(0.2, 3, 60)
@@ -193,15 +193,15 @@ def test_occupation_grid_reuses_propagators(dim):
     with patch.object(MomentEvaluator, '_block_expm', side_effect=MomentEvaluator._block_expm) as spy:
         grid = sfs.accumulate(1, t, start_time=0.1)
 
-    if dim == DENSE:
+    if method == DENSE:
         assert spy.call_count <= 12
 
     ref = np.array([sfs.accumulate(1, [u], start_time=0.1)[0] for u in t])
     np.testing.assert_allclose(grid, ref, rtol=1e-11, atol=1e-14 * np.abs(ref).max())
 
 
-@pytest.mark.parametrize('dim', [ACTION, DENSE])
-def test_windowed_accumulation_over_grid(dim):
+@pytest.mark.parametrize('method', [ACTION, DENSE])
+def test_windowed_accumulation_over_grid(method):
     """
     The windowed second moment over an equally spaced grid crossing epoch boundaries, with end times before the start
     time, agrees with the moment to each end time alone, on the dense path reusing one exponential per step and on
@@ -210,14 +210,14 @@ def test_windowed_accumulation_over_grid(dim):
     from unittest.mock import patch
     from phasegen.distributions._moments import MomentEvaluator
 
-    Settings.expm_action_min_dim = dim
+    Settings.expm_method = method
     th = pg.Coalescent(n=6, demography=_demography({'pop_0': 1.0}, two_epoch=True)).tree_height
     t = np.linspace(0, 3, 40)
 
     with patch.object(MomentEvaluator, '_block_expm', side_effect=MomentEvaluator._block_expm) as spy:
         grid = th.accumulate(2, t, start_time=0.3)
 
-    if dim == DENSE:
+    if method == DENSE:
         assert spy.call_count <= 12
     ref = np.array([th.accumulate(2, [u], start_time=0.3)[0] for u in t])
 

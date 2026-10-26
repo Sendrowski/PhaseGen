@@ -135,7 +135,7 @@ def test_cross_moments_match_unflattened(sizes):
         _assert_close(flattened, reference)
 
 
-@pytest.mark.parametrize('setting, value', [('expm_action_min_dim', 0), ('closed_form_last_epoch', False),
+@pytest.mark.parametrize('setting, value', [('expm_method', 'action'), ('closed_form_last_epoch', False),
                                             ('regularize', False)])
 def test_settings_match_unflattened(setting, value):
     """The sparse action, the integration to the time of almost sure absorption and the unbalanced exponentials agree

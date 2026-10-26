@@ -8,7 +8,7 @@ import logging
 from collections import deque
 from ..caching import cache
 from math import comb, factorial
-from typing import Dict, List, Tuple, Iterable, Optional, Sequence, TYPE_CHECKING
+from typing import Dict, List, NamedTuple, Tuple, Iterable, Optional, Sequence, TYPE_CHECKING
 import numpy as np
 import scipy.linalg as sla
 import scipy.sparse as sp
@@ -53,35 +53,81 @@ _MIN_SCALED_STEP = 0.1
 #: reward terms below double resolution, and a smaller factor would overflow the rebased extended vector.
 _MIN_BALANCE = np.finfo(float).eps
 
-#: Cost ratio of the dense exponentials against the sparse action of ``MomentEvaluator._dense_expm_is_faster``. With
-#: ``_ACTION_STEP_NORM_OFFSET``, ``_ACTION_DIM_OFFSET`` and ``_TAPED_DENSE_COST``, fitted jointly on 3880 passes
-#: recorded on each of an arm64 Mac and an x86-64 cluster node (closed-form and windowed moments, occupation times,
-#: time grids, the forward pass of the second moments of spectra and gradients, 10 to 490 states), where it brings
-#: each kind of pass within 2.5% of always taking the faster side on both machines.
+#: Cost ratio :math:`K` of the dense exponentials against the sparse action of ``_ExpmCost``. With
+#: ``_ACTION_STEP_NORM_OFFSET``, ``_TAPED_DENSE_COST`` and ``_MOMENT_COST``, fitted jointly on 3880 passes recorded on
+#: each of an arm64 Mac and an x86-64 cluster node (closed-form and windowed moments, occupation times, time grids,
+#: the forward pass of the second moments of spectra and gradients, 10 to 490 states), where it brings each kind of
+#: pass within 2.5% of always taking the faster side on both machines.
 _EXPM_COST_RATIO = 0.17
 
-#: Fixed cost of one sparse action in units of the step norm, the work besides the matrix-vector products that the
-#: step norm counts.
+#: Fixed cost :math:`\gamma` of one sparse action in units of the step norm, the work besides the matrix-vector
+#: products that the step norm counts.
 _ACTION_STEP_NORM_OFFSET = 20
-
-#: Fixed cost of one matrix-vector product of the sparse action in units of the operator dimension, the overhead of
-#: a product besides its arithmetic.
-_ACTION_DIM_OFFSET = 10000
 
 #: Factor on the cost of the dense exponentials of a pass recorded for its gradient, whose backward pass takes the
 #: Fréchet derivative of each dense exponential and reverses each action.
 _TAPED_DENSE_COST = 4
 
-#: Factor on the cost of the dense exponentials of a batch of the Laplace transform in
-#: ``MomentEvaluator._dense_expm_norm_bound``, whose Pade approximants are formed as one stack. With
-#: ``_TRANSFORM_ACTION_DIM_OFFSET``, fitted on 6981 batches recorded on an x86-64 cluster node (marginal, joint and
-#: conditional transforms on one and two demes, two loci, splits, pulses and out of Africa, 2 to 627 dimensions,
-#: 1 to 44 bounded epochs), where it brings each kind of batch within 3% of always taking the faster side.
-_TRANSFORM_DENSE_COST = 0.36
+#: Dense size from which ``Settings.expm_method = 'auto'`` takes the action whatever the cost, which bounds the memory
+#: of the dense exponentials.
+_EXPM_ACTION_MIN_DIM = 1500
 
-#: Fixed cost of one product of the batched truncated Taylor action of the Laplace transform in units of a row entry,
-#: in place of ``_ACTION_DIM_OFFSET``.
-_TRANSFORM_ACTION_DIM_OFFSET = 3000
+
+class _ExpmCost(NamedTuple):
+    r"""
+    A cost profile of the choice between dense exponentials and sparse actions. With :math:`n_a` actions of
+    :math:`B` stacked vectors under operators of dimension :math:`d_a` and step norms :math:`s_i`, against
+    :math:`B c` dense exponentials of size :math:`d_d` for each of :math:`n_d` steps, the dense side is cheaper where
+
+    .. math::
+        \left(\sum_i s_i + \gamma n_a\right) (B d_a + d_0) > K F F_\mathrm{tape} B c\, n_d\, d_d^3,
+
+    with :math:`\gamma` the ``_ACTION_STEP_NORM_OFFSET``, :math:`K` the ``_EXPM_COST_RATIO``, :math:`F` and
+    :math:`d_0` the fields of the profile, and :math:`F_\mathrm{tape}` the ``_TAPED_DENSE_COST`` for a pass recorded
+    for its gradient and 1 otherwise.
+    """
+    #: The factor :math:`F` on the cost of the dense exponentials.
+    dense: float
+
+    #: The fixed cost :math:`d_0` of a product of the action in units of a row entry.
+    offset: int
+
+    def bound(self, d_action: int, d_dense: int, count: int, n_actions: int, n_dense: int, batch: int = 1,
+              taped: bool = False) -> float:
+        r"""
+        The summed step norm above which the dense exponentials are cheaper, by :attr:`Settings.expm_method
+        <phasegen.settings.Settings.expm_method>`: :math:`-\infty` for ``'dense'``, :math:`\infty` for ``'action'``
+        and for ``'auto'`` from ``_EXPM_ACTION_MIN_DIM`` in ``d_dense`` on, and the cost model otherwise.
+
+        :param d_action: The dimension :math:`d_a` of the operator of an action.
+        :param d_dense: The size :math:`d_d` of each dense exponential.
+        :param count: The number :math:`c` of dense exponentials per step and vector.
+        :param n_actions: The number :math:`n_a` of actions.
+        :param n_dense: The number :math:`n_d` of steps with their own dense exponentials.
+        :param batch: The number :math:`B` of stacked vectors.
+        :param taped: Whether the pass is recorded for its gradient.
+        :return: The bound, negative where the dense exponentials are cheaper at any norm.
+        """
+        if Settings.expm_method == 'dense':
+            return -np.inf
+
+        if Settings.expm_method == 'action' or d_dense >= _EXPM_ACTION_MIN_DIM:
+            return np.inf
+
+        factor = _EXPM_COST_RATIO * self.dense * (_TAPED_DENSE_COST if taped else 1)
+        return (factor * batch * count * n_dense * d_dense ** 3 / (batch * d_action + self.offset) -
+                _ACTION_STEP_NORM_OFFSET * n_actions)
+
+
+#: The cost profile of the moments, distribution functions and occupation times.
+_MOMENT_COST = _ExpmCost(dense=1, offset=10000)
+
+#: The cost profile of a batch of the Laplace transform, propagated as one stacked action of the batched truncated
+#: Taylor series and exponentiated as one stack of Pade approximants. Fitted with ``_EXPM_COST_RATIO`` on 6981 batches
+#: recorded on an x86-64 cluster node (marginal, joint and conditional transforms on one and two demes, two loci,
+#: splits, pulses and out of Africa, 2 to 627 dimensions, 1 to 44 bounded epochs), where it brings each kind of batch
+#: within 3% of always taking the faster side.
+_TRANSFORM_COST = _ExpmCost(dense=0.36, offset=3000)
 
 #: Smallest dimension from which the dense exponentials of the Van Loan matrices and of the augmented occupation
 #: generator take ``BlockTriangularExpm``, one matrix at a time, rather than the generic exponential of the stack.
@@ -267,8 +313,8 @@ class MomentEvaluator:
         """
         Whether a linear solve over ``n_transient`` transient states takes the sparse path, at and above
         :attr:`Settings.closed_form_sparse_min_states <phasegen.settings.Settings.closed_form_sparse_min_states>`.
-        Distinct from :attr:`Settings.expm_action_min_dim <phasegen.settings.Settings.expm_action_min_dim>`, which
-        governs the matrix-exponential action, though ``_accumulate_closed_form`` and ``_occupation_times`` let this
+        Distinct from :attr:`Settings.expm_method <phasegen.settings.Settings.expm_method>`, which governs the
+        matrix-exponential action, though ``_accumulate_closed_form`` and ``_occupation_times`` let this
         one decide both, their exponentials following the sparsity their factorization already takes, except on the
         stiff generators of ``_dense_expm_is_faster``.
 
@@ -378,10 +424,9 @@ class MomentEvaluator:
 
         .. rubric:: Implementation
 
-        - Matrix exponentials are applied to vectors as sparse actions (Al-Mohy and Higham, 2011) from
-          :attr:`Settings.expm_action_min_dim <phasegen.settings.Settings.expm_action_min_dim>` on in the size of the
-          dense exponential, :math:`(k + 1)|E|`, and below it are formed densely where the cost comparison described
-          at that setting finds them cheaper.
+        - Matrix exponentials are applied to vectors as sparse actions (Al-Mohy and Higham, 2011) or formed densely
+          as :attr:`Settings.expm_method <phasegen.settings.Settings.expm_method>` selects, by default by a cost
+          comparison, with :math:`(k + 1)|E|` the size of the dense exponential.
         - :math:`\mathbf{U}` is never formed. A single LU factorization of :math:`-\mathbf{T}` serves all solves. It is
           sparse from :attr:`Settings.closed_form_sparse_min_states
           <phasegen.settings.Settings.closed_form_sparse_min_states>` transient states on, with the states ordered by
@@ -1834,8 +1879,8 @@ class MomentEvaluator:
         """
         Whether ``count`` dense exponentials of size ``d_dense`` per step are cheaper than one sparse action of an
         operator of dimension ``d_action`` per step, over the steps ``(epoch, tau)``, or ``n_dense`` times ``count``
-        dense exponentials when they are reused across steps, by the cost model of ``_dense_expm_norm_bound`` with
-        the step norms of the rate matrix ``S`` of each epoch. Leaves the state space in the epoch it found.
+        dense exponentials when they are reused across steps, by ``_MOMENT_COST`` with the step norms of the rate
+        matrix ``S`` of each epoch. Leaves the state space in the epoch it found.
 
         :param d_action: The dimension of the operator of the action.
         :param d_dense: The size of each dense exponential.
@@ -1849,8 +1894,8 @@ class MomentEvaluator:
         if not steps:
             return False
 
-        bound = self._dense_expm_norm_bound(d_action, d_dense, count, len(steps),
-                                            len(steps) if n_dense is None else n_dense, taped)
+        bound = _MOMENT_COST.bound(d_action, d_dense, count, len(steps), len(steps) if n_dense is None else n_dense,
+                                   taped=taped)
         if bound == np.inf:
             return False
 
@@ -1871,56 +1916,6 @@ class MomentEvaluator:
         self.state_space.update_epoch(current)
 
         return bool(norm > bound)
-
-    @staticmethod
-    def _dense_expm_norm_bound(
-            d_action: int,
-            d_dense: int,
-            count: int,
-            n_actions: int,
-            n_dense: int,
-            taped: bool = False,
-            batch: int = None
-    ) -> float:
-        r"""
-        The summed step norm above which the dense exponentials are cheaper than the actions, the one cost model of
-        every choice between them. With :math:`n_a` actions of an operator of dimension :math:`d_\mathrm{action}`
-        and step norms :math:`s_i`, against :math:`c` dense exponentials of size :math:`d_\mathrm{dense}` for each
-        of :math:`n_d` steps, the dense side is cheaper where
-
-        .. math::
-            \left(\sum_i s_i + \gamma n_a\right) (B d_\mathrm{action} + d_0)
-            > K F B c\, n_d\, d_\mathrm{dense}^3,
-
-        with :math:`B` the ``batch``, 1 for the moments, :math:`\gamma` the ``_ACTION_STEP_NORM_OFFSET``, :math:`d_0`
-        the ``_ACTION_DIM_OFFSET``, :math:`K` the ``_EXPM_COST_RATIO``, and :math:`F` the ``_TAPED_DENSE_COST`` for a
-        pass recorded for its gradient and 1 otherwise. An action takes a number of matrix-vector products
-        proportional to its step norm, each linear in the size of the vectors it propagates plus a fixed cost, and a
-        dense exponential a cost cubic in its size. A ``batch`` of :math:`B` matrices of the Laplace transform, each
-        applied to its own vector, propagates as one stacked action of the batched truncated Taylor series and
-        exponentiates as one stack of Pade approximants, with :math:`F` the ``_TRANSFORM_DENSE_COST`` and :math:`d_0`
-        the ``_TRANSFORM_ACTION_DIM_OFFSET``. Infinite from
-        :attr:`Settings.expm_action_min_dim <phasegen.settings.Settings.expm_action_min_dim>` in ``d_dense`` on.
-
-        :param d_action: The dimension of the operator of an action, of each matrix of a batch.
-        :param d_dense: The size of each dense exponential.
-        :param count: The number of dense exponentials per step, of each matrix of a batch.
-        :param n_actions: The number of actions.
-        :param n_dense: The number of steps with their own dense exponentials.
-        :param taped: Whether the pass is recorded for its gradient.
-        :param batch: The number of matrices of a batch of the Laplace transform, or ``None`` for the moments.
-        :return: The bound on the summed step norm, negative where the dense exponentials are cheaper at any norm.
-        """
-        if d_dense >= Settings.expm_action_min_dim:
-            return np.inf
-
-        if batch is None:
-            batch, factor, offset = 1, _EXPM_COST_RATIO * (_TAPED_DENSE_COST if taped else 1), _ACTION_DIM_OFFSET
-        else:
-            factor, offset = _EXPM_COST_RATIO * _TRANSFORM_DENSE_COST, _TRANSFORM_ACTION_DIM_OFFSET
-
-        return (factor * batch * count * n_dense * d_dense ** 3 / (batch * d_action + offset) -
-                _ACTION_STEP_NORM_OFFSET * n_actions)
 
     @staticmethod
     def _closed_form_steps(epochs: List[Epoch], start_time: float) -> List[Tuple[Epoch, float]]:

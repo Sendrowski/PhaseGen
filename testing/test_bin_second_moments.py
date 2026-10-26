@@ -10,7 +10,7 @@ import pytest
 import scipy.sparse as sp
 
 import phasegen as pg
-from phasegen.distributions import PhaseTypeDistribution
+from phasegen.distributions import PhaseTypeDistribution, _moments
 from phasegen.expm import Backend, _GrowthBound
 from phasegen.rewards import CombinedReward
 from phasegen.settings import Settings
@@ -76,13 +76,13 @@ _REGIMES = {
     'finite window': (lambda: _single(start_time=0.6, end_time=2.0).sfs, {}),
     'finite end': (lambda: _single(end_time=1.0).sfs, {}),
     'closed form disabled': (lambda: _single().sfs, {'closed_form_last_epoch': False}),
-    'forced action': (lambda: _single().sfs, {'expm_action_min_dim': 0}),
-    'forced dense': (lambda: _single().sfs, {'expm_action_min_dim': 10 ** 9}),
+    'forced action': (lambda: _single().sfs, {'expm_method': 'action'}),
+    'forced dense': (lambda: _single().sfs, {'expm_method': 'dense'}),
     'sparse factorization': (lambda: _single().sfs, {'closed_form_sparse_min_states': 0}),
     'two demes sfs': (lambda: _two_demes().sfs, {}),
     'two demes jsfs': (lambda: _two_demes().jsfs, {}),
     'two demes jsfs window': (lambda: _two_demes(start_time=0.3, end_time=1.5).jsfs, {}),
-    'two demes jsfs forced action': (lambda: _two_demes().jsfs, {'expm_action_min_dim': 0}),
+    'two demes jsfs forced action': (lambda: _two_demes().jsfs, {'expm_method': 'action'}),
 }
 
 
@@ -150,12 +150,13 @@ def test_second_moments_equal_the_per_pair_values():
 
 
 @pytest.mark.parametrize('offset, action', [(0, True), (1, False)])
-def test_windowed_pass_takes_the_action_from_the_threshold(offset, action):
-    """In a finite window, the pass takes the stacked action from a Van Loan dimension of
-    ``Settings.expm_action_min_dim`` on, and one dense exponential per bin below, with the same values."""
+def test_windowed_pass_takes_the_action_from_the_threshold(offset, action, monkeypatch):
+    """In a finite window, the pass takes the stacked action from the Van Loan dimension at which
+    ``Settings.expm_method = 'auto'`` caps the dense exponentials on, and one dense exponential per bin below, with the
+    same values."""
     reference = _batched(_single(end_time=2.0).sfs)
     sfs = _single(end_time=2.0).sfs
-    Settings.expm_action_min_dim = 3 * sfs.state_space.k + offset
+    monkeypatch.setattr(_moments, '_EXPM_ACTION_MIN_DIM', 3 * sfs.state_space.k + offset)
 
     with _spy('_block_expms') as dense, patch.object(Backend, 'expm_multiply', side_effect=Backend.expm_multiply) as act:
         batched = _batched(sfs)
@@ -231,10 +232,10 @@ def test_stiff_stacked_action_stops_once_stationary():
     """An epoch whose generator has a 1-norm far above the stepping threshold is applied in norm-doubling steps that
     stop once the stacked vector is stationary, and matches the dense exponentials."""
     make = lambda: _single(sizes={0: 1.0, 0.5: 1e-4, 2.0: 1.0}).sfs
-    Settings.expm_action_min_dim = 10 ** 9
+    Settings.expm_method = 'dense'
     reference = _batched(make())
 
-    Settings.expm_action_min_dim = 0
+    Settings.expm_method = 'action'
     with patch.object(Backend, '_stationary', side_effect=Backend._stationary) as stationary:
         batched = _batched(make())
 

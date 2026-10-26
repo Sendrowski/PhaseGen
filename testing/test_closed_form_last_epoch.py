@@ -61,18 +61,18 @@ def _four_paths(fn):
     Evaluate ``fn`` under all four moment solvers, forcing each via the path-selection thresholds:
     dense/sparse matrix exponential (closed form off) and dense/sparse closed form (closed form on).
     """
-    # (closed_form_last_epoch, expm_action_min_dim, closed_form_sparse_min_states); _HI/_LO force the
+    # (closed_form_last_epoch, expm_method, closed_form_sparse_min_states); _HI/_LO force the
     # dense/sparse sub-paths
     configs = {
-        "dense-expm": (False, _HI, _HI),
-        "sparse-expm": (False, _LO, _HI),
-        "dense-cf": (True, _HI, _HI),
-        "sparse-cf": (True, _LO, _LO),
+        "dense-expm": (False, 'dense', _HI),
+        "sparse-expm": (False, 'action', _HI),
+        "dense-cf": (True, 'dense', _HI),
+        "sparse-cf": (True, 'action', _LO),
     }
     out = {}
-    for name, (cf, eamd, cfmin) in configs.items():
+    for name, (cf, method, cfmin) in configs.items():
         Settings.closed_form_last_epoch = cf
-        Settings.expm_action_min_dim = eamd
+        Settings.expm_method = method
         Settings.closed_form_sparse_min_states = cfmin
         out[name] = np.asarray(fn(), dtype=float)
     return out
@@ -268,7 +268,7 @@ def test_closed_form_finite_epochs_exact_at_large_population_size(sparse):
     """
     Settings.closed_form_last_epoch = True
     Settings.closed_form_sparse_min_states = _LO if sparse else _HI
-    Settings.expm_action_min_dim = _LO if sparse else _HI
+    Settings.expm_method = 'action' if sparse else 'dense'
 
     def third_moment(N: float, sizes: dict) -> float:
         demography = pg.Demography(pop_sizes={'pop_0': {t * N: s * N for t, s in sizes.items()}})

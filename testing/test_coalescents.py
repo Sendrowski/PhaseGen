@@ -1937,7 +1937,7 @@ def test_high_moments_after_a_short_epoch_match_an_extended_precision_reference(
     assert coal.tree_height.moment(5, center=False) == pytest.approx(0.031670133796944716, rel=1e-12)
     assert coal.tree_height.moment(5) == pytest.approx(-5.6834198753562267e-10, rel=1e-5, abs=0)
 
-    pg.Settings.expm_action_min_dim = 1
+    pg.Settings.expm_method = 'action'
     coal = pg.Coalescent(n=3, demography=pg.Demography(pop_sizes={'pop_0': {0: 1e-3, 1e-4: 1e3}}))
 
     raw = coal.moment(5, [pg.rewards.TreeHeightReward()] * 5, center=False, end_time=1.5e-4)
@@ -1953,7 +1953,7 @@ def test_high_moments_across_a_very_short_epoch_match_an_extended_precision_refe
     References from a 100-digit mpmath Van Loan computation."""
     if sparse:
         pg.Settings.closed_form_sparse_min_states = 1
-        pg.Settings.expm_action_min_dim = 0
+        pg.Settings.expm_method = 'action'
 
     two_demes = pg.Coalescent(n=pg.LineageConfig({'a': 2, 'b': 2}), demography=pg.Demography(
         pop_sizes={'a': {0: 1, 1: 2, 1 + 1e-12: 0.5}, 'b': {0: 1, 1: 3}},
@@ -1989,7 +1989,7 @@ def test_action_path_moments_do_not_depend_on_the_other_end_times():
     """On the sparse-action path each step is balanced on its own length, so a moment at one end time is the same
     whether or not later end times are requested with it. Regression: the factor was taken from the last end time,
     and the fifth raw moment at t = 1e-3 came out 44% off when evaluated together with t = 10."""
-    pg.Settings.expm_action_min_dim = 1
+    pg.Settings.expm_method = 'action'
     reward = (pg.rewards.TreeHeightReward(),) * 5
     times = [1.5e-4, 1e-3, 1e-2, 10]
 
@@ -2163,7 +2163,7 @@ def test_tree_height_cdf_and_pdf_at_infinity_on_the_sparse_action_path(monkeypat
             pop_sizes={'a': 1, 'b': 2}, migration_rates={('a', 'b'): 0.5, ('b', 'a'): 1}))]
 
     dense = [(c.tree_height.cdf(np.inf), c.tree_height.cdf(1e6)) for c in coals()]
-    monkeypatch.setattr(pg.Settings, 'expm_action_min_dim', 2)
+    monkeypatch.setattr(pg.Settings, 'expm_method', 'action')
 
     for c, (cdf_inf, cdf_far) in zip(coals(), dense):
         assert c.tree_height.cdf(np.inf) == pytest.approx(cdf_inf, rel=1e-12)
@@ -2212,7 +2212,7 @@ def test_batched_spectrum_accumulation_passes_nan_end_times_on_the_action_path(m
         return pg.Coalescent(n=4, model=pg.BetaCoalescent(alpha=1.5)).sfs.accumulate(1, [0.5, np.nan, 2.0])
 
     dense = acc()
-    monkeypatch.setattr(pg.Settings, 'expm_action_min_dim', 0)
+    monkeypatch.setattr(pg.Settings, 'expm_method', 'action')
     action = acc()
 
     assert np.isnan(action[1, 1:-1]).all()
@@ -2419,7 +2419,7 @@ def test_windowed_moments_opening_past_an_epoch_boundary(monkeypatch, start):
     assert dense[0] == pytest.approx(acc[1] - acc[0], rel=1e-10)
     np.testing.assert_allclose(dense[::2], dense[1::2], rtol=1e-10)
 
-    monkeypatch.setattr(pg.Settings, 'expm_action_min_dim', 0)
+    monkeypatch.setattr(pg.Settings, 'expm_method', 'action')
     monkeypatch.setattr(pg.Settings, 'closed_form_sparse_min_states', 1)
 
     np.testing.assert_allclose(moments(), dense, rtol=1e-8)

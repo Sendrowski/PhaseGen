@@ -6,7 +6,7 @@ Distributions of accumulated rewards obtained from their Laplace transforms: the
 """
 import logging
 from math import comb, factorial
-from typing import Any, NoReturn, TYPE_CHECKING, Optional, Sequence, Union
+from typing import Any, NoReturn, TYPE_CHECKING, Optional, Sequence, Tuple, Union
 
 import numpy as np
 import scipy.linalg as sla
@@ -20,7 +20,7 @@ from .base import CallableDistributionFunctions, JointDensity, JointCDF, \
     ConditionalDensity, ConditionalCDF, ConditionalQuantileFunction, \
     _LSTCumulativeDistributionFunction, _LSTDensityFunction, _LSTQuantileFunction
 from ._common import N_EMPIRICAL_SAMPLES, _validate_order
-from ._moments import MomentEvaluator, _AUTO_PERM
+from ._moments import MomentEvaluator, _AUTO_PERM, _TRANSFORM_COST
 
 if TYPE_CHECKING:
     from .phase_type import PhaseTypeDistribution
@@ -325,8 +325,8 @@ class RewardDistribution(CallableDistributionFunctions):
         .. rubric:: Implementation
 
         - The exponentials of the bounded epochs are applied to the batch of arguments by a truncated Taylor series
-          or formed densely by Pade approximants, whichever the cost model of
-          :attr:`Settings.expm_action_min_dim <phasegen.settings.Settings.expm_action_min_dim>` finds cheaper. The
+          or formed densely by Pade approximants, as
+          :attr:`Settings.expm_method <phasegen.settings.Settings.expm_method>` selects. The
           last-epoch system is solved by a sparse LU factorization from
           :attr:`Settings.closed_form_sparse_min_states <phasegen.settings.Settings.closed_form_sparse_min_states>`
           transient states on, and by a dense one below.
@@ -2450,9 +2450,8 @@ class _TaylorAction:
         :param diag: The diagonals of the matrices, of shape ``(K, dim)``.
         :param off_norm: The column 1-norms of their off-diagonal parts, shared by all of them.
         """
+        plain, shifted = self.norms(diag, off_norm)
         mu = diag.mean(axis=1)
-        plain = float((off_norm + np.abs(diag)).max(initial=0.0))
-        shifted = float((off_norm + np.abs(diag - mu[:, None])).max(initial=0.0))
 
         if not np.isfinite(plain):
             raise ValueError(f'The matrices of the Taylor action must be finite, got a 1-norm bound of {plain}.')
@@ -2472,6 +2471,19 @@ class _TaylorAction:
                 steps = max(1, int(np.ceil(self.norm / theta)))
                 if m * steps < cost:
                     cost, self.m, self.s = m * steps, m, steps
+
+    @staticmethod
+    def norms(diag: np.ndarray, off_norm: np.ndarray) -> Tuple[float, float]:
+        """
+        The bounds on the 1-norms of the matrices, unshifted and shifted by their mean diagonals :math:`\\mu_k`,
+        whose smaller one sets the degree and steps.
+
+        :param diag: The diagonals of the matrices, of shape ``(K, dim)``.
+        :param off_norm: The column 1-norms of their off-diagonal parts, shared by all of them.
+        :return: The unshifted and the shifted bound.
+        """
+        return (float((off_norm + np.abs(diag)).max(initial=0.0)),
+                float((off_norm + np.abs(diag - diag.mean(axis=1)[:, None])).max(initial=0.0)))
 
     def apply(self, W: np.ndarray, product) -> np.ndarray:
         """
@@ -2585,10 +2597,8 @@ def _shifted_blocks(T_epochs, exits, shifts: np.ndarray, deriv: np.ndarray = Non
 def _takes_action(dim: int, batch: int, n_epochs: int, epochs) -> bool:
     r"""
     Whether a batch of ``batch`` matrices of dimension ``dim`` per epoch is propagated by ``_TaylorAction`` rather
-    than exponentiated by ``_expm_batch``, by the cost model of ``MomentEvaluator._dense_expm_norm_bound``: forced at
-    and above :attr:`Settings.expm_action_min_dim <phasegen.settings.Settings.expm_action_min_dim>`, and otherwise
-    with the step norms of ``_TaylorAction`` summed over the epochs, read only where the fixed costs of the actions
-    stay below the dense exponentials.
+    than exponentiated by ``_expm_batch``, by the bound of ``_TRANSFORM_COST`` on the step norms of
+    ``_TaylorAction.norms`` summed over the epochs, read only where the bound is finite and positive.
 
     :param dim: The dimension of each matrix.
     :param batch: The number of matrices of each epoch.
@@ -2597,22 +2607,19 @@ def _takes_action(dim: int, batch: int, n_epochs: int, epochs) -> bool:
         ``(b, dim)``, and the column 1-norms of their off-diagonal parts, shared by all of them.
     :return: Whether to take the action.
     """
-    if dim >= Settings.expm_action_min_dim:
+    bound = _TRANSFORM_COST.bound(dim, dim, 1, n_epochs, n_epochs, batch=batch)
+    if bound == np.inf:
         return True
 
-    if not n_epochs:
-        return False
-
-    bound = MomentEvaluator._dense_expm_norm_bound(dim, dim, 1, n_epochs, n_epochs, batch=batch)
-    if bound < 0:
+    if not n_epochs or bound < 0:
         return False
 
     norm = 0.0
     for blocks in epochs:
         plain = shifted = 0.0
         for diag, off_norm in blocks:
-            plain = max(plain, float((off_norm + np.abs(diag)).max(initial=0.0)))
-            shifted = max(shifted, float((off_norm + np.abs(diag - diag.mean(axis=1)[:, None])).max(initial=0.0)))
+            p, q = _TaylorAction.norms(diag, off_norm)
+            plain, shifted = max(plain, p), max(shifted, q)
         norm += min(plain, shifted)
 
     return not norm > bound

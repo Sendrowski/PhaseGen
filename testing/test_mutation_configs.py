@@ -581,10 +581,10 @@ def test_multi_epoch_expm_action_matches_dense_exponential(sparse, monkeypatch):
     monkeypatch.setattr(pg.Settings, 'closed_form_sparse_min_states', 1 if sparse else 10 ** 9)
     configs = ((0, 0, 0), (1, 0, 0), (2, 1, 0), (0, 1, 2))
 
-    monkeypatch.setattr(pg.Settings, 'expm_action_min_dim', 10 ** 9)
+    monkeypatch.setattr(pg.Settings, 'expm_method', 'dense')
     dense = [pg.Coalescent(n=4, demography=ONE_DEME[1]).sfs.get_mutation_config(c, 1.3) for c in configs]
 
-    monkeypatch.setattr(pg.Settings, 'expm_action_min_dim', 1)
+    monkeypatch.setattr(pg.Settings, 'expm_method', 'action')
     action = [pg.Coalescent(n=4, demography=ONE_DEME[1]).sfs.get_mutation_config(c, 1.3) for c in configs]
 
     np.testing.assert_allclose(action, dense, rtol=1e-12)

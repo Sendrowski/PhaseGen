@@ -2,7 +2,7 @@
 Settings for the PhaseGen application.
 """
 from contextlib import contextmanager
-from typing import Any, Iterator, Optional
+from typing import Any, Iterator, Literal, Optional
 
 
 class _SettingsMeta(type):
@@ -20,7 +20,12 @@ class _SettingsMeta(type):
         :param name: Name of the setting.
         :param value: Value to assign.
         :raises AttributeError: If no setting of that name exists.
+        :raises ValueError: If :attr:`Settings.expm_method` is given a value other than ``'auto'``, ``'dense'`` or
+            ``'action'``.
         """
+        if name == 'expm_method' and value not in ('auto', 'dense', 'action'):
+            raise ValueError(f"Settings.expm_method must be 'auto', 'dense' or 'action', got {value!r}.")
+
         if not name.startswith('_') and not hasattr(cls, name):
             available = ', '.join(sorted(n for n in vars(cls) if not n.startswith('_')))
             raise AttributeError(
@@ -65,16 +70,13 @@ class Settings(metaclass=_SettingsMeta):
     #: pure-Python construction.
     use_numba: bool = True
 
-    #: Matrix dimension at or above which a matrix exponential is applied to a vector by the action algorithm and not
-    #: formed densely. It applies to moments, distribution functions and the Laplace transforms of reward
-    #: distributions. Below it, the moments, their accumulation over time grids, the second moments of spectra, the
-    #: tree-height distribution functions and the Laplace transforms compare the costs of the two with one cost model:
-    #: the action grows with the 1-norm of the matrix times the step and with the dimension of its operator, plus a
-    #: fixed cost per step, and the dense exponentials with their number and the cube of their size, more so for a
-    #: pass recorded for its gradient, and for the batched exponentials of a transform with their number of squarings.
-    #: The result is unchanged. Set to 0 to force the action, or very large to leave these exponentials to the
-    #: comparison and form the others densely.
-    expm_action_min_dim: int = 1500
+    #: How matrix exponentials are evaluated for moments, distribution functions and the Laplace transforms of reward
+    #: distributions. ``'dense'`` forms each exponential, at memory quadratic and cost cubic in its dimension, and
+    #: suits small state spaces only. ``'action'`` applies each exponential to its vector (Al-Mohy and Higham, 2011).
+    #: ``'auto'`` takes whichever is cheaper by a cost model in the dimension, the number of exponentials and the 1-norm
+    #: of the matrix times the step, and the action for large dimensions to bound memory. All three agree up to
+    #: rounding.
+    expm_method: Literal['auto', 'dense', 'action'] = 'auto'
 
     #: Number of BLAS threads while moments, their gradients and inferences are evaluated, or ``None`` to leave them
     #: unchanged. More threads gain little on these small matrices, and with the NumPy and SciPy wheels, which each

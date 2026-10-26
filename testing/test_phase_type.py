@@ -270,7 +270,7 @@ def test_sweep_over_unequal_grid_crossing_epochs(action):
     """
     from phasegen.settings import Settings
 
-    Settings.expm_action_min_dim = 0 if action else 10 ** 9
+    Settings.expm_method = 'action' if action else 'dense'
     th = pg.Coalescent(n=5, demography=pg.Demography(pop_sizes={'pop_0': {0: 1, 0.5: 0.2, 1.5: 2}})).tree_height
 
     rng = np.random.default_rng(0)
