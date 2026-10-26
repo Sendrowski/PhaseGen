@@ -53,19 +53,35 @@ _MIN_SCALED_STEP = 0.1
 #: reward terms below double resolution, and a smaller factor would overflow the rebased extended vector.
 _MIN_BALANCE = np.finfo(float).eps
 
-#: Summed 1-norm of the steps ``S tau`` per cubed Van Loan dimension above which the closed form takes the dense
-#: exponential in its finite epochs and its propagation to the start time, and below which the sparse action. The
-#: action takes a number of matrix-vector products proportional to the step norm, the dense exponential a cost cubic
-#: in the dimension. Measured crossover about 1e-5 to 1e-4 on block-counting spaces of 297 to 627 states, with the
-#: dense exponential 8 to 30 times faster on lineage-counting chains of 260 to 600 states at 2e-4 to 2e-3.
-#: ``_occupation_times`` applies it to each epoch on its own, with the dimension of its augmented generator.
-_DENSE_EXPM_STEP_NORM = 5e-5
+#: Cost ratio of the dense exponentials against the sparse action of ``MomentEvaluator._dense_expm_is_faster``. With
+#: ``_ACTION_STEP_NORM_OFFSET``, ``_ACTION_DIM_OFFSET`` and ``_TAPED_DENSE_COST``, fitted jointly on 3880 passes
+#: recorded on each of an arm64 Mac and an x86-64 cluster node (closed-form and windowed moments, occupation times,
+#: time grids, the forward pass of the second moments of spectra and gradients, 10 to 490 states), where it brings
+#: each kind of pass within 2.5% of always taking the faster side on both machines.
+_EXPM_COST_RATIO = 0.17
 
-#: Fixed cost of one sparse action in units of the step norm, added per exponential to the summed step norm compared
-#: against ``_DENSE_EXPM_STEP_NORM``. Fitted on 924 finite-epoch generators of one- and two-deme spaces of 1 to 10
-#: epochs and Van Loan dimensions 35 to 1216, where it brings the total time within 0.1% of always taking the faster
-#: of the two exponentials. It sends dimensions below about 74 to the dense exponential.
+#: Fixed cost of one sparse action in units of the step norm, the work besides the matrix-vector products that the
+#: step norm counts.
 _ACTION_STEP_NORM_OFFSET = 20
+
+#: Fixed cost of one matrix-vector product of the sparse action in units of the operator dimension, the overhead of
+#: a product besides its arithmetic.
+_ACTION_DIM_OFFSET = 10000
+
+#: Factor on the cost of the dense exponentials of a pass recorded for its gradient, whose backward pass takes the
+#: Fréchet derivative of each dense exponential and reverses each action.
+_TAPED_DENSE_COST = 4
+
+#: Factor on the cost of the dense exponentials of a batch of the Laplace transform in
+#: ``MomentEvaluator._dense_expm_norm_bound``, whose Pade approximants are formed as one stack. With
+#: ``_TRANSFORM_ACTION_DIM_OFFSET``, fitted on 6981 batches recorded on an x86-64 cluster node (marginal, joint and
+#: conditional transforms on one and two demes, two loci, splits, pulses and out of Africa, 2 to 627 dimensions,
+#: 1 to 44 bounded epochs), where it brings each kind of batch within 3% of always taking the faster side.
+_TRANSFORM_DENSE_COST = 0.36
+
+#: Fixed cost of one product of the batched truncated Taylor action of the Laplace transform in units of a row entry,
+#: in place of ``_ACTION_DIM_OFFSET``.
+_TRANSFORM_ACTION_DIM_OFFSET = 3000
 
 #: Smallest dimension from which the dense exponentials of the Van Loan matrices and of the augmented occupation
 #: generator take ``BlockTriangularExpm``, one matrix at a time, rather than the generic exponential of the stack.
@@ -254,7 +270,7 @@ class MomentEvaluator:
         Distinct from :attr:`Settings.expm_action_min_dim <phasegen.settings.Settings.expm_action_min_dim>`, which
         governs the matrix-exponential action, though ``_accumulate_closed_form`` and ``_occupation_times`` let this
         one decide both, their exponentials following the sparsity their factorization already takes, except on the
-        stiff generators of ``_DENSE_EXPM_STEP_NORM``.
+        stiff generators of ``_dense_expm_is_faster``.
 
         :param n_transient: Number of transient states the solve is over.
         :return: Whether to take the sparse path.
@@ -362,11 +378,10 @@ class MomentEvaluator:
 
         .. rubric:: Implementation
 
-        - Matrix exponentials are formed densely while :math:`(k + 1)|E|` is below
-          :attr:`Settings.expm_action_min_dim <phasegen.settings.Settings.expm_action_min_dim>`, and are otherwise
-          applied to vectors as sparse actions (Al-Mohy and Higham, 2011). In the closed form below, the finite epochs
-          take the sparse action at any dimension, except where the rates are stiff enough for the dense exponential
-          to be faster.
+        - Matrix exponentials are applied to vectors as sparse actions (Al-Mohy and Higham, 2011) from
+          :attr:`Settings.expm_action_min_dim <phasegen.settings.Settings.expm_action_min_dim>` on in the size of the
+          dense exponential, :math:`(k + 1)|E|`, and below it are formed densely where the cost comparison described
+          at that setting finds them cheaper.
         - :math:`\mathbf{U}` is never formed. A single LU factorization of :math:`-\mathbf{T}` serves all solves. It is
           sparse from :attr:`Settings.closed_form_sparse_min_states
           <phasegen.settings.Settings.closed_form_sparse_min_states>` transient states on, with the states ordered by
@@ -1178,8 +1193,8 @@ class MomentEvaluator:
         Raw moment of a single reward ordering over the window ``[start_time, t]`` for each finite ``t`` in
         ``end_times``: propagates ``alpha`` to ``start_time`` with the plain generator, then threads the row vector
         holding it in its first block through the epochs by the Van Loan exponential and reads off its product with
-        ``e`` in the last block at each end time. The exponential is dense below :attr:`Settings.expm_action_min_dim
-        <phasegen.settings.Settings.expm_action_min_dim>` and a sparse action above. Within an epoch, the end times are
+        ``e`` in the last block at each end time. The exponential is dense or a sparse action as
+        ``_dense_expm_is_faster`` decides from ``_grid_steps``. Within an epoch, the end times are
         taken as runs of equal steps (``_StepRuns``), with one dense exponential per step length or one interval action
         per run. For ``k >= 2`` the difference of two moments accumulated from 0 would omit the cross terms.
 
@@ -1196,7 +1211,8 @@ class MomentEvaluator:
         self.state_space.update_epoch(epoch)
         n = self.state_space.k
 
-        use_action = (k + 1) * n >= Settings.expm_action_min_dim
+        dim = (k + 1) * n
+        use_action = not self._dense_expm_is_faster(dim, dim, 1, *self._grid_steps(start_time, t_sorted))
 
         # --- propagate the entry distribution to the window start via the plain generator ---
         alpha_start = np.asarray(self.state_space.alpha, dtype=float)
@@ -1688,7 +1704,10 @@ class MomentEvaluator:
         # finite-epoch Van Loan exponentials take the sparse action except on the stiff generators of
         # ``_dense_expm_is_faster``, whatever the factorization.
         sparse = self._solve_sparse(len(idx_t))
-        use_action = not self._dense_expm_is_faster(k, epochs, start_time)
+        dim = (k + 1) * n
+        use_action = not self._dense_expm_is_faster(
+            dim, dim, 1, self._closed_form_steps(epochs, start_time), taped=tape is not None
+        )
 
         if sparse:
             self._logger.debug(
@@ -1803,40 +1822,149 @@ class MomentEvaluator:
 
         return np.array([factorial(k) * lamb ** k * float(alpha_ext @ z)])
 
-    def _dense_expm_is_faster(self, k: int, epochs: List[Epoch], start_time: float) -> bool:
+    def _dense_expm_is_faster(
+            self,
+            d_action: int,
+            d_dense: int,
+            count: int,
+            steps: List[Tuple[Epoch, float]],
+            n_dense: int = None,
+            taped: bool = False
+    ) -> bool:
         """
-        Whether the dense exponentials of ``_accumulate_closed_form`` and ``_bin_second_moments``, those of the finite
-        epochs and of the propagation to ``start_time``, are cheaper than the sparse action: below :attr:`Settings.expm_action_min_dim
-        <phasegen.settings.Settings.expm_action_min_dim>` in the Van Loan dimension, where the summed 1-norm of the
-        steps ``S tau``, each increased by ``_ACTION_STEP_NORM_OFFSET``, exceeds ``_DENSE_EXPM_STEP_NORM`` times the
-        cube of the dimension. Leaves the state space in the last epoch.
+        Whether ``count`` dense exponentials of size ``d_dense`` per step are cheaper than one sparse action of an
+        operator of dimension ``d_action`` per step, over the steps ``(epoch, tau)``, or ``n_dense`` times ``count``
+        dense exponentials when they are reused across steps, by the cost model of ``_dense_expm_norm_bound`` with
+        the step norms of the rate matrix ``S`` of each epoch. Leaves the state space in the epoch it found.
 
-        :param k: The order of the moment.
-        :param epochs: The epochs of ``_get_epochs_until_unbounded``.
-        :param start_time: The non-negative start time.
+        :param d_action: The dimension of the operator of the action.
+        :param d_dense: The size of each dense exponential.
+        :param count: The number of dense exponentials per step.
+        :param steps: The epochs and the times of the actions.
+        :param n_dense: The number of steps with their own dense exponentials, by default all.
+        :param taped: Whether the pass is recorded for its gradient.
         :return: Whether to form the dense exponentials.
         """
-        dim = (k + 1) * self.state_space.k
-        if dim >= Settings.expm_action_min_dim:
+        steps = [(epoch, tau) for epoch, tau in steps if tau > 0]
+        if not steps:
             return False
 
-        # the exponentials span the time up to the later of the start time and the start of the last epoch
-        horizon = max(start_time, epochs[-1].start_time)
-        steps = [(epoch, min(epoch.end_time, horizon) - epoch.start_time) for epoch in epochs]
-        steps = [(epoch, tau) for epoch, tau in steps if tau > 0]
+        bound = self._dense_expm_norm_bound(d_action, d_dense, count, len(steps),
+                                            len(steps) if n_dense is None else n_dense, taped)
+        if bound == np.inf:
+            return False
 
         # the fixed costs of the actions alone may exceed the dense exponentials, without reading a generator
-        norm = _ACTION_STEP_NORM_OFFSET * len(steps)
-        if norm > _DENSE_EXPM_STEP_NORM * dim ** 3:
+        if bound < 0:
             return True
 
+        # the summed step norm, reading each epoch's generator once
+        durations: Dict[Epoch, float] = {}
         for epoch, tau in steps:
+            durations[epoch] = durations.get(epoch, 0.0) + tau
+
+        current = self.state_space.epoch
+        norm = 0.0
+        for epoch, duration in durations.items():
             self.state_space.update_epoch(epoch)
-            norm += float(abs(self.state_space.S).sum(axis=0).max()) * tau
+            norm += float(abs(self.state_space.S).sum(axis=0).max()) * duration
+        self.state_space.update_epoch(current)
 
-        self.state_space.update_epoch(epochs[-1])
+        return bool(norm > bound)
 
-        return norm > _DENSE_EXPM_STEP_NORM * dim ** 3
+    @staticmethod
+    def _dense_expm_norm_bound(
+            d_action: int,
+            d_dense: int,
+            count: int,
+            n_actions: int,
+            n_dense: int,
+            taped: bool = False,
+            batch: int = None
+    ) -> float:
+        r"""
+        The summed step norm above which the dense exponentials are cheaper than the actions, the one cost model of
+        every choice between them. With :math:`n_a` actions of an operator of dimension :math:`d_\mathrm{action}`
+        and step norms :math:`s_i`, against :math:`c` dense exponentials of size :math:`d_\mathrm{dense}` for each
+        of :math:`n_d` steps, the dense side is cheaper where
+
+        .. math::
+            \left(\sum_i s_i + \gamma n_a\right) (B d_\mathrm{action} + d_0)
+            > K F B c\, n_d\, d_\mathrm{dense}^3,
+
+        with :math:`B` the ``batch``, 1 for the moments, :math:`\gamma` the ``_ACTION_STEP_NORM_OFFSET``, :math:`d_0`
+        the ``_ACTION_DIM_OFFSET``, :math:`K` the ``_EXPM_COST_RATIO``, and :math:`F` the ``_TAPED_DENSE_COST`` for a
+        pass recorded for its gradient and 1 otherwise. An action takes a number of matrix-vector products
+        proportional to its step norm, each linear in the size of the vectors it propagates plus a fixed cost, and a
+        dense exponential a cost cubic in its size. A ``batch`` of :math:`B` matrices of the Laplace transform, each
+        applied to its own vector, propagates as one stacked action of the batched truncated Taylor series and
+        exponentiates as one stack of Pade approximants, with :math:`F` the ``_TRANSFORM_DENSE_COST`` and :math:`d_0`
+        the ``_TRANSFORM_ACTION_DIM_OFFSET``. Infinite from
+        :attr:`Settings.expm_action_min_dim <phasegen.settings.Settings.expm_action_min_dim>` in ``d_dense`` on.
+
+        :param d_action: The dimension of the operator of an action, of each matrix of a batch.
+        :param d_dense: The size of each dense exponential.
+        :param count: The number of dense exponentials per step, of each matrix of a batch.
+        :param n_actions: The number of actions.
+        :param n_dense: The number of steps with their own dense exponentials.
+        :param taped: Whether the pass is recorded for its gradient.
+        :param batch: The number of matrices of a batch of the Laplace transform, or ``None`` for the moments.
+        :return: The bound on the summed step norm, negative where the dense exponentials are cheaper at any norm.
+        """
+        if d_dense >= Settings.expm_action_min_dim:
+            return np.inf
+
+        if batch is None:
+            batch, factor, offset = 1, _EXPM_COST_RATIO * (_TAPED_DENSE_COST if taped else 1), _ACTION_DIM_OFFSET
+        else:
+            factor, offset = _EXPM_COST_RATIO * _TRANSFORM_DENSE_COST, _TRANSFORM_ACTION_DIM_OFFSET
+
+        return (factor * batch * count * n_dense * d_dense ** 3 / (batch * d_action + offset) -
+                _ACTION_STEP_NORM_OFFSET * n_actions)
+
+    @staticmethod
+    def _closed_form_steps(epochs: List[Epoch], start_time: float) -> List[Tuple[Epoch, float]]:
+        """
+        The epochs of ``_get_epochs_until_unbounded`` and the times the closed form spends in them under an
+        exponential, up to the later of ``start_time`` and the start of the last epoch.
+
+        :param epochs: The epochs.
+        :param start_time: The non-negative start time.
+        :return: The epochs and the times.
+        """
+        horizon = max(start_time, epochs[-1].start_time)
+
+        return [(epoch, min(epoch.end_time, horizon) - epoch.start_time) for epoch in epochs]
+
+    def _grid_steps(self, start_time: float, end_times: np.ndarray) -> Tuple[List[Tuple[Epoch, float]], int]:
+        """
+        The actions and the number of distinct dense exponentials of a propagation from ``start_time`` through the
+        sorted finite ``end_times`` after it, as ``_accumulate_windowed`` and ``_mean_occupation_grid`` take them: one
+        action per step of a run of equal steps (``_StepRuns``) and per remainder to the end of an epoch, and one dense
+        exponential per epoch and step length.
+
+        :param start_time: The non-negative start time.
+        :param end_times: The sorted finite end times.
+        :return: The epochs and the times of the actions, and the number of dense exponentials.
+        """
+        times = end_times[end_times > start_time]
+        steps, dense, x, i = [], set(), start_time, 0
+        for epoch in self.demography.epochs:
+            if i == len(times):
+                break
+            if epoch.end_time <= x:
+                continue
+
+            j = int(np.searchsorted(times, epoch.end_time, side='right'))
+            runs, x = _StepRuns.split(x, times[i:j])
+            if j < len(times):
+                runs.append((epoch.end_time - x, 1))
+                x = epoch.end_time
+            steps += [(epoch, step) for step, count in runs if step > 0 for _ in range(count)]
+            dense.update((epoch.start_time, step) for step, _ in runs if step > 0)
+            i = j
+
+        return steps, len(dense)
 
     def _flattening_applies(self, k: int, rewards: Sequence[Reward] = None) -> bool:
         """
@@ -1969,9 +2097,9 @@ class MomentEvaluator:
         self.state_space.update_epoch(epoch)
         n = self.state_space.k
 
-        # the occupation integral is read off the augmented generator ``[[S, I], [0, 0]]``; for large state spaces
-        # apply its (transposed) matrix-exponential action instead of forming the dense 2n x 2n exponential
-        use_action = 2 * n >= Settings.expm_action_min_dim
+        # the occupation integral is read off the augmented generator ``[[S, I], [0, 0]]``, by its (transposed)
+        # matrix-exponential action or its dense exponentials
+        use_action = not self._dense_expm_is_faster(2 * n, 2 * n, 1, *self._grid_steps(0.0, t_sorted))
 
         p = np.concatenate([np.asarray(self.state_space.alpha, dtype=float), np.zeros(n)])
         x, i = 0.0, 0
@@ -2091,11 +2219,8 @@ class MomentEvaluator:
 
             tau = upper - epoch.start_time
 
-            # the dense exponential where the step is stiff enough to be the cheaper one, see ``_DENSE_EXPM_STEP_NORM``
-            use_action = not (
-                    2 * nt < Settings.expm_action_min_dim and
-                    float(abs(S).sum(axis=0).max()) * tau + _ACTION_STEP_NORM_OFFSET >
-                    _DENSE_EXPM_STEP_NORM * (2 * nt) ** 3
+            use_action = not self._dense_expm_is_faster(
+                2 * nt, 2 * nt, 1, [(epoch, tau)], taped=tape is not None
             )
             steps.append((epoch, tau, S, use_action))
 
@@ -2246,9 +2371,8 @@ class MomentEvaluator:
         """
         The means ``E[R_a]`` and the second cross-moments ``E[R_a R_b]`` of the rewards over the accumulation window of
         the distribution, by the forward pass of ``PhaseTypeDistribution.moment`` shared by all rewards. The finite
-        epochs take the stacked sparse action, or one dense exponential per reward where ``_dense_expm_is_faster``
-        (closed form) or below ``Settings.expm_action_min_dim`` (window), and the unbounded last epoch is closed with
-        one factorization of ``-T``.
+        epochs take the stacked sparse action, or one dense exponential per reward where ``_dense_expm_is_faster``, and
+        the unbounded last epoch is closed with one factorization of ``-T``.
 
         :param rewards: The rewards.
         :param start_time: The start time. By default, that of the distribution.
@@ -2268,7 +2392,7 @@ class MomentEvaluator:
             epochs = self._get_epochs_until_unbounded(2)
             self._check_demography_conditioning(epochs)
             finite = list(enumerate(epochs[:-1]))
-            use_action = not self._dense_expm_is_faster(2, epochs, start)
+            steps = self._closed_form_steps(epochs, start)
         else:
             if np.isinf(end):
                 end = self._get_time_to_absorption()
@@ -2278,13 +2402,14 @@ class MomentEvaluator:
                 if epoch.end_time >= end:
                     break
             ss.update_epoch(finite[0][1])
-            use_action = 3 * ss.k >= Settings.expm_action_min_dim
+            steps = [(epoch, min(epoch.end_time, end) - epoch.start_time) for _, epoch in finite]
 
         n = ss.k
         vectors = [np.asarray(r._get(ss), dtype=float) for r in rewards]
         Reward._check_accumulable(ss, rewards, vectors)
         R = np.column_stack(vectors)
         m = R.shape[1]
+        use_action = not self._dense_expm_is_faster((2 * m + 1) * n, 3 * n, m, steps)
         scale = self._reward_scale(list(R.T))
         rewarded = (R != 0).any(axis=1).astype(float)
 

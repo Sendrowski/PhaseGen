@@ -324,7 +324,10 @@ class RewardDistribution(CallableDistributionFunctions):
 
         .. rubric:: Implementation
 
-        - The exponentials are formed densely. The last-epoch system is solved by a sparse LU factorization from
+        - The exponentials of the bounded epochs are applied to the batch of arguments by a truncated Taylor series
+          or formed densely by Pade approximants, whichever the cost model of
+          :attr:`Settings.expm_action_min_dim <phasegen.settings.Settings.expm_action_min_dim>` finds cheaper. The
+          last-epoch system is solved by a sparse LU factorization from
           :attr:`Settings.closed_form_sparse_min_states <phasegen.settings.Settings.closed_form_sparse_min_states>`
           transient states on, and by a dense one below.
         - Transient states that the initial vector cannot reach in any epoch carry no mass and are left out.
@@ -529,24 +532,26 @@ def _shift_rows(s, r: np.ndarray, tau: float) -> np.ndarray:
 
 
 def _lst_taylor_from_shift(shifts: np.ndarray, deriv: np.ndarray, alpha: np.ndarray, T_epochs, sparse: bool,
-                           perm=_AUTO_PERM, order: int = 2) -> np.ndarray:
+                           perm=_AUTO_PERM, order: int = 2, action: bool = None) -> np.ndarray:
     """The Taylor coefficients ``[Phi_0, ..., Phi_order]`` of ``_lst_from_shift_batch`` at the shift
     ``shift + eps * deriv`` for each row ``shift`` of ``shifts``, described at ``JointRewardDistribution.lst_taylor``:
     bounded epochs propagate the block-bidiagonal matrix over the truncated polynomial ring by
-    ``_ShiftedGenerator.propagate``, decided and chunked as in ``_lst_from_shift_batch``, and the last epoch
-    back-substitutes with one LU per row. Returns an array of shape ``(len(shifts), order + 1)``."""
+    ``_ShiftedGenerator.propagate``, decided (unless ``action`` is given) and chunked as in ``_lst_from_shift_batch``,
+    and the last epoch back-substitutes with one LU per row. Returns an array of shape ``(len(shifts), order + 1)``."""
     nt, k = len(alpha), order + 1
     n_aug = nt + 1
     K = len(shifts)
 
-    action = k * n_aug >= Settings.expm_action_min_dim
+    if action is None:
+        exits = (_exit_rates(T) for T, _, _ in T_epochs[:-1])
+        action = _takes_action(k * n_aug, K, len(T_epochs) - 1, _shifted_blocks(T_epochs, exits, shifts, deriv, order))
     chunk = max(1, (_LST_VECTOR_ENTRIES // (k * n_aug)) if action else (_LST_MATRIX_ENTRIES // (k * n_aug) ** 2))
     if K > chunk:
         # the Taylor action of a chunk costs as many products as its largest shift needs, so chunk similar shifts
         by_size = np.argsort(np.abs(shifts).max(axis=1), kind='stable') if action else np.arange(K)
         out = np.empty((K, k), dtype=complex)
         out[by_size] = np.concatenate([
-            _lst_taylor_from_shift(shifts[by_size[i:i + chunk]], deriv, alpha, T_epochs, sparse, perm, order)
+            _lst_taylor_from_shift(shifts[by_size[i:i + chunk]], deriv, alpha, T_epochs, sparse, perm, order, action)
             for i in range(0, K, chunk)
         ])
         return out
@@ -2496,9 +2501,8 @@ class _TaylorAction:
 
 class _EpochSteps:
     r"""
-    The exponentials :math:`e^{\mathbf{M}_e}` of a stack of epoch matrices applied to single vectors, formed densely
-    by ``_expm_batch`` below :attr:`Settings.expm_action_min_dim
-    <phasegen.settings.Settings.expm_action_min_dim>` and applied by ``_TaylorAction`` at or above it.
+    The exponentials :math:`e^{\mathbf{M}_e}` of a stack of epoch matrices, each applied to a single vector, formed
+    densely by ``_expm_batch`` or applied by ``_TaylorAction`` as ``_takes_action`` decides.
     """
 
     def __init__(self, M: np.ndarray):
@@ -2506,7 +2510,8 @@ class _EpochSteps:
         :param M: The matrices, of shape ``(E, n, n)``.
         """
         self.M = M
-        self._dense = _expm_batch(M) if M.shape[-1] < Settings.expm_action_min_dim else None
+        blocks = (((np.diagonal(m)[None], np.abs(m).sum(axis=0) - np.abs(np.diagonal(m))),) for m in M)
+        self._dense = None if _takes_action(M.shape[-1], 1, len(M), blocks) else _expm_batch(M)
 
     def _action(self, w: np.ndarray, M: np.ndarray) -> np.ndarray:
         r"""The row :math:`\mathbf{w} e^{\mathbf{M}}` by ``_TaylorAction``."""
@@ -2568,13 +2573,59 @@ def _expm_batch(A: np.ndarray) -> np.ndarray:
     return R
 
 
+def _shifted_blocks(T_epochs, exits, shifts: np.ndarray, deriv: np.ndarray = None, order: int = 0):
+    """Per bounded epoch, the diagonals and off-diagonal column norms of the ``_ShiftedGenerator`` of blocks of the
+    shift vectors, at most ``_LST_VECTOR_ENTRIES`` diagonal entries each, the input of ``_takes_action``."""
+    rows = max(1, _LST_VECTOR_ENTRIES // ((order + 1) * (shifts.shape[1] + 1)))
+    for (T, t0, t1), q in zip(T_epochs[:-1], exits):
+        yield ((g.diag, g.off_norm) for g in (_ShiftedGenerator(T, q, t1 - t0, shifts[i:i + rows], deriv, order)
+                                              for i in range(0, len(shifts), rows)))
+
+
+def _takes_action(dim: int, batch: int, n_epochs: int, epochs) -> bool:
+    r"""
+    Whether a batch of ``batch`` matrices of dimension ``dim`` per epoch is propagated by ``_TaylorAction`` rather
+    than exponentiated by ``_expm_batch``, by the cost model of ``MomentEvaluator._dense_expm_norm_bound``: forced at
+    and above :attr:`Settings.expm_action_min_dim <phasegen.settings.Settings.expm_action_min_dim>`, and otherwise
+    with the step norms of ``_TaylorAction`` summed over the epochs, read only where the fixed costs of the actions
+    stay below the dense exponentials.
+
+    :param dim: The dimension of each matrix.
+    :param batch: The number of matrices of each epoch.
+    :param n_epochs: The number of epochs.
+    :param epochs: Per epoch, an iterable over blocks of its matrices, each given by their diagonals, of shape
+        ``(b, dim)``, and the column 1-norms of their off-diagonal parts, shared by all of them.
+    :return: Whether to take the action.
+    """
+    if dim >= Settings.expm_action_min_dim:
+        return True
+
+    if not n_epochs:
+        return False
+
+    bound = MomentEvaluator._dense_expm_norm_bound(dim, dim, 1, n_epochs, n_epochs, batch=batch)
+    if bound < 0:
+        return False
+
+    norm = 0.0
+    for blocks in epochs:
+        plain = shifted = 0.0
+        for diag, off_norm in blocks:
+            plain = max(plain, float((off_norm + np.abs(diag)).max(initial=0.0)))
+            shifted = max(shifted, float((off_norm + np.abs(diag - diag.mean(axis=1)[:, None])).max(initial=0.0)))
+        norm += min(plain, shifted)
+
+    return not norm > bound
+
+
 def _lst_from_shift_batch(shifts: np.ndarray, alpha, T_epochs, exits: list, sparse: bool,
-                          perm=_AUTO_PERM) -> np.ndarray:
+                          perm=_AUTO_PERM, action: bool = None) -> np.ndarray:
     r"""
     The transform of ``RewardDistribution.lst`` with the diagonal shift :math:`s \mathbf{r}_T` replaced by an arbitrary
     vector, which is :math:`s_a \mathbf{r}_a + s_b \mathbf{r}_b` for the joint transform, at each row of a stack of
-    shift vectors ``(k, nt)``. The bounded epochs propagate the batch by ``_ShiftedGenerator.propagate``, in chunks of
-    at most ``_LST_VECTOR_ENTRIES`` vector or ``_LST_MATRIX_ENTRIES`` matrix entries. A dense last epoch is solved as
+    shift vectors ``(k, nt)``. The bounded epochs propagate the batch by ``_ShiftedGenerator.propagate``, by the
+    Taylor action or the dense exponentials as ``_takes_action`` decides for the whole batch, in chunks of at most
+    ``_LST_VECTOR_ENTRIES`` vector or ``_LST_MATRIX_ENTRIES`` matrix entries. A dense last epoch is solved as
     one stacked ``np.linalg.solve``, a sparse one by the block-triangular sparse LU of ``MomentEvaluator._lu_solver``
     per shift, with ``perm`` the ordering of the last-epoch sub-intensity matrix, which depends only on its sparsity
     pattern. An infinite shift removes its state, which gives the limit of the shift growing without bound: the rows
@@ -2586,6 +2637,7 @@ def _lst_from_shift_batch(shifts: np.ndarray, alpha, T_epochs, exits: list, spar
     :param exits: The per-epoch exit vectors :math:`-\mathbf{T}\mathbf{e}`.
     :param sparse: Whether the last-epoch solve is sparse.
     :param perm: The block-triangular ordering of the last-epoch sub-intensity matrix.
+    :param action: Whether the bounded epochs take the Taylor action, decided by ``_takes_action`` if ``None``.
     :return: The transform at each shift vector.
     """
     nt = len(alpha)
@@ -2606,14 +2658,15 @@ def _lst_from_shift_batch(shifts: np.ndarray, alpha, T_epochs, exits: list, spar
                                                   sparse, sub_perm)
         return out
 
-    action = nt + 1 >= Settings.expm_action_min_dim
+    if action is None:
+        action = _takes_action(nt + 1, k, len(T_epochs) - 1, _shifted_blocks(T_epochs, exits, shifts))
     chunk = max(1, (_LST_VECTOR_ENTRIES // (nt + 1)) if action else (_LST_MATRIX_ENTRIES // (nt + 1) ** 2))
     if k > chunk:
         # the Taylor action of a chunk costs as many products as its largest shift needs, so chunk similar shifts
         by_size = np.argsort(np.abs(shifts).max(axis=1), kind='stable') if action else np.arange(k)
         out = np.empty(k, dtype=complex)
         out[by_size] = np.concatenate([_lst_from_shift_batch(shifts[by_size[i:i + chunk]], alpha, T_epochs, exits,
-                                                             sparse, perm) for i in range(0, k, chunk)])
+                                                             sparse, perm, action) for i in range(0, k, chunk)])
         return out
 
     diag = np.arange(nt)

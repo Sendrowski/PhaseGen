@@ -67,7 +67,13 @@ class Settings(metaclass=_SettingsMeta):
 
     #: Matrix dimension at or above which a matrix exponential is applied to a vector by the action algorithm and not
     #: formed densely. It applies to moments, distribution functions, mutational configurations and the Laplace
-    #: transforms of reward distributions. The result is unchanged. Set to 0 or very large to force either path.
+    #: transforms of reward distributions. Below it, the moments, their accumulation over time grids, the second
+    #: moments of spectra and the Laplace transforms compare the costs of the two with one cost model: the action
+    #: grows with the 1-norm of the matrix times the step and with the dimension of its operator, plus a fixed cost
+    #: per step, and the dense exponentials with their number and the cube of their size, more so for a pass recorded
+    #: for its gradient, and for the batched exponentials of a transform with their number of squarings. The result
+    #: is unchanged. Set to 0 to force the action, or very large to leave these exponentials to the comparison and
+    #: form the others densely.
     expm_action_min_dim: int = 1500
 
     #: Number of BLAS threads while moments, their gradients and inferences are evaluated, or ``None`` to leave them

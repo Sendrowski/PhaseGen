@@ -166,11 +166,12 @@ def test_windowed_pass_takes_the_action_from_the_threshold(offset, action):
 
 
 @pytest.mark.parametrize('dense', [True, False])
-def test_closed_pass_follows_the_dense_exponential_rule(dense):
-    """Until absorption, the finite epochs take the dense exponentials exactly where ``_dense_expm_is_faster`` holds,
-    with the same values."""
-    reference = _per_pair(_single().sfs)
-    sfs = _single().sfs
+@pytest.mark.parametrize('end_time', [None, 2.0], ids=['closed', 'window'])
+def test_pass_follows_the_stacked_dense_exponential_rule(dense, end_time):
+    """The finite epochs take the dense exponentials exactly where ``_dense_expm_is_faster`` holds, with the same
+    values, until absorption and in a window."""
+    reference = _per_pair(_single(end_time=end_time).sfs)
+    sfs = _single(end_time=end_time).sfs
 
     with patch.object(PhaseTypeDistribution, '_dense_expm_is_faster', autospec=True, return_value=dense), \
             _spy('_block_expms') as blocks:
@@ -178,6 +179,52 @@ def test_closed_pass_follows_the_dense_exponential_rule(dense):
 
     assert (blocks.call_count > 0) is dense
     np.testing.assert_allclose(batched, reference, rtol=0, atol=1e-12 * np.abs(reference).max())
+
+
+def _stacked_dispatch(make) -> bool:
+    """Whether the second moments of the spectrum made by ``make`` take the stacked action."""
+    action = patch.object(Backend, 'expm_multiply', side_effect=Backend.expm_multiply)
+    with action as act, _spy('_block_expms') as dense:
+        make().cov
+
+    stacked = any(c.kwargs.get('blocks', 1) > 3 for c in act.call_args_list)
+    assert stacked is not (dense.call_count > 0)
+
+    return stacked
+
+
+_SHORT = {0: 1.0, 0.1: 0.5, 0.2: 2.0}
+
+
+@pytest.mark.parametrize('make, action', [
+    (lambda: _single(n=5).sfs, False),
+    (lambda: _single(n=10).sfs, True),
+    (lambda: _single(n=6, model=pg.BetaCoalescent(alpha=1.5)).sfs, False),
+    (lambda: _single(n=10, model=pg.BetaCoalescent(alpha=1.5)).sfs, True),
+    (lambda: _single(n=6, model=pg.DiracCoalescent(psi=0.5, c=1)).sfs, False),
+    (lambda: _single(n=5, end_time=2.0).sfs, False),
+    (lambda: _two_demes(3, 3, start_time=0.3, end_time=1.5).jsfs, True),
+    (lambda: _two_demes(2, 2).sfs, False),
+], ids=['kingman n=5', 'kingman n=10', 'beta n=6', 'beta n=10', 'dirac n=6', 'window n=5', 'window jsfs 3+3',
+        'two demes sfs 2+2'])
+def test_stacked_dispatch_on_the_block_counting_space(make, action):
+    """The forward pass takes the dense exponentials on small block-counting spaces and the stacked action from about
+    20 states on, until absorption and in a window."""
+    assert _stacked_dispatch(make) is action
+
+
+@pytest.mark.parametrize('n, sizes, action', [(10, _THREE, False), (30, _THREE, False), (30, _SHORT, True)],
+                         ids=['n=10', 'n=30 long epochs', 'n=30 short epochs'])
+def test_stacked_dispatch_on_the_lineage_counting_space(n, sizes, action):
+    """Flattened onto the lineage-counting space, the forward pass over the ``n - 1`` levels takes the dense
+    exponentials on stiff epochs and the stacked action on short ones."""
+    Settings.flatten_block_counting = True
+    sfs = _single(n=n, sizes=sizes).sfs
+
+    with _spy('_level_cross_moments') as flattened:
+        assert _stacked_dispatch(lambda: sfs) is action
+
+    assert flattened.call_count == 1
 
 
 def test_stiff_stacked_action_stops_once_stationary():
