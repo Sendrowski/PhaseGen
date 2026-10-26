@@ -24,6 +24,7 @@ from ..rewards import Reward, CustomReward, UnfoldedSFSReward, FoldedSFSReward, 
 from ..settings import Settings
 from ..state_space import BlockCountingStateSpace
 
+from ._grid import _Propagators, _StepRuns
 from ._gradient import _ClosedFormTape, _OccupationStep, _TapedAction, _VanLoanStep
 from ._kingman import KingmanBlockKernel
 from ._common import _make_hashable, _validate_order, _validate_reward_count, _validate_rewards, \
@@ -75,6 +76,9 @@ _BLOCK_EXPM_MIN_DIM = 96
 
 #: Largest number of entries of a stack of matrices exponentiated at once, about a megabyte, so that it stays in cache.
 _MAX_STACK_ENTRIES = 2 ** 17
+
+#: The SciPy backend, whose interval action the occupation grid of spectra takes whichever backend is registered.
+_SCIPY_EXPM = SciPyExpmBackend()
 
 #: Largest ratio of the pairwise coalescence and migration rates of an epoch that double precision resolves, see
 #: ``MomentEvaluator._rate_spread``.
@@ -599,22 +603,31 @@ class MomentEvaluator:
         return (Vt, np.where(reward, 0.0, Vt.data), np.where(reward, Vt.data, 0.0),
                 self._get_regularization_factor(S, scale=scale), scale)
 
-    def _advance_action(self, w: np.ndarray, tau: float, lamb: float, op: Tuple, k: int) -> Tuple[np.ndarray, float]:
+    def _advance_action(
+            self,
+            w: np.ndarray,
+            tau: float,
+            lamb: float,
+            op: Tuple,
+            k: int,
+            count: int = 1
+    ) -> Tuple[np.ndarray, float]:
         """
-        Advance the forward extended vector by ``tau`` within the current epoch by the sparse matrix-exponential
-        action. Each step is balanced on the factor of the epoch capped at the reward scale times
-        ``tau / _MIN_SCALED_STEP``, since block ``j`` of the vector gains the ``j``-th power of the scaled step, and
-        floored at ``_MIN_BALANCE`` times the factor.
+        Advance the forward extended vector ``count`` times by ``tau`` within the current epoch by the sparse
+        matrix-exponential action, several steps by one interval action. Each step is balanced on the factor of the
+        epoch capped at the reward scale times ``tau / _MIN_SCALED_STEP``, since block ``j`` of the vector gains the
+        ``j``-th power of the scaled step, and floored at ``_MIN_BALANCE`` times the factor.
 
         :param w: Extended row vector of ``(k + 1)`` blocks, stored against ``lamb`` and rebased in place.
         :param tau: The step, non-positive for none.
         :param lamb: The factor ``w`` is stored against.
         :param op: The operator of :meth:`_action_operator` for the current epoch.
         :param k: The order of the moment.
-        :return: The advanced vector and the factor it is stored against.
+        :param count: The number of steps.
+        :return: The vectors after each step, of shape ``(count, len(w))``, and the factor they are stored against.
         """
         if tau <= 0:
-            return w, lamb
+            return np.repeat(w[None], count, axis=0), lamb
 
         Vt, gen, rew, factor, scale = op
         if Settings.regularize:
@@ -623,7 +636,12 @@ class MomentEvaluator:
 
         A = sp.csr_matrix((tau * gen + (tau / lamb) * rew, Vt.indices, Vt.indptr), shape=Vt.shape)
 
-        return Backend.expm_multiply(A, w, blocks=k + 1), lamb
+        if count == 1:
+            return Backend.expm_multiply(A, w, blocks=k + 1)[None], lamb
+
+        return Backend.expm_multiply_interval(
+            A, w, float(count), count, advance=lambda v, s: Backend.expm_multiply(A * s, v, blocks=k + 1)
+        ), lamb
 
     def _rate_spread(self, epoch: 'Epoch', duration: float = np.inf) -> float:
         r"""
@@ -1161,8 +1179,9 @@ class MomentEvaluator:
         ``end_times``: propagates ``alpha`` to ``start_time`` with the plain generator, then threads the row vector
         holding it in its first block through the epochs by the Van Loan exponential and reads off its product with
         ``e`` in the last block at each end time. The exponential is dense below :attr:`Settings.expm_action_min_dim
-        <phasegen.settings.Settings.expm_action_min_dim>` and a sparse action above. For ``k >= 2`` the difference of
-        two moments accumulated from 0 would omit the cross terms.
+        <phasegen.settings.Settings.expm_action_min_dim>` and a sparse action above. Within an epoch, the end times are
+        taken as runs of equal steps (``_StepRuns``), with one dense exponential per step length or one interval action
+        per run. For ``k >= 2`` the difference of two moments accumulated from 0 would omit the cross terms.
 
         :param k: The order of the moment.
         :param start_time: The non-negative window start time.
@@ -1213,13 +1232,26 @@ class MomentEvaluator:
             lamb = self._balance(epoch, start_time, t_sorted[-1], scale)
             op = self._dense_van_loan(R, lamb, k, i_epoch)
 
-        def advance(w, tau, lamb) -> Tuple[np.ndarray, float]:
-            if use_action:
-                return self._advance_action(w, tau, lamb, op, k)
+        def propagators(op: np.ndarray, lamb: float) -> _Propagators:
+            """The dense exponentials of the Van Loan matrix ``op`` balanced by ``lamb``, by step."""
+            return _Propagators(lambda tau: self._block_expm((op * tau / lamb)[None], n, [False] * (k + 1))[0])
 
-            return w @ self._block_expm((op * tau / lamb)[None], n, [False] * (k + 1))[0], lamb
+        expms = None if use_action else propagators(op, lamb)
+
+        def advance(w, tau, lamb, count=1) -> Tuple[np.ndarray, float]:
+            if use_action:
+                return self._advance_action(w, tau, lamb, op, k, count)
+
+            W = np.empty((count, len(w)))
+            for c in range(count):
+                w = W[c] = w @ expms(tau) if tau > 0 else w
+
+            return W, lamb
 
         moments = np.zeros_like(t_sorted, dtype=float)
+
+        # an empty (or reversed) window accumulates no reward
+        x, i = start_time, int(np.searchsorted(t_sorted, start_time, side='right'))
 
         # The Van Loan exponential is evaluated over the absorption time, which scales with Ne (the doubling search
         # in ``_get_absorption_time`` deliberately spans many orders of magnitude). For a large time the dense
@@ -1227,30 +1259,33 @@ class MomentEvaluator:
         # the regularized result (corrected by ``lamb ** k``) is finite. The benign intermediate over/divide/invalid
         # is silenced here and the *output* is checked for finiteness below, so a genuine blow-up still surfaces.
         with np.errstate(over='ignore', divide='ignore', invalid='ignore', under='ignore'):
-            for i, u in enumerate(t_sorted):
-                if u <= start_time:
-                    # an empty (or reversed) window accumulates no reward
-                    continue
+            while i < len(t_sorted):
+                # the end times up to the end of the epoch, as runs of equal steps
+                j = int(np.searchsorted(t_sorted, epoch.end_time, side='right'))
+                runs, x_end = _StepRuns.split(x, t_sorted[i:j])
 
-                # advance through whole epochs between u_prev and u
-                while u > epoch.end_time:
-                    w, lamb = advance(w, epoch.end_time - u_prev, lamb)
-                    u_prev = epoch.end_time
-                    i_epoch, epoch = next(epochs)
-                    self.state_space.update_epoch(epoch)
+                for step, count in runs:
+                    W, lamb = advance(w, step, lamb, count)
+                    moments[i:i + count] = factorial(k) * lamb ** k * (W @ e_ext)
+                    w, i = W[-1].copy(), i + count
 
-                    if use_action:
-                        op = self._action_operator(rewards, k, i_epoch)
-                    else:
-                        # balance each epoch on its own rates (see ``_rebase``)
-                        lamb_new = self._balance(epoch, start_time, t_sorted[-1], scale)
-                        lamb = self._rebase_forward(w, lamb, lamb_new, k, n)
-                        op = self._dense_van_loan(R, lamb, k, i_epoch)
+                if i == len(t_sorted):
+                    break
 
-                # remaining time in the current epoch
-                w, lamb = advance(w, u - u_prev, lamb)
-                moments[i] = factorial(k) * lamb ** k * float(w @ e_ext)
-                u_prev = u
+                # advance to the end of the epoch
+                w, lamb = advance(w, epoch.end_time - x_end, lamb)
+                w, x = w[-1], epoch.end_time
+                i_epoch, epoch = next(epochs)
+                self.state_space.update_epoch(epoch)
+
+                if use_action:
+                    op = self._action_operator(rewards, k, i_epoch)
+                else:
+                    # balance each epoch on its own rates (see ``_rebase``)
+                    lamb_new = self._balance(epoch, start_time, t_sorted[-1], scale)
+                    lamb = self._rebase_forward(w, lamb, lamb_new, k, n)
+                    op = self._dense_van_loan(R, lamb, k, i_epoch)
+                    expms = propagators(op, lamb)
 
         # restore the original (unsorted) order
         moments = moments[np.argsort(np.argsort(end_times))]
@@ -1880,7 +1915,9 @@ class MomentEvaluator:
         """
         Expected time spent in each state of ``E`` over ``[start_time, t]`` for each end time ``t``, threaded across
         epochs with the augmented generator ``[[S, I], [0, 0]]`` of ``PhaseTypeDistribution.moment``, for the batched
-        mean accumulation of a spectrum. A positive start time subtracts the occupation up to it.
+        mean accumulation of a spectrum. Within an epoch, the end times are taken as runs of equal steps
+        (``_StepRuns``), with one dense exponential per step length or one interval action per run. A positive start
+        time subtracts the occupation up to it.
 
         :param end_times: Times at which to evaluate the occupation. A NaN end time gives a NaN occupation.
         :param start_time: Time from which to accumulate. By default, the start time of the distribution.
@@ -1936,41 +1973,59 @@ class MomentEvaluator:
         # apply its (transposed) matrix-exponential action instead of forming the dense 2n x 2n exponential
         use_action = 2 * n >= Settings.expm_action_min_dim
 
-        def advance(p, m, tau) -> 'Tuple[np.ndarray, np.ndarray]':
-            if tau <= 0:
-                return p, m
+        p = np.concatenate([np.asarray(self.state_space.alpha, dtype=float), np.zeros(n)])
+        x, i = 0.0, 0
+        out = np.zeros((len(t_sorted), n))
+
+        while True:
+            self._check_numerical_stability(self.state_space.S, i_epoch)
             S = self.state_space.S
+
             if use_action:
-                aug = sp.bmat([
+                augT = sp.bmat([
                     [sp.csc_matrix(S), sp.identity(n, format='csc')],
                     [None, sp.csc_matrix((n, n))],
-                ], format='csc')
-                w = Backend.expm_multiply(
-                    (aug * tau).T.tocsc(), np.concatenate([p, m]), action=spla.expm_multiply, blocks=2
-                )
+                ], format='csc').T.tocsc()
+
+                def advance(v: np.ndarray, tau: float) -> np.ndarray:
+                    """``v`` advanced by ``tau``."""
+                    return Backend.expm_multiply(augT * tau, v, action=spla.expm_multiply, blocks=2)
             else:
                 aug = np.zeros((2 * n, 2 * n))
                 aug[:n, :n] = np.asarray(S.todense()) if sp.issparse(S) else np.asarray(S)
                 aug[:n, n:] = np.eye(n)
-                w = np.concatenate([p, m]) @ self._block_expm((aug * tau)[None], n, [False, True])[0]
-            return w[:n], w[n:]
+                propagators = _Propagators(lambda tau: self._block_expm((aug * tau)[None], n, [False, True])[0])
 
-        p = np.asarray(self.state_space.alpha, dtype=float)
-        m = np.zeros(n)
-        u_prev = 0.0
-        out = np.zeros((len(t_sorted), n))
+                def advance(v: np.ndarray, tau: float) -> np.ndarray:
+                    """``v`` advanced by ``tau``."""
+                    return v @ propagators(tau)
 
-        for idx, u in enumerate(t_sorted):
-            while u > epoch.end_time:
-                self._check_numerical_stability(self.state_space.S, i_epoch)
-                p, m = advance(p, m, epoch.end_time - u_prev)
-                u_prev = epoch.end_time
-                i_epoch, epoch = next(epochs)
-                self.state_space.update_epoch(epoch)
-            self._check_numerical_stability(self.state_space.S, i_epoch)
-            p, m = advance(p, m, u - u_prev)
-            out[idx] = m
-            u_prev = u
+            # the end times up to the end of the epoch, as runs of equal steps
+            j = int(np.searchsorted(t_sorted, epoch.end_time, side='right'))
+            runs, x_end = _StepRuns.split(x, t_sorted[i:j])
+
+            for step, count in runs:
+                if step <= 0:
+                    out[i:i + count] = p[n:]
+                elif use_action and count > 1:
+                    P = Backend.expm_multiply_interval(
+                        augT, p, step * count, count, interval=_SCIPY_EXPM.compute_action_interval, advance=advance
+                    )
+                    out[i:i + count], p = P[:, n:], P[-1]
+                else:
+                    for c in range(i, i + count):
+                        p = advance(p, step)
+                        out[c] = p[n:]
+                i += count
+
+            if i == len(t_sorted):
+                break
+
+            if epoch.end_time > x_end:
+                p = advance(p, epoch.end_time - x_end)
+            x = epoch.end_time
+            i_epoch, epoch = next(epochs)
+            self.state_space.update_epoch(epoch)
 
         return out[np.argsort(order)]
 

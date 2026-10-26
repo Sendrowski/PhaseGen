@@ -231,3 +231,96 @@ def test_tree_height_pdf_lower_tail_relative_accuracy():
     expected = [1.4799206499923377e-11, 2.6296870454997604e-09, 8.042806633234013e-05, 0.16113377457891845]
 
     np.testing.assert_allclose(coal.tree_height.pdf(t), expected, rtol=1e-12, atol=0)
+
+
+def _pointwise_sweep(th: TreeHeightDistribution, t: np.ndarray) -> tuple:
+    """The CDF and density at each time from a sweep over that time alone."""
+    return tuple(np.array(x) for x in zip(*[[v[0] for v in th._sweep(np.array([u]))] for u in t]))
+
+
+def test_sweep_reuses_one_exponential_per_step():
+    """
+    A sweep over an equally spaced grid forms one dense exponential per epoch and step length, not one per point, and
+    gives the values of sweeps over each point alone. ``np.linspace`` steps differ in their last bits, which the runs
+    of equal steps absorb.
+    """
+    from phasegen.distributions import phase_type
+
+    th = pg.Coalescent(n=6, demography=pg.Demography(pop_sizes={'pop_0': {0: 1, 0.5: 0.2, 1.5: 2}})).tree_height
+    t = np.linspace(0, 4, 400)
+    _ = th.t_max
+
+    with patch.object(phase_type, 'expm', side_effect=phase_type.expm) as spy:
+        cdf, pdf = th._sweep(t)
+
+    # three epochs, each with a first step from its start, the run of grid steps and, but for the last, its end
+    assert spy.call_count <= 8
+
+    cdf_ref, pdf_ref = _pointwise_sweep(th, t)
+    np.testing.assert_allclose(cdf, cdf_ref, rtol=1e-13, atol=1e-15)
+    np.testing.assert_allclose(pdf, pdf_ref, rtol=1e-13, atol=1e-15)
+
+
+@pytest.mark.parametrize('action', [False, True])
+def test_sweep_over_unequal_grid_crossing_epochs(action):
+    """
+    A sweep over unequally spaced times, some of them on epoch boundaries, repeated and beyond the last boundary,
+    agrees with sweeps over each time alone, on the dense path and on the sparse path, where equal steps take one
+    interval action.
+    """
+    from phasegen.settings import Settings
+
+    Settings.expm_action_min_dim = 0 if action else 10 ** 9
+    th = pg.Coalescent(n=5, demography=pg.Demography(pop_sizes={'pop_0': {0: 1, 0.5: 0.2, 1.5: 2}})).tree_height
+
+    rng = np.random.default_rng(0)
+    t = np.sort(np.concatenate([rng.uniform(0, 5, 30), [0, 0.5, 0.5, 1.5], np.linspace(0.6, 1.4, 20)]))
+    cdf, pdf = th._sweep(t)
+    cdf_ref, pdf_ref = _pointwise_sweep(th, t)
+
+    np.testing.assert_allclose(cdf, cdf_ref, rtol=1e-11, atol=1e-15)
+    np.testing.assert_allclose(pdf, pdf_ref, rtol=1e-11, atol=1e-15)
+
+
+def test_step_runs_split_equal_steps():
+    """
+    Runs of equal steps continue only within a few unit roundoffs of the time reached, and times at or before it
+    take a zero step.
+    """
+    from phasegen.distributions._grid import _StepRuns
+
+    runs, end = _StepRuns.split(0.5, np.linspace(0.5, 2.5, 5)[1:])
+    assert runs == [(0.5, 4)] and abs(end - 2.5) < 1e-15
+
+    runs, end = _StepRuns.split(0.0, np.array([0.0, 1.0, 2.0, 2.0, 3.5, 5.0, np.inf, np.inf]))
+    assert runs == [(0.0, 1), (1.0, 2), (0.0, 1), (1.5, 2), (np.inf, 1), (0.0, 1)] and end == np.inf
+
+    runs, _ = _StepRuns.split(0.0, np.array([1.0, 2.0 + 1e-14]))
+    assert len(runs) == 2
+
+
+@pytest.mark.parametrize('action', [False, True])
+def test_sweep_over_a_grid_longer_than_one_run(action):
+    """
+    A run of equal steps longer than ``_MAX_RUN_STEPS`` is cut into runs of at most that many steps, which bounds the
+    vectors a sweep holds at once, and the sweep over the cut runs agrees with sweeps over single times, including
+    those at the cuts. Uncut, an equispaced grid of 10^5 points on 1329 states held about 1 GB.
+    """
+    from phasegen.distributions._grid import _MAX_RUN_STEPS, _StepRuns
+    from phasegen.settings import Settings
+
+    t = np.linspace(0, 6, 3 * _MAX_RUN_STEPS + 6)
+    runs, end = _StepRuns.split(0.0, t)
+
+    assert [c for _, c in runs] == [1, _MAX_RUN_STEPS, _MAX_RUN_STEPS, _MAX_RUN_STEPS, 5] and abs(end - 6) < 1e-14
+
+    Settings.expm_method = 'action' if action else 'dense'
+    th = pg.Coalescent(n=5, demography=pg.Demography(pop_sizes={'pop_0': {0: 1, 2: 0.3}})).tree_height
+    cdf, pdf = th._sweep(t)
+
+    idx = np.array([1, 2, _MAX_RUN_STEPS, _MAX_RUN_STEPS + 1, 2 * _MAX_RUN_STEPS + 1, 3 * _MAX_RUN_STEPS + 2,
+                    len(t) - 1])
+    cdf_ref, pdf_ref = _pointwise_sweep(th, t[idx])
+
+    np.testing.assert_allclose(cdf[idx], cdf_ref, rtol=1e-11, atol=1e-15)
+    np.testing.assert_allclose(pdf[idx], pdf_ref, rtol=1e-11, atol=1e-15)

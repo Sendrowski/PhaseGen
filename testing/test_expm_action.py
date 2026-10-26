@@ -173,3 +173,53 @@ def test_tree_height_terms_bounded_by_beta_alpha_close_to_two():
         _expm_multiply._expm_multiply_simple_core = core
 
     assert 0 < terms[0] < 40000
+
+
+@pytest.mark.parametrize('dim', [ACTION, DENSE])
+def test_occupation_grid_reuses_propagators(dim):
+    """
+    The batched mean accumulation of a spectrum over an equally spaced grid crossing epoch boundaries, with a start
+    time, forms one dense exponential per epoch and step length, or takes one interval action per run on the sparse
+    path, and agrees with the accumulation to each end time alone.
+    """
+    from unittest.mock import patch
+    from phasegen.distributions._moments import MomentEvaluator
+
+    Settings.expm_action_min_dim = dim
+    Settings.flatten_block_counting = False
+    sfs = pg.Coalescent(n=6, demography=_demography({'pop_0': 1.0}, two_epoch=True)).sfs
+    t = np.linspace(0.2, 3, 60)
+
+    with patch.object(MomentEvaluator, '_block_expm', side_effect=MomentEvaluator._block_expm) as spy:
+        grid = sfs.accumulate(1, t, start_time=0.1)
+
+    if dim == DENSE:
+        assert spy.call_count <= 12
+
+    ref = np.array([sfs.accumulate(1, [u], start_time=0.1)[0] for u in t])
+    np.testing.assert_allclose(grid, ref, rtol=1e-11, atol=1e-14 * np.abs(ref).max())
+
+
+@pytest.mark.parametrize('dim', [ACTION, DENSE])
+def test_windowed_accumulation_over_grid(dim):
+    """
+    The windowed second moment over an equally spaced grid crossing epoch boundaries, with end times before the start
+    time, agrees with the moment to each end time alone, on the dense path reusing one exponential per step and on
+    the sparse path by one interval action per run.
+    """
+    from unittest.mock import patch
+    from phasegen.distributions._moments import MomentEvaluator
+
+    Settings.expm_action_min_dim = dim
+    th = pg.Coalescent(n=6, demography=_demography({'pop_0': 1.0}, two_epoch=True)).tree_height
+    t = np.linspace(0, 3, 40)
+
+    with patch.object(MomentEvaluator, '_block_expm', side_effect=MomentEvaluator._block_expm) as spy:
+        grid = th.accumulate(2, t, start_time=0.3)
+
+    if dim == DENSE:
+        assert spy.call_count <= 12
+    ref = np.array([th.accumulate(2, [u], start_time=0.3)[0] for u in t])
+
+    np.testing.assert_allclose(grid, ref, rtol=1e-11, atol=1e-14 * np.abs(ref).max())
+    assert np.all(grid[t <= 0.3] == 0)
