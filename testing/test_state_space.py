@@ -36,24 +36,19 @@ class StateSpaceTestCase(TestCase):
                                                   [0., 0., -1., 1.],
                                                   [0., 0., 0., -0.]]))
 
-    def test_rate_matrix_first_still_records_time_and_primes_states(self):
-        """Materialising ``S`` before ``states`` must still record the construction time and prime ``states`` -- the
-        bookkeeping the ``states`` cached_property otherwise owns, so the large-space warning is not skipped and
-        ``time`` is recorded. Regression for the numba ``_get_rate_matrix`` bypassing the cached_property."""
+    def test_rate_matrix_first_still_records_time(self):
+        """Materialising ``S`` before ``states`` records the construction time, so the large-space warning is not
+        skipped either. Regression for the numba construction bypassing the bookkeeping of ``states``."""
         s = pg.LineageCountingStateSpace(
             lineage_config=pg.LineageConfig(n=6),
             model=pg.StandardCoalescent(),
             epoch=pg.Epoch()
         )
 
-        if not s._use_numba():
-            self.skipTest("the bookkeeping bypass only affects the numba construction path")
-
         assert s.time is None
         _ = s.S  # materialise the rate matrix before ever touching .states
 
         assert s.time is not None and s.time >= 0
-        assert 'states' in s.__dict__  # states primed, so its cached_property will not rebuild
 
     def test_numba_python_equivalence_two_locus_lineage_counting(self):
         """The numba kernel (kind 3) builds the same two-locus lineage-counting state space -- states and rate matrix
@@ -740,32 +735,6 @@ class StateSpaceTestCase(TestCase):
             )
         )
 
-    def test_state_space_caching(self):
-        """
-        Test that the state space is cached. The ``_cache`` epoch cache is a property of the pure-Python construction
-        path (the numba path caches the rate matrix via the ``S`` cached-property instead), so this exercises the
-        Python path explicitly.
-        """
-        pg.Settings.use_numba = False
-
-        try:
-            s = pg.state_space.LineageCountingStateSpace(
-                lineage_config=pg.LineageConfig(n=4),
-                model=pg.StandardCoalescent(),
-                epoch=pg.Epoch(pop_sizes={'pop_0': 2})
-            )
-
-            # check that the cache is empty
-            self.assertEqual(s._cache, {})
-
-            # compute rate matrix
-            _ = s.S
-
-            # check that the rate matrix is in the cache
-            self.assertTrue(s.epoch in s._cache)
-        finally:
-            pg.Settings.use_numba = True
-
     def test_epoch_equality(self):
         """
         Test that the equality operator works as expected.
@@ -873,53 +842,6 @@ def test_rescale_uses_sampled_population_size():
     testing.assert_allclose(np.asarray(s.S), np.asarray(fresh.S), rtol=1e-12)
 
 
-def test_two_deme_two_epoch_cdf_builds_each_rate_matrix_once(monkeypatch):
-    """
-    The tree-height CDF of a two-deme, two-epoch coalescent builds the rate matrix of each epoch once. Regression:
-    the absorption checks visit the last epoch before the sweep returns to the first, and the rate matrix of every
-    epoch was dropped on leaving it, so both were built twice.
-    """
-    build, built = pg.StateSpace._construct_numba, []
-    monkeypatch.setattr(pg.StateSpace, '_construct_numba', lambda ss: built.append(ss.epoch.start_time) or build(ss))
-
-    coal = pg.Coalescent(n={'pop_0': 3, 'pop_1': 3}, demography=pg.Demography(
-        pop_sizes={'pop_0': {0: 1, 0.5: 0.3}, 'pop_1': {0: 0.5}},
-        migration_rates={('pop_0', 'pop_1'): {0: 1}, ('pop_1', 'pop_0'): {0: 0.2}}
-    ))
-    coal.tree_height.cdf(np.linspace(0, 5, 50))
-
-    assert built == [0, 0.5]
-
-
-def test_update_epoch_restores_the_rate_matrix_of_the_epoch_left_last():
-    """
-    Returning to the epoch left last restores its rate matrix, equal to one built afresh for that epoch, and a third
-    epoch builds its own.
-    """
-    lineages = pg.LineageConfig({'a': 2, 'b': 2})
-    epochs = [pg.Epoch(start_time=i, pop_sizes={'a': 1 + i, 'b': 2}, migration_rates={('a', 'b'): 1, ('b', 'a'): 1})
-              for i in range(3)]
-    s = pg.LineageCountingStateSpace(lineage_config=lineages, model=pg.StandardCoalescent(), epoch=epochs[0])
-
-    S0 = s.S
-    s.update_epoch(epochs[1])
-    S1 = s.S
-    s.update_epoch(epochs[0])
-    assert s.S is S0
-    s.update_epoch(epochs[2])
-    s.update_epoch(epochs[1])
-    assert s.S is not S1
-
-    for epoch in [epochs[2], epochs[0]]:
-        s.update_epoch(epoch)
-        fresh = pg.LineageCountingStateSpace(lineage_config=lineages, model=pg.StandardCoalescent(), epoch=epoch)
-        testing.assert_array_equal(np.asarray(s.S), np.asarray(fresh.S))
-
-    s.drop_cache()
-    s.update_epoch(epochs[2])
-    assert 'S' not in s.__dict__
-
-
 @pytest.mark.parametrize('n_states, level', [(4999, None), (5000, 'slow'), (15000, 'very slow'),
                                               (50000, 'extremely slow')])
 def test_large_state_space_warns_once_at_the_highest_level(n_states, level, caplog, monkeypatch):
@@ -942,3 +864,124 @@ def test_large_state_space_warns_once_at_the_highest_level(n_states, level, capl
         assert not records
     else:
         assert len(records) == 1 and records[0].getMessage().endswith(f"may be {level}.")
+
+
+def _multi_epoch_spaces():
+    """State spaces of every type and model with the epochs they are compared over, including one without migration."""
+    def epochs(pops):
+        pairs = [(a, b) for a in pops for b in pops if a != b]
+        return [pg.Epoch(start_time=i, pop_sizes={p: 0.6 + 0.45 * i + 0.2 * j for j, p in enumerate(pops)},
+                         migration_rates={pair: m * (0.3 + 0.1 * k) for k, pair in enumerate(pairs)})
+                for i, m in enumerate([1, 0, 2.5])]
+
+    models = {'kingman': pg.StandardCoalescent(), 'beta': pg.BetaCoalescent(alpha=1.4),
+              'dirac': pg.DiracCoalescent(psi=0.4, c=3)}
+    out = []
+    for name, model in models.items():
+        out += [
+            pytest.param(lambda m=model: pg.LineageCountingStateSpace(pg.LineageConfig(n=5), model=m),
+                         epochs(['pop_0']), id=f'{name}-lineages'),
+            pytest.param(lambda m=model: pg.BlockCountingStateSpace(pg.LineageConfig(n=5), model=m),
+                         epochs(['pop_0']), id=f'{name}-blocks'),
+            pytest.param(lambda m=model: pg.LineageCountingStateSpace(pg.LineageConfig({'a': 2, 'b': 1, 'c': 1}),
+                                                                      model=m),
+                         epochs(['a', 'b', 'c']), id=f'{name}-lineages-3-demes'),
+            pytest.param(lambda m=model: pg.JointBlockCountingStateSpace(pg.LineageConfig({'a': 2, 'b': 2}), model=m),
+                         epochs(['a', 'b']), id=f'{name}-joint'),
+            pytest.param(lambda m=model: pg.LineageCountingStateSpace(
+                pg.LineageConfig({'a': 2, 'b': 1}), locus_config=pg.LocusConfig(n=2, recombination_rate=0.8),
+                model=m), epochs(['a', 'b']), id=f'{name}-lineages-two-loci'),
+            pytest.param(lambda m=model: pg.TwoLocusBlockCountingStateSpace(
+                pg.LineageConfig(n=3), locus_config=pg.LocusConfig(n=2, recombination_rate=0.8), model=m),
+                epochs(['pop_0']), id=f'{name}-blocks-two-loci'),
+        ]
+
+    return out
+
+
+@pytest.mark.parametrize('use_numba', [True, False], ids=['numba', 'python'])
+@pytest.mark.parametrize('dense', [True, False], ids=['dense', 'sparse'])
+@pytest.mark.parametrize('make, epochs', _multi_epoch_spaces())
+def test_rate_matrix_of_each_epoch_matches_its_transitions(make, epochs, dense, use_numba):
+    """
+    The rate matrix assembled from the basis for each epoch equals the one built from the transitions enumerated at
+    that epoch, and its sparse form stores no zero-rate transition, for every state-space type, coalescent model and
+    construction.
+    """
+    pg.Settings.use_numba = use_numba
+    pg.Settings.dense_rate_matrix_max_states = 10 ** 6 if dense else 0
+    ss = make()
+
+    for epoch in epochs + epochs[::-1]:
+        ss.update_epoch(epoch)
+        S = ss.S
+        assert sp.issparse(S) != dense
+
+        transitions, states = ss.get_transitions()
+        index = {s: i for i, s in enumerate(ss.states)}
+        expected = np.zeros((ss.k, ss.k))
+        for (a, b), (rate, _) in transitions.items():
+            expected[index[a], index[b]] = rate
+        expected[np.diag_indices(ss.k)] = -expected.sum(axis=1)
+
+        actual = S.toarray() if sp.issparse(S) else S
+        testing.assert_allclose(actual, expected, rtol=0, atol=1e-13 * np.abs(expected).max())
+
+        if not dense:
+            coo = S.tocoo()
+            assert np.all(coo.data[coo.row != coo.col] != 0)
+
+
+@pytest.mark.parametrize('use_numba', [True, False], ids=['numba', 'python'])
+def test_states_are_enumerated_once_per_state_space(use_numba, monkeypatch):
+    """
+    The states and transitions of a state space are enumerated once, whatever the number of epochs and statistics.
+    Regression: every rate matrix of a space of several demes was rebuilt by a fresh enumeration, about three times
+    per epoch.
+    """
+    pg.Settings.use_numba = use_numba
+    enumerate_, calls = pg.StateSpace._enumerate, []
+    monkeypatch.setattr(pg.StateSpace, '_enumerate', lambda ss: calls.append(id(ss)) or enumerate_(ss))
+
+    coal = pg.Coalescent(n={'a': 2, 'b': 2}, demography=pg.Demography(
+        pop_sizes={'a': {0: 1, 0.5: 0.3, 1.2: 2}, 'b': {0: 0.5, 0.8: 1}},
+        migration_rates={('a', 'b'): {0: 1, 1: 0}, ('b', 'a'): {0: 0.2}}
+    ))
+    coal.tree_height.cdf(np.linspace(0, 5, 20))
+    coal.tree_height.var
+    coal.jsfs.mean
+
+    assert sorted(calls) == sorted({id(coal.tree_height.state_space), id(coal.jsfs.state_space)})
+
+
+def test_a_copy_with_another_model_keeps_the_order_of_the_states():
+    """A copy with another coalescent model shares the states, and its rate matrix is in their order."""
+    ss = pg.BlockCountingStateSpace(pg.LineageConfig(n=5), model=pg.BetaCoalescent(alpha=1.5))
+    states = ss.states
+    clone = ss._with(model=pg.BetaCoalescent(alpha=1.7))
+    fresh = pg.BlockCountingStateSpace(pg.LineageConfig(n=5), model=pg.BetaCoalescent(alpha=1.7))
+    order = [fresh.states.index(s) for s in states]
+
+    assert clone.states is states
+    testing.assert_array_equal(np.asarray(clone.S), np.asarray(fresh.S)[np.ix_(order, order)])
+
+
+@pytest.mark.parametrize('dump, load', [
+    pytest.param(__import__('pickle').dumps, __import__('pickle').loads, id='pickle'),
+    pytest.param(__import__('dill').dumps, __import__('dill').loads, id='dill'),
+    pytest.param(lambda x: __import__('jsonpickle').encode(x, keys=True),
+                 lambda x: __import__('jsonpickle').decode(x, keys=True), id='jsonpickle'),
+])
+def test_state_space_with_its_basis_round_trips(dump, load):
+    """A state space serialized with its basis assembles the same rate matrices after loading."""
+    epochs = [pg.Epoch(pop_sizes={'a': 1, 'b': 0.4}, migration_rates={('a', 'b'): 0.5, ('b', 'a'): 0.1}),
+              pg.Epoch(pop_sizes={'a': 2, 'b': 3}, migration_rates={('a', 'b'): 0, ('b', 'a'): 1.5})]
+    ss = pg.JointBlockCountingStateSpace(pg.LineageConfig({'a': 2, 'b': 1}), epoch=epochs[0])
+    _ = ss.S
+
+    restored = load(dump(ss))
+
+    for epoch in epochs:
+        ss.update_epoch(epoch)
+        restored.update_epoch(epoch)
+        testing.assert_array_equal(np.asarray(restored.S), np.asarray(ss.S))

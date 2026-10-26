@@ -549,8 +549,8 @@ def test_single_epoch_mutation_config_builds_one_state_space(monkeypatch):
     absorption check built the lineage-counting space of the tree height for its initial vector, which the epoch
     search reads only for a demography with a finite epoch, adding about 0.3 ms to every fresh coalescent.
     """
-    build, built = pg.StateSpace._construct_numba, []
-    monkeypatch.setattr(pg.StateSpace, '_construct_numba', lambda ss: built.append(type(ss)) or build(ss))
+    build, built = pg.StateSpace._enumerate, []
+    monkeypatch.setattr(pg.StateSpace, '_enumerate', lambda ss: built.append(type(ss)) or build(ss))
 
     pg.Coalescent(n=5).sfs.get_mutation_config((1, 1, 0, 0), theta=1)
 

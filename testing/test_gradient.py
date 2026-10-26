@@ -149,28 +149,6 @@ def test_mean_gradient_at_zero_migration_rate(action):
     assert grad.migration_rates[0, 0] == pytest.approx(one_sided, rel=1e-6)
 
 
-def test_generator_basis_failure_restores_epoch(monkeypatch):
-    """A state space without a basis is returned to its epoch, and the failure is kept on it."""
-    from phasegen.distributions._gradient import _GeneratorBasis
-
-    def fail(self, *args):
-        raise ValueError('not affine')
-
-    monkeypatch.setattr(_GeneratorBasis, '_check', fail)
-    th = pg.Coalescent(n=4, demography=pg.Demography(pop_sizes={'pop_0': {0: 1, 0.5: 2}})).tree_height
-    ss = th.state_space
-    epoch = ss.epoch
-
-    with pytest.raises(ValueError, match='not affine'):
-        _GeneratorBasis(ss)
-    assert ss.epoch == epoch
-
-    for _ in range(2):
-        with pytest.raises(ValueError, match='not affine'):
-            MeanGradient(th).compute_columns(np.asarray(th.reward._get(ss), dtype=float)[:, None])
-    assert isinstance(ss.__dict__['_generator_basis'], ValueError)
-
-
 def test_mean_gradient_undefined_without_certain_absorption():
     """Without certain absorption in the last epoch, the occupation has no closed form and no gradient."""
     coal = pg.Coalescent(n={'pop_0': 1, 'pop_1': 1}, demography=pg.Demography(pop_sizes={'pop_0': 1, 'pop_1': 1}))
@@ -631,19 +609,17 @@ def _state_spaces():
 
 
 @pytest.mark.parametrize('get_state_space', _state_spaces())
-def test_generator_basis_reproduces_the_generator(get_state_space):
-    """The affine basis rebuilds the generator at random population sizes and migration rates, for every coalescent
-    model and state space, and returns the state space to its epoch."""
+def test_generator_parts_reproduce_the_generator(get_state_space):
+    """The parts of the generator rebuild it at random population sizes and migration rates, for every coalescent
+    model and state space."""
     from phasegen.demography import Epoch
-    from phasegen.distributions._gradient import _GeneratorBasis
+    from phasegen.distributions._gradient import _GeneratorDerivatives
 
     ss = get_state_space()
     epoch = ss.epoch
-    basis = _GeneratorBasis(ss)
+    basis = _GeneratorDerivatives(ss)
     model = ss.model
     rng = np.random.default_rng(3)
-
-    assert ss.epoch == epoch
 
     try:
         for _ in range(5):
@@ -669,11 +645,11 @@ def test_generator_basis_size_derivative(model):
     """The derivative of the generator by a population size, the coefficient times the coalescence part, against
     central differences of the generator."""
     from phasegen.demography import Epoch
-    from phasegen.distributions._gradient import _GeneratorBasis
+    from phasegen.distributions._gradient import _GeneratorDerivatives
 
     ss = pg.Coalescent(n=5, **({} if model is None else dict(model=model))).sfs.state_space
     epoch = ss.epoch
-    basis = _GeneratorBasis(ss)
+    basis = _GeneratorDerivatives(ss)
 
     def S(N):
         ss.update_epoch(Epoch(pop_sizes={'pop_0': N}))
@@ -693,10 +669,10 @@ def test_generator_basis_pattern_holds_migration_at_rate_zero():
     """The union pattern of the transient parts holds the migration entries, which a generator at a migration rate of
     zero lacks."""
     from phasegen.demography import Epoch
-    from phasegen.distributions._gradient import _GeneratorBasis
+    from phasegen.distributions._gradient import _GeneratorDerivatives
 
     ss = pg.Coalescent(n={'a': 2, 'b': 2}, demography=pg.Demography(pop_sizes={'a': 1, 'b': 1})).tree_height.state_space
-    basis = _GeneratorBasis(ss)
+    basis = _GeneratorDerivatives(ss)
     idx_t = np.arange(ss.S.shape[0] - 1)
     _, M, rows, cols = basis.transient(idx_t)
     pattern = set(zip(rows.tolist(), cols.tolist()))
@@ -1150,43 +1126,6 @@ def test_gradient_of_a_zero_reward_is_zero():
         assert not th.gradient(k, (zero,) * k, center=center).pop_sizes.any()
 
 
-def test_parameter_jacobian_of_a_non_affine_generator_uses_differences(monkeypatch, caplog):
-    """A generator that is not affine in the rates is differentiated by central differences, as noted in the log."""
-    import logging
-    import phasegen.gradient
-
-    def raise_(state_space):
-        raise ValueError('The generator is not affine in the inverse time scales and migration rates.')
-
-    monkeypatch.setattr(phasegen.gradient, '_generator_basis', raise_)
-    gradient = pg.Gradient(lambda N: pg.Coalescent(n=4, demography=pg.Demography(pop_sizes={'pop_0': {0: 1, 0.5: N}})),
-                           lambda c: c.tree_height.var)
-
-    with caplog.at_level(logging.INFO, logger='phasegen'):
-        value, jacobian = gradient.compute(dict(N=1.3))
-
-    assert jacobian[0] == pytest.approx(_richardson(lambda N: float(gradient.coal(N=N).tree_height.var), 1.3), rel=1e-6)
-    assert any('not affine' in r.getMessage() for r in caplog.records)
-
-
-def test_inference_names_a_non_affine_generator(monkeypatch, caplog):
-    """The warning of an inference whose generator is not affine names that reason, not the moments of the loss."""
-    import phasegen.gradient
-
-    def raise_(state_space):
-        raise ValueError('The generator is not affine in the inverse time scales and migration rates.')
-
-    monkeypatch.setattr(phasegen.gradient, '_generator_basis', raise_)
-    coal = lambda N: pg.Coalescent(n=4, demography=pg.Demography(pop_sizes={'pop_0': {0: 1, 0.5: N}}))
-
-    with caplog.at_level('WARNING'):
-        _inference(coal, lambda c, obs: float(c.tree_height.var), {'N': 1.0}, {'N': (0.1, 5)}, None)._announce_gradient(
-            {'N': 1.0}, None)
-
-    messages = [r.getMessage() for r in caplog.records if r.levelname == 'WARNING']
-    assert any('not affine' in m for m in messages) and not any('reads more' in m for m in messages)
-
-
 def test_loss_gradient_of_moments_with_the_default_window():
     """A start time of zero and an infinite end time passed explicitly are no window."""
     coal = lambda N: pg.Coalescent(n=4, demography=pg.Demography(pop_sizes={'pop_0': {0: 1, 0.5: N}}))
@@ -1250,11 +1189,11 @@ def test_group_terms_reads_trailing_orderings_from_longer_runs():
 def test_epoch_contractions_are_cached_across_gradients(monkeypatch):
     """The contractions of the generator derivatives of an epoch are kept across gradients of the same rates, also for
     more epochs than the bound of the cache."""
-    from phasegen.distributions._gradient import _GeneratorBasis
+    from phasegen.distributions._gradient import _GeneratorDerivatives
 
     calls = []
-    derivatives = _GeneratorBasis.parameter_derivatives
-    monkeypatch.setattr(_GeneratorBasis, 'parameter_derivatives', lambda self, epoch, idx:
+    derivatives = _GeneratorDerivatives.parameter_derivatives
+    monkeypatch.setattr(_GeneratorDerivatives, 'parameter_derivatives', lambda self, epoch, idx:
                         calls.append(1) or derivatives(self, epoch, idx))
 
     coal = pg.Coalescent(n=4, model=pg.BetaCoalescent(alpha=1.5), demography=pg.Demography(pop_sizes={'pop_0': {0: 1, 0.5: 2}}))
@@ -1285,7 +1224,7 @@ def test_epoch_contractions_are_bounded_in_bytes(monkeypatch):
     base = coal(2.0)
     base.sfs.gradient(2)
     space = base.state_spaces['block_counting']
-    basis = space._generator_basis
+    basis = space._generator_derivatives
     assert len(basis._contractions) == 2
     size = max(basis._cached.values())
 
@@ -1306,7 +1245,7 @@ def test_supported_builds_only_the_state_spaces_of_the_passes():
     n = 50, taking seconds and warning about its size."""
     coal = pg.Coalescent(n=12, demography=pg.Demography(pop_sizes={'pop_0': {0: 1, 0.5: 2}}))
     assert Gradient(lambda N: coal, lambda c: c.sfs.mean.normalize().polymorphic).supported({'N': 1.0})
-    assert coal.state_spaces['block_counting']._generator_basis is None
+    assert '_basis' not in coal.state_spaces['block_counting'].__dict__
 
 
 def test_parameter_jacobian_by_a_pulse_time():
@@ -1358,29 +1297,29 @@ def test_scores_of_resampled_statistics_reading_coalescent_moments():
     assert Gradient(coal, statistics[0])._scores(x, bounds, [other]) is None
 
 
-def test_payloads_leave_out_the_generator_basis():
-    """The generator basis built for a gradient is left out of the payloads of the coalescent and the inference,
+def test_payloads_leave_out_the_generator_derivatives():
+    """The derivatives of the generator built for a gradient are left out of the payloads of the coalescent and the inference,
     and rebuilt on use."""
     coal = pg.Coalescent(n=5, demography=pg.Demography(pop_sizes={'pop_0': {0: 1, 0.5: 2}}))
     expected = coal.tree_height.gradient(2).pop_sizes
-    assert coal.state_spaces['lineage_counting']._generator_basis is not None
+    assert coal.state_spaces['lineage_counting']._generator_derivatives is not None
 
     restored = pg.Coalescent.from_json(coal.to_json())
-    assert restored.state_spaces['lineage_counting']._generator_basis is None
+    assert restored.state_spaces['lineage_counting']._generator_derivatives is None
     np.testing.assert_allclose(restored.tree_height.gradient(2).pop_sizes, expected, rtol=1e-12)
 
 
-def test_drop_cache_drops_the_generator_basis():
-    """Dropping the caches of a coalescent frees the generator basis and its contractions. Regression: they were
+def test_drop_cache_drops_the_generator_derivatives():
+    """Dropping the caches of a coalescent frees the derivatives of the generator and their contractions. Regression: they were
     kept."""
     coal = pg.Coalescent(n=5, model=pg.BetaCoalescent(alpha=1.5),
                          demography=pg.Demography(pop_sizes={'pop_0': {0: 1, 0.5: 2}}))
     coal.sfs.gradient(2)
-    assert coal.state_spaces['block_counting']._generator_basis is not None
+    assert coal.state_spaces['block_counting']._generator_derivatives is not None
 
     coal.drop_cache()
 
-    assert coal.state_spaces['block_counting']._generator_basis is None
+    assert coal.state_spaces['block_counting']._generator_derivatives is None
 
 
 @pytest.mark.parametrize('case', ['lineage weight', 'locus weight', 'custom model'])

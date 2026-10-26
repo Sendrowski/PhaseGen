@@ -1986,8 +1986,7 @@ class TwoLocusSFSDistribution(SpectrumDistribution):
         :return: The derivatives.
         :raises NotImplementedError: If ``k`` is a positive integer other than one, or the moment is accumulated over a
             time window.
-        :raises ValueError: If ``k`` is not a positive integer, if absorption is not certain in the last epoch, or if
-            the generator is not affine in the rates.
+        :raises ValueError: If ``k`` is not a positive integer, or if absorption is not certain in the last epoch.
         :raises TypeError: If ``k`` is not a number.
         """
         k = _validate_order(k)

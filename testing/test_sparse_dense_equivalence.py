@@ -2,7 +2,7 @@
 Equivalence of sparse and dense rate-matrix construction (and the moment paths that consume it).
 
 The rate matrix is stored densely for small state spaces and sparsely once the transient count exceeds
-:attr:`Settings.dense_rate_matrix_max_states` (see :meth:`StateSpace._construct_numba`). Likewise the moment
+:attr:`Settings.dense_rate_matrix_max_states` (see :attr:`StateSpace.S`). Likewise the moment
 paths switch to sparse linear algebra (expm-action, sparse closed-form LU) above
 :attr:`Settings.expm_action_min_dim` / :attr:`Settings.closed_form_sparse_min_states`. These thresholds only
 change *how* a result is computed, never *what*; this module pins that down at small, fast sizes by forcing the
