@@ -1776,7 +1776,7 @@ class EmpiricalTwoLocusSFSDistribution(_EmpiricalAccumulating, EmpiricalSpectrum
         return TwoLocusSFSDistribution._layout_of(lineages, locus_config, loci, folded)
 
     cdf = pdf = quantile = property(TwoLocusSFSDistribution._no_univariate_distribution)
-    plot_cdf = bin = TwoLocusSFSDistribution._no_univariate_distribution
+    plot_pdf = plot_cdf = bin = TwoLocusSFSDistribution._no_univariate_distribution
 
     def _no_marginals(self, *args, **kwargs) -> NoReturn:
         """

@@ -1,7 +1,6 @@
 """Distribution base classes and marginal (per-deme / per-locus) views."""
 
 import logging
-import warnings
 from abc import ABC, abstractmethod
 from collections.abc import Mapping
 from ..caching import cached_property
@@ -1311,6 +1310,18 @@ class CallableDistributionFunctions:
                                       "(a bivariate joint quantile is not well-defined; use a marginal/conditional).")
         return self._function('quantile', self._quantile_function)
 
+    def plot_pdf(self, *args, **kwargs) -> 'plt.Axes':
+        """
+        Plot the PDF curve.
+
+        .. deprecated:: 2.0.0
+            Use ``pdf.plot()``. ``plot_pdf`` will be removed in a future release.
+        """
+        logger.getChild(type(self).__name__).warning(
+            "plot_pdf() is deprecated since 2.0.0 and will be removed in a future release, use .pdf.plot() instead."
+        )
+        return self.pdf.plot(*args, **kwargs)
+
     def plot_cdf(self, *args, **kwargs) -> 'plt.Axes':
         """
         Plot the CDF curve.
@@ -1318,8 +1329,9 @@ class CallableDistributionFunctions:
         .. deprecated:: 2.0.0
             Use ``cdf.plot()``. ``plot_cdf`` will be removed in a future release.
         """
-        warnings.warn("plot_cdf() is deprecated since 2.0.0 and will be removed in a future release; "
-                      "use .cdf.plot() instead.", DeprecationWarning, stacklevel=2)
+        logger.getChild(type(self).__name__).warning(
+            "plot_cdf() is deprecated since 2.0.0 and will be removed in a future release, use .cdf.plot() instead."
+        )
         return self.cdf.plot(*args, **kwargs)
 
     def _warn_if_negative(self, values: np.ndarray, label: str, rtol: float = 1e-3) -> np.ndarray:

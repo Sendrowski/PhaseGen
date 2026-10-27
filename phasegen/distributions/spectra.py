@@ -1953,7 +1953,7 @@ class TwoLocusSFSDistribution(SpectrumDistribution):
             "class, use the single-locus spectrum: pg.Coalescent(...).sfs.cdf / .pdf and their .plot()."
         )
 
-    plot_cdf = bin = _no_univariate_distribution
+    plot_pdf = plot_cdf = bin = _no_univariate_distribution
     cdf = pdf = quantile = property(_no_univariate_distribution)
 
     def _unsupported(self, *args, **kwargs) -> NoReturn:

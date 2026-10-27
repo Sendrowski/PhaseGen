@@ -357,7 +357,7 @@ def test_two_locus_sfs_has_no_univariate_distribution():
     """A 2-SFS entry is a cross-moment (product of two rewards), so CDF/PDF/quantile/plots must raise clearly.
     Regression: ``sfs2.cdf.plot()`` raised AttributeError."""
     sfs2 = pg.Coalescent(n=4, loci=2, recombination_rate=1.0).sfs2
-    for method in ('cdf', 'pdf', 'quantile', 'plot_cdf'):
+    for method in ('cdf', 'pdf', 'quantile', 'plot_cdf', 'plot_pdf'):
         with pytest.raises(NotImplementedError):
             getattr(sfs2, method)(1.0)
 
@@ -973,9 +973,9 @@ def test_plot_endpoint_tracks_quantile_setting():
         Settings.plot_endpoint_quantile = prev
 
 
-def test_distribution_functions_are_callable_and_plottable():
+def test_distribution_functions_are_callable_and_plottable(caplog):
     """``pdf``/``cdf``/``quantile`` are :class:`DistributionFunction`s: calling them evaluates (unchanged), and they
-    expose ``.plot()``. The former ``plot_cdf`` still works but warns (deprecated)."""
+    expose ``.plot()``. The former ``plot_cdf`` and ``plot_pdf`` still work but warn (deprecated)."""
     import matplotlib
     matplotlib.use('Agg')
     from phasegen.distributions.base import DistributionFunction
@@ -1004,13 +1004,15 @@ def test_distribution_functions_are_callable_and_plottable():
         pg.Coalescent(n=4, loci=2, recombination_rate=1.0).sfs2.cdf(1.0)
 
     # deprecated aliases still work but warn
-    with pytest.warns(DeprecationWarning):
-        coal.sfs.plot_cdf(show=False)
-    with pytest.warns(DeprecationWarning):
-        jd.plot_cdf(show=False, n_points=12)
+    caplog.clear()
+    coal.sfs.plot_cdf(show=False)
+    coal.tree_height.plot_pdf(show=False)
+    jd.plot_cdf(show=False, n_points=12)
+    assert [r.getMessage().split('(')[0] for r in caplog.records if 'is deprecated' in r.getMessage()] == \
+           ['plot_cdf', 'plot_pdf', 'plot_cdf']
 
 
-def test_deprecated_plot_cdf_accepts_the_1_2_0_arguments(tmp_path):
+def test_deprecated_plot_cdf_accepts_the_1_2_0_arguments(tmp_path, caplog):
     """``plot_cdf`` takes the keyword arguments of version 1.2.0, ``ax``, ``t``, ``show``, ``file``, ``clear``,
     ``label`` and ``title``, and passes them to ``cdf.plot()``."""
     import matplotlib
@@ -1020,14 +1022,14 @@ def test_deprecated_plot_cdf_accepts_the_1_2_0_arguments(tmp_path):
     ax = plt.figure().gca()
     file = tmp_path / 'cdf.png'
 
-    with pytest.warns(DeprecationWarning):
-        out = pg.Coalescent(n=4).tree_height.plot_cdf(ax=ax, t=np.linspace(0, 3, 20), show=False, file=str(file),
-                                                      clear=False, label='th', title='T')
+    out = pg.Coalescent(n=4).tree_height.plot_cdf(ax=ax, t=np.linspace(0, 3, 20), show=False, file=str(file),
+                                                  clear=False, label='th', title='T')
+
+    assert any('plot_cdf() is deprecated' in r.getMessage() for r in caplog.records)
 
     assert out is ax and ax.get_title() == 'T' and file.exists()
     np.testing.assert_allclose(ax.lines[-1].get_xdata(), np.linspace(0, 3, 20))
     assert ax.lines[-1].get_label() == 'th'
-    assert not hasattr(pg.Coalescent(n=4).tree_height, 'plot_pdf')
     plt.close('all')
 
 
