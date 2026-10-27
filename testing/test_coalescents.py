@@ -11,6 +11,7 @@ import logging
 import numpy as np
 import pytest
 from matplotlib import pyplot as plt
+from scipy.integrate import trapezoid
 
 import phasegen as pg
 from phasegen.distributions import MsprimeCoalescent
@@ -667,7 +668,7 @@ class CoalescentTestCase(TestCase):
         deme = sfs.demes['pop_0']
 
         t = np.linspace(0, float(coal.tree_height.quantile(0.9999)), 2000)
-        mean_from_cdf = np.trapezoid(1 - np.asarray(deme.cdf(t)), t, axis=0)
+        mean_from_cdf = trapezoid(1 - np.asarray(deme.cdf(t)), t, axis=0)
         deme_mean = np.asarray(deme.mean.data, dtype=float)
         full_mean = np.asarray(sfs.mean.data, dtype=float)
 

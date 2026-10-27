@@ -92,8 +92,8 @@ class Settings(metaclass=_SettingsMeta):
     #: sparse block-triangular LU factorization and not a dense one. It applies to the closed-form moments (see
     #: :meth:`PhaseTypeDistribution.moment() <phasegen.distributions.PhaseTypeDistribution.moment>`), the last-epoch
     #: solve of the Laplace transform and the multi-epoch mutational configurations, where it is compared against the
-    #: number of count vectors times the number of transient states. The result is unchanged. Set to 0 to always use
-    #: the sparse path, or very large to always use the dense path.
+    #: number of transient states of the solve shared by all count vectors. The result is unchanged. Set to 0 to always
+    #: use the sparse path, or very large to always use the dense path.
     closed_form_sparse_min_states: int = 256
 
     #: State count at or above which the rate matrix is stored sparse. The sparse solves and actions read the sparse

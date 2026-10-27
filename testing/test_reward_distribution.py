@@ -12,6 +12,7 @@ import numpy as np
 import pytest
 import scipy.linalg as sla
 import scipy.sparse as sp
+from scipy.integrate import trapezoid
 
 import phasegen as pg
 from phasegen.settings import Settings
@@ -653,7 +654,7 @@ def test_conditional_distribution():
     # a real nested inversion, so keep the grid small)
     xs = np.linspace(0.3, ma._range(scale=4), 6)
     cond_means = [jd.conditional('a', float(x))._cumulants()[0] for x in xs]
-    e_recon = np.trapezoid(np.array(cond_means) * ma.pdf(xs), xs)
+    e_recon = trapezoid(np.array(cond_means) * ma.pdf(xs), xs)
     assert e_recon == pytest.approx(mb._cumulants()[0], rel=0.15)
 
     # a self-pair conditional is a point mass at ``value`` -> not representable, raises

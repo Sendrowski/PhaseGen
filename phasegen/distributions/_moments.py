@@ -313,10 +313,8 @@ class MomentEvaluator:
         """
         Whether a linear solve over ``n_transient`` transient states takes the sparse path, at and above
         :attr:`Settings.closed_form_sparse_min_states <phasegen.settings.Settings.closed_form_sparse_min_states>`.
-        Distinct from :attr:`Settings.expm_method <phasegen.settings.Settings.expm_method>`, which governs the
-        matrix-exponential action, though ``_accumulate_closed_form`` and ``_occupation_times`` let this
-        one decide both, their exponentials following the sparsity their factorization already takes, except on the
-        stiff generators of ``_dense_expm_is_faster``.
+        The matrix exponentials are chosen independently, by ``_dense_expm_is_faster`` under
+        :attr:`Settings.expm_method <phasegen.settings.Settings.expm_method>`.
 
         :param n_transient: Number of transient states the solve is over.
         :return: Whether to take the sparse path.

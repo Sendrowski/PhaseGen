@@ -14,6 +14,7 @@ import pytest
 
 import phasegen as pg
 import phasegen.distributions as _pgd
+from phasegen.errors import ModelError
 from phasegen.settings import Settings
 from testing import TestCase
 
@@ -27,8 +28,11 @@ _CF_ENTRY_POINTS = ("_accumulate_closed_form", "_occupation_times", "_last_epoch
 @contextlib.contextmanager
 def _count_closed_form_calls():
     """Count calls to the closed-form / batched entry points while still executing them normally."""
+    cls = _pgd.PhaseTypeDistribution
     counts = {name: 0 for name in _CF_ENTRY_POINTS}
-    originals = {name: getattr(_pgd.PhaseTypeDistribution, name) for name in _CF_ENTRY_POINTS}
+    originals = {name: getattr(cls, name) for name in _CF_ENTRY_POINTS}
+    # an entry point inherited from a base class is restored by deleting the wrapper from this class
+    own = {name: vars(cls)[name] for name in _CF_ENTRY_POINTS if name in vars(cls)}
 
     def make(name, orig):
         def wrapper(self, *args, **kwargs):
@@ -39,11 +43,14 @@ def _count_closed_form_calls():
 
     try:
         for name in _CF_ENTRY_POINTS:
-            setattr(_pgd.PhaseTypeDistribution, name, make(name, originals[name]))
+            setattr(cls, name, make(name, originals[name]))
         yield counts
     finally:
         for name in _CF_ENTRY_POINTS:
-            setattr(_pgd.PhaseTypeDistribution, name, originals[name])
+            if name in own:
+                setattr(cls, name, own[name])
+            else:
+                delattr(cls, name)
 
 
 def _both(fn):
@@ -256,6 +263,22 @@ class ClosedFormLastEpochTestCase(TestCase):
         assert coal.tree_height._absorption_certain_in_last_epoch() is True
         off, on = _both(lambda: coal.tree_height.mean)
         np.testing.assert_allclose(on, off, rtol=1e-8)
+
+
+@pytest.mark.parametrize("migration_rates", [
+    {},
+    {('a', 'b'): {0: 1.0, 1.0: 0.0}, ('b', 'a'): {0: 1.0, 1.0: 0.0}},
+], ids=["no-migration", "migration-before-1"])
+@pytest.mark.parametrize("moment", ["sfs.var", "sfs.cov", "jsfs.cov"])
+def test_second_moments_of_spectra_raise_when_the_demography_does_not_absorb(migration_rates, moment):
+    """The variances and covariances of the spectra raise on two demes that are disconnected in the last epoch.
+    Regression: the second moments of the bins closed the last epoch without checking that it absorbs."""
+    coal = pg.Coalescent(n={'a': 2, 'b': 2}, demography=pg.Demography(
+        pop_sizes={'a': 1.0, 'b': 1.0}, migration_rates=migration_rates))
+    spectrum, attr = moment.split('.')
+
+    with pytest.raises(ModelError, match="does not absorb"):
+        _ = getattr(getattr(coal, spectrum), attr)
 
 
 @pytest.mark.parametrize("sparse", [False, True], ids=["dense-cf", "sparse-cf"])

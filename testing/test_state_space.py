@@ -955,13 +955,16 @@ def test_states_are_enumerated_once_per_state_space(use_numba, monkeypatch):
 
 
 def test_a_copy_with_another_model_keeps_the_order_of_the_states():
-    """A copy with another coalescent model shares the states, and its rate matrix is in their order."""
-    ss = pg.BlockCountingStateSpace(pg.LineageConfig(n=5), model=pg.BetaCoalescent(alpha=1.5))
+    """A copy with another coalescent model shares the states, and its rate matrix is in their order. The standard
+    and the Beta coalescent enumerate the states of five lineages in different orders, so the rate matrix of the copy
+    is permuted."""
+    ss = pg.BlockCountingStateSpace(pg.LineageConfig(n=5), model=pg.StandardCoalescent())
     states = ss.states
     clone = ss._with(model=pg.BetaCoalescent(alpha=1.7))
     fresh = pg.BlockCountingStateSpace(pg.LineageConfig(n=5), model=pg.BetaCoalescent(alpha=1.7))
     order = [fresh.states.index(s) for s in states]
 
+    assert order != list(range(len(states)))
     assert clone.states is states
     testing.assert_array_equal(np.asarray(clone.S), np.asarray(fresh.S)[np.ix_(order, order)])
 
