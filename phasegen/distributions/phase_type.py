@@ -1981,6 +1981,7 @@ class TreeHeightDistribution(PhaseTypeDistribution, DensityAwareDistribution):
 
         cdf, pdf = np.zeros(len(t)), np.zeros(len(t))
         memo, i = {}, 0
+        absorbed = 1 - self._e
 
         for epoch, runs, remainder in plan:
             self.state_space.update_epoch(epoch)
@@ -1988,12 +1989,13 @@ class TreeHeightDistribution(PhaseTypeDistribution, DensityAwareDistribution):
             propagators = _Propagators(
                 lambda tau: expm(self._per_epoch(memo, 'dense', self._dense_rate_matrix) * tau)
             ) if dense else None
+            exit_rates = self._per_epoch(memo, 'exit', self._exit_rates)
 
             for step, count in runs:
                 W = self._propagate_run(w, step, count, memo, dense, propagators)
                 w = W[-1]
-                cdf[i:i + count] = W @ (1 - self._e) / W.sum(axis=1)
-                pdf[i:i + count] = W @ self._per_epoch(memo, 'exit', self._exit_rates)
+                cdf[i:i + count] = W @ absorbed / W.sum(axis=1)
+                pdf[i:i + count] = W @ exit_rates
                 i += count
 
             w = self._propagate(w, remainder, memo, dense, propagators)

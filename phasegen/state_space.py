@@ -123,8 +123,13 @@ class _GeneratorBasis:
 
         # every transition and diagonal entry lands on one entry of the CSR pattern, duplicates being summed
         keys = np.concatenate([src, np.arange(n)]) * n + np.concatenate([dst, np.arange(n)])
-        unique, self._entry = np.unique(keys, return_inverse=True)
-        self._rows, self._cols = np.divmod(unique, n)
+        # a stable sort, fast on keys the enumeration lists by ascending source
+        order = np.argsort(keys, kind='stable')
+        ordered = keys[order]
+        first = np.concatenate([[True], ordered[1:] != ordered[:-1]])
+        self._entry = np.empty(len(keys), dtype=np.int64)
+        self._entry[order] = np.cumsum(first) - 1
+        self._rows, self._cols = np.divmod(ordered[first], n)
         self._diagonal = self._rows == self._cols
 
     @property
@@ -195,14 +200,16 @@ class _GeneratorBasis:
         :return: The parts.
         """
         n_demes = totals.shape[1]
-        delta = totals[dst] - totals[src]
-        change = delta.sum(axis=1)
+        delta = np.take(totals, dst, axis=0) - np.take(totals, src, axis=0)
+        total = totals.sum(axis=1)
+        change = total[dst] - total[src]
         lose, gain = delta.argmin(axis=1), delta.argmax(axis=1)
 
         parts = np.zeros(len(src), dtype=np.int64)
         coalescence = change < 0
         parts[coalescence] = 1 + lose[coalescence]
-        migration = (change == 0) & delta.any(axis=1)
+        # a change summing to zero is a migration unless it is none, where the first deme is both minimum and maximum
+        migration = (change == 0) & (lose != gain)
         parts[migration] = (1 + n_demes + lose[migration] * (n_demes - 1) + gain[migration] -
                             (gain[migration] > lose[migration]))
 

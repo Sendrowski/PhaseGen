@@ -1,4 +1,6 @@
 """Runs of equal steps of a time grid and the propagators reused along them."""
+import sys
+from math import isfinite
 from typing import Callable, Dict, List, Tuple
 
 import numpy as np
@@ -30,7 +32,7 @@ class _StepRuns:
         :param t: Ascending times, at least ``x`` up to rounding.
         :return: The runs as pairs of step and number of steps, and the time reached after the last.
         """
-        tol = _STEP_ULPS * np.finfo(float).eps
+        tol = _STEP_ULPS * sys.float_info.epsilon
 
         # the closed runs, and the open one as its start, the bounds on its step, its number of steps and last time
         runs: List[Tuple[float, int]] = []
@@ -40,7 +42,7 @@ class _StepRuns:
             if run is not None:
                 x0, lo, hi, c, last = run
 
-                if np.isfinite(u) and np.isfinite(x0):
+                if isfinite(u) and isfinite(x0):
                     r = tol * abs(u)
                     lo_new, hi_new = max(lo, (u - x0 - r) / (c + 1)), min(hi, (u - x0 + r) / (c + 1))
 
@@ -53,7 +55,7 @@ class _StepRuns:
                 x = x0 + c * d
 
             d = u - x if u > x else 0.0
-            r = tol * abs(u) if np.isfinite(d) else 0.0
+            r = tol * abs(u) if isfinite(d) else 0.0
             run = (x, d - r, d + r, 1, u)
 
         if run is not None:
