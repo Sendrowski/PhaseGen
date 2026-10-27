@@ -2306,7 +2306,7 @@ def test_joint_near_origin_check_probes_the_continuous_part(caplog):
     with caplog.at_level('WARNING'):
         assert joint._cos2d_wiggle_check < 0.01
 
-    assert not [r for r in caplog.records if 'under-resolves near the origin' in r.getMessage()]
+    assert not [r for r in caplog.records if 'joint inversion under-resolves' in r.getMessage()]
 
 
 def test_joint_cosine_expansion_follows_the_term_count():
@@ -3199,3 +3199,61 @@ def test_multi_epoch_transform_grid_in_row_blocks_matches_one_block(monkeypatch)
     monkeypatch.setattr(reward, '_LST_VECTOR_ENTRIES', 1)
 
     np.testing.assert_allclose(joint._lst_grid(s_a, s_b), whole, rtol=1e-13, atol=0)
+
+
+def test_joint_margin_check_warns_on_an_under_resolved_bottleneck(caplog):
+    """The margin check of the joint cosine expansion compares both margins with the marginal CDFs over the bulk of
+    each marginal and names ``Settings.cos_terms_2d`` as the remedy. Through a strong bottleneck, 128 cosine terms give
+    the margin ``F(x, inf)`` 0.730 at the 0.8 quantile of the tree height, against the exact 0.800, and the joint CDF
+    at the pair of 0.8 quantiles 0.676 against 0.740 from msprime. Regression: the check compared only the margin of
+    ``R_a``, at four points up to its 0.4 quantile, found a gap of 0.0115 and logged nothing. A constant population
+    size stays silent."""
+    def warnings():
+        return [r.getMessage() for r in caplog.records if 'joint inversion under-resolves' in r.getMessage()]
+
+    bottleneck = pg.Coalescent(n=10, demography=pg.Demography(
+        pop_sizes={'pop_0': {0: 1, 0.3: 0.02, 0.35: 1.5, 2: 0.5}}))
+
+    with caplog.at_level('WARNING'):
+        err = bottleneck.joint(pg.TreeHeightReward(), pg.TotalBranchLengthReward())._cos2d_wiggle_check
+
+    assert err > 0.03
+    assert len(warnings()) == 1 and 'Settings.cos_terms_2d' in warnings()[0]
+
+    caplog.clear()
+    with caplog.at_level('WARNING'):
+        err = pg.Coalescent(n=10).joint(pg.TreeHeightReward(), pg.TotalBranchLengthReward())._cos2d_wiggle_check
+
+    assert err < 0.03
+    assert not warnings()
+
+
+
+def test_joint_margin_check_warns_on_a_steep_rise_above_an_atom(caplog):
+    """The margin check of the joint cosine expansion also probes the continuous part just above an atom at 0. For
+    bins 5 and 1 of the SFS at n = 10 through a short, strong bottleneck, the atom of bin 5 is 0.44 and its continuous
+    part rises within a small fraction of ``mean + 3 std``, where the joint margin at 128 cosine terms lies 0.066 below
+    the marginal CDF. Regression: the check probed only quadratically spaced points up to ``mean + 3 std``, whose
+    first lay past the rise, found 0.028 and logged nothing."""
+    coal = pg.Coalescent(n=10, demography=pg.Demography(pop_sizes={'pop_0': {0: 1, 0.1: 0.01, 0.15: 1}}))
+
+    with caplog.at_level('WARNING'):
+        err = coal.sfs.joint(5, 1)._cos2d_wiggle_check
+
+    assert err > 0.05
+    assert [r for r in caplog.records if 'joint inversion under-resolves' in r.getMessage()]
+
+
+def test_joint_margin_check_warns_on_a_narrow_body(caplog):
+    """The margin check of the joint cosine expansion probes the body of a marginal that holds its mass in a narrow
+    interval away from the origin. Through a short bottleneck to size 0.02 at n = 5, the tree height lies mostly
+    within [0.2, 0.25], where the joint margin at 128 cosine terms deviates from the marginal CDF by 0.11.
+    Regression: the check probed quadratically spaced points of which one fell in the body, found 0.012 and logged
+    nothing."""
+    coal = pg.Coalescent(n=5, demography=pg.Demography(pop_sizes={'pop_0': {0: 1, 0.2: 0.02, 0.25: 1}}))
+
+    with caplog.at_level('WARNING'):
+        err = coal.joint(pg.TreeHeightReward(), pg.TotalBranchLengthReward())._cos2d_wiggle_check
+
+    assert err > 0.05
+    assert [r for r in caplog.records if 'joint inversion under-resolves' in r.getMessage()]

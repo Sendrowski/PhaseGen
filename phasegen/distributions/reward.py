@@ -31,6 +31,14 @@ logger = logging.getLogger('phasegen')
 #: Mass beyond the window of the 2D cosine expansion of a joint distribution above which a warning is logged.
 _COS2D_TAIL_WARN = 1e-2
 
+#: Levels within the continuous part of each marginal, above its atom at 0, at whose quantiles
+#: ``JointRewardDistribution._cos2d_wiggle_check`` compares the margins of the 2D cosine expansion with the marginal
+#: CDFs. They are densest at low levels, where a steep rise above the atom or a narrow body sits.
+_COS2D_CHECK_LEVELS = np.array([0.01, 0.03, 0.06, 0.1, 0.15, 0.2, 0.3, 0.4, 0.5, 0.65, 0.8, 0.95])
+
+#: Largest gap between a margin of the 2D cosine expansion and the marginal CDF above which a warning is logged.
+_COS2D_MARGIN_WARN = 0.03
+
 #: Error of the Euler inversion of a unit step (``_euler_step_error``) at or below which
 #: ``JointRewardDistribution._jump_correction`` leaves the jumps out. Steps far below the point of inversion err by
 #: rounding only, about ``1e-16 * exp(A / 2)``, and steps far above it by less.
@@ -1390,34 +1398,42 @@ class JointRewardDistribution(CallableDistributionFunctions):
 
     @property
     def _cos2d_wiggle_check(self) -> float:
-        """The largest near-origin gap between ``F(x, inf)`` of the cosine expansion and the marginal CDF of ``R_a``,
-        logged as a warning above 0.03. The cosine error concentrates near the axes, so this margin comparison detects
-        an under-resolved near-origin rise. It reads the coefficients directly, so it does not recurse into
-        ``_cc_box``."""
+        """The largest gap between the margins ``F(x, inf)`` and ``F(inf, y)`` of the cosine expansion and the marginal
+        CDFs of ``R_a`` and ``R_b``, at quantiles from 1% to 95% of the continuous part of each marginal above its atom
+        at 0, logged as a warning above 0.03. A gap shows that :attr:`Settings.cos_terms_2d
+        <phasegen.settings.Settings.cos_terms_2d>` under-resolves the joint distribution. It reads the coefficients
+        directly, so it does not recurse into ``_cc_box``."""
         return self._cos_memo('wiggle', self._build_cos2d_wiggle_check,
                               (Settings.cos_terms, Settings.cos_terms_2d))
 
     def _build_cos2d_wiggle_check(self) -> float:
         """Build ``_cos2d_wiggle_check``."""
         st = self._cos2d
-        ma = self.marginal('a')
-        # near-origin points of the continuous part, where the bias concentrates. They lie above the atom at 0, where
-        # the inversion of the continuous part is defined
-        a0 = float(self._atoms['a0'])
-        xs = np.linspace(0.0, float(ma.quantile(a0 + 0.4 * (1.0 - a0))), 5)[1:]
-        # cosine full CDF F(x, inf) = axis atoms (de Hoog) + the cosine continuous box integrated to the window edge
-        box = self._cos_antideriv(st['ua'], np.minimum(xs, st['ba'])) @ st['A'] @ self._cos_antideriv(st['ub'], np.array([st['bb']])).T
-        g_b = ma._invert(lambda s: self.lst_batch(s, np.inf) / s, xs)
-        cos_cdf = g_b + self._atoms['a0'] - self._atoms['both0'] + box[:, 0]
-        true_cdf = np.array([float(ma.cdf(float(x))) for x in xs])
-        err = float(np.abs(cos_cdf - true_cdf).max())
-        if Settings.check_inversions and err > 0.03:
+        both0 = self._atoms['both0']
+        errs = {}
+        for axis in ('a', 'b'):
+            marg = self.marginal(axis)
+            a0 = float(self._atoms[axis + '0'])
+            xs = np.asarray(marg.quantile(a0 + (1.0 - a0) * _COS2D_CHECK_LEVELS), dtype=float)
+            # cosine margin = axis atoms (de Hoog) + the cosine continuous box integrated to the other window edge
+            if axis == 'a':
+                box = (self._cos_antideriv(st['ua'], np.minimum(xs, st['ba'])) @ st['A']
+                       @ self._cos_antideriv(st['ub'], np.array([st['bb']])).T)[:, 0]
+                g = marg._invert(lambda s: self.lst_batch(s, np.inf) / s, xs)
+            else:
+                box = (self._cos_antideriv(st['ua'], np.array([st['ba']])) @ st['A']
+                       @ self._cos_antideriv(st['ub'], np.minimum(xs, st['bb'])).T)[0]
+                g = marg._invert(lambda s: self.lst_batch(np.inf, s) / s, xs)
+            cos_cdf = g + self._atoms[axis + '0'] - both0 + box
+            errs[axis] = float(np.abs(cos_cdf - marg.cdf._cdf_point(xs)).max())
+        axis = max(errs, key=errs.get)
+        if Settings.check_inversions and errs[axis] > _COS2D_MARGIN_WARN:
             self._logger.warning(
-                "The 2D Fourier-cosine joint inversion under-resolves near the origin: its CDF deviates from the "
-                "marginal CDF by up to %.3g there. The joint CDF and density may be biased near the axes, where the "
-                "cosine series cannot capture a sharp or skewed rise.", err,
+                "The 2D Fourier-cosine joint inversion under-resolves the joint distribution: its margin deviates from "
+                "the marginal CDF of R_%s by up to %.3g. The joint CDF and density may be biased. Increase "
+                "Settings.cos_terms_2d (currently %d) to resolve it.", axis, errs[axis], Settings.cos_terms_2d,
             )
-        return err
+        return errs[axis]
 
     @property
     def _density_grid(self) -> dict:
