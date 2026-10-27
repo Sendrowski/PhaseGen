@@ -1213,8 +1213,11 @@ class DiscreteRateChanges(DiscreteDemographicEvent):
         rates: Dict[float, Dict[Any, float]]
         times, rates = self._flatten(pop_sizes | migration_rates)
 
-        # the negated comparisons also reject NaN
-        if np.any(~(np.array(times, dtype=float) >= 0)):
+        times_arr = np.array(times, dtype=float)
+        if np.any(np.isnan(times_arr)):
+            raise ValueError('Times must not be NaN.')
+
+        if np.any(times_arr < 0):
             raise ValueError('All times must not be negative.')
 
         migration = np.array([rates[k][t] for k in rates for t in migration_rates if t in rates[k]], dtype=float)
@@ -1653,7 +1656,8 @@ class DiscretizedRateChange(DiscretizedDemographicEvent):
         """
         Initialize the discretized change of a population size or migration rate.
 
-        :param trajectory: Trajectory function taking the time as argument and returning the rate.
+        :param trajectory: Trajectory function taking the time as argument and returning the rate, a number or an
+            array holding one number.
         :param start_time: Start time of the event.
         :param end_time: End time of the event.
         :param pop: Population name or None if no population size changes.
@@ -1747,6 +1751,28 @@ class DiscretizedRateChange(DiscretizedDemographicEvent):
 
             epoch.end_time = min(epoch.end_time, self.start_time + n_steps * self.step_size, self.end_time)
 
+    def _rate(self, t: float) -> float:
+        """
+        The value of the trajectory at a time, a number or an array holding one number.
+
+        :param t: Time.
+        :return: The value as a float.
+        :raises ValueError: If the trajectory does not return a single number.
+        """
+        value = self.trajectory(t)
+
+        try:
+            arr = np.asarray(value, dtype=float)
+        except (TypeError, ValueError):
+            arr = None
+
+        if arr is None or arr.size != 1:
+            name = (f'population size trajectory of {self.pop}' if self.pop is not None
+                    else f'migration rate trajectory from {self.source_pop} to {self.dest_pop}')
+            raise ValueError(f'The {name} must return a single number, got {value!r} at time {t:g}.')
+
+        return float(arr.reshape(()))
+
     def _apply(self, epoch: Epoch) -> set:
         """
         Apply the demographic event to the given epoch if applicable.
@@ -1757,9 +1783,7 @@ class DiscretizedRateChange(DiscretizedDemographicEvent):
         # if epoch is contained in the event, up to and including a trailing partial interval ending at self.end_time
         if self.start_time <= epoch.start_time and epoch.end_time <= self.end_time:
 
-            rate_start = self.trajectory(epoch.start_time)
-            rate_end = self.trajectory(epoch.end_time)
-            rate = (rate_start + rate_end) / 2
+            rate = (self._rate(epoch.start_time) + self._rate(epoch.end_time)) / 2
 
             if self.pop is None:
                 if not 0 <= rate < np.inf:

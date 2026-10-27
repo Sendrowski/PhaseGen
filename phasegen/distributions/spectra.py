@@ -17,8 +17,8 @@ from ..rewards import Reward, UnfoldedSFSReward, CombinedReward, FoldedSFSReward
 from ..settings import Settings
 from ..spectrum import SFS, TwoSFS, JointSFS, TwoLocusSFS
 
-from ._common import N_EMPIRICAL_SAMPLES, _descendant_config, _frequency_class, _make_hashable, _polymorphic_class, \
-    _validate_order
+from ._common import N_EMPIRICAL_SAMPLES, _descendant_config, _frequency_class, _make_hashable, _n_samples, \
+    _polymorphic_class, _validate_order
 from .base import CumulativeDistributionFunction, DensityFunction, QuantileFunction
 from .phase_type import DemographyGradient, PhaseTypeDistribution
 from .mutation_configs import MutationLayout, SpectrumDistribution
@@ -559,7 +559,9 @@ class SFSDistribution(_BinMomentsMixin, SpectrumDistribution, ABC):
         :param seed: Integer seed of a :class:`numpy.random.Generator`, or the generator itself. ``None`` draws fresh
             entropy.
         :return: Array of shape ``(n_samples, n + 1)``, whose column means estimate :attr:`mean`.
+        :raises ValueError: If ``n_samples`` is not a non-negative integer.
         """
+        n_samples = _n_samples(n_samples)
         indices = self._get_indices()
         rewards = [CombinedReward([self.reward, self._get_sfs_reward(i)]) for i in indices]
         sampled = self._sample(n_samples, rewards=rewards, rng=np.random.default_rng(seed))
@@ -585,6 +587,7 @@ class SFSDistribution(_BinMomentsMixin, SpectrumDistribution, ABC):
         :param seed: Integer seed of a :class:`numpy.random.Generator`, or the generator itself. ``None`` draws fresh
             entropy.
         :return: The empirical spectrum.
+        :raises ValueError: If ``n_samples`` is not a positive integer.
         :raises NotImplementedError: For more than one locus.
         """
         from .empirical import EmpiricalPhaseTypeSFSDistribution
@@ -592,6 +595,7 @@ class SFSDistribution(_BinMomentsMixin, SpectrumDistribution, ABC):
         if self.locus_config.n != 1:
             raise NotImplementedError("Sampled SFS is only available for single-locus scenarios.")
 
+        n_samples = _n_samples(n_samples, minimum=1)
         pops = self.lineage_config.pop_names
         n = self.lineage_config.n
         indices = self._get_indices()
@@ -1404,7 +1408,9 @@ class JointSFSDistribution(_BinMomentsMixin, SpectrumDistribution):
         :param seed: Integer seed of a :class:`numpy.random.Generator`, or the generator itself. ``None`` draws fresh
             entropy.
         :return: Array of shape ``(n_samples, *shape)``, whose means over the first axis estimate :attr:`mean`.
+        :raises ValueError: If ``n_samples`` is not a non-negative integer.
         """
+        n_samples = _n_samples(n_samples)
         configs = self._get_configs()
         rewards = [CombinedReward([self.reward, JointSFSReward(c)]) for c in configs]
         sampled = self._sample(n_samples, rewards=rewards, rng=np.random.default_rng(seed))
@@ -1429,10 +1435,11 @@ class JointSFSDistribution(_BinMomentsMixin, SpectrumDistribution):
         :param seed: Integer seed of a :class:`numpy.random.Generator`, or the generator itself. ``None`` draws fresh
             entropy.
         :return: The empirical joint spectrum.
+        :raises ValueError: If ``n_samples`` is not a positive integer.
         """
         from .empirical import EmpiricalJointSFSDistribution, MsprimeCoalescent
 
-        samples = self.sample(n_samples, seed=seed)  # (n_samples, *shape)
+        samples = self.sample(_n_samples(n_samples, minimum=1), seed=seed)  # (n_samples, *shape)
 
         # non-central moments of orders 1 .. max (matching the msprime joint-SFS ground truth)
         max_order = MsprimeCoalescent._jsfs_max_order
@@ -2241,7 +2248,9 @@ class TwoLocusSFSDistribution(SpectrumDistribution):
         :param seed: Integer seed of a :class:`numpy.random.Generator`, or the generator itself. ``None`` draws fresh
             entropy.
         :return: The locus-0 and locus-1 branch lengths, each of shape ``(n_samples, n + 1)``.
+        :raises ValueError: If ``n_samples`` is not a non-negative integer.
         """
+        n_samples = _n_samples(n_samples)
         indices = self._get_indices()
         rewards = (
             [CombinedReward([self.reward, TwoLocusSFSReward(0, i)]) for i in indices] +
@@ -2270,6 +2279,7 @@ class TwoLocusSFSDistribution(SpectrumDistribution):
         :param seed: Integer seed of a :class:`numpy.random.Generator`, or the generator itself. ``None`` draws fresh
             entropy.
         :return: Array of shape ``(n_samples, n + 1, n + 1)``.
+        :raises ValueError: If ``n_samples`` is not a non-negative integer.
         """
         left, right = self.sample_per_locus(n_samples, seed=seed)
 
@@ -2290,10 +2300,11 @@ class TwoLocusSFSDistribution(SpectrumDistribution):
         :param seed: Integer seed of a :class:`numpy.random.Generator`, or the generator itself. ``None`` draws fresh
             entropy.
         :return: The empirical two-locus spectrum.
+        :raises ValueError: If ``n_samples`` is not a positive integer.
         """
         from .empirical import EmpiricalTwoLocusSFSDistribution
 
-        return EmpiricalTwoLocusSFSDistribution(*self.sample_per_locus(n_samples, seed=seed),
+        return EmpiricalTwoLocusSFSDistribution(*self.sample_per_locus(_n_samples(n_samples, minimum=1), seed=seed),
                                                 lineage_config=self._layout_lineages, locus_config=self._layout_loci)
 
     @cached_property

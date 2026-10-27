@@ -1465,3 +1465,38 @@ def test_pulse_agrees_with_msprime_mass_migration_under_every_coalescent_model(m
     heights = np.array([ts.first().time(ts.first().root) for ts in reps])
 
     assert abs(exact - heights.mean()) < 4 * heights.std() / np.sqrt(len(heights))
+
+
+def test_nan_time_raises_its_own_error():
+    """A NaN epoch time raises a ValueError naming NaN. Regression: it was reported as a negative time."""
+    with pytest.raises(ValueError, match='Times must not be NaN'):
+        pg.DiscreteRateChanges(pop_sizes={'pop_0': {0: 1, np.nan: 2}})
+
+    with pytest.raises(ValueError, match='Times must not be NaN'):
+        pg.Demography(pop_sizes={'pop_0': {0: 1, np.nan: 2}})
+
+    with pytest.raises(ValueError, match='All times must not be negative'):
+        pg.DiscreteRateChanges(pop_sizes={'pop_0': {0: 1, -1: 2}})
+
+
+def test_discretized_trajectory_returning_a_size_one_array_is_coerced():
+    """A trajectory returning a size-1 array gives the same epochs as one returning the float, and one returning
+    several values raises a ValueError naming the trajectory. Regression: the array was stored as the rate unconverted
+    and failed later with an unrelated NumPy shape error."""
+    def coalescent(trajectory):
+        return pg.Coalescent(n=3, demography=pg.Demography(events=[pg.DiscretizedRateChange(
+            trajectory=trajectory, start_time=0, end_time=1, pop='pop_0', step_size=0.25)]))
+
+    as_float = coalescent(lambda t: 1 + t)
+    as_array = coalescent(lambda t: np.array([1 + t]))
+
+    sizes = [e.pop_sizes['pop_0'] for e in islice(as_array.demography.epochs, 5)]
+    assert all(type(s) is float for s in sizes)
+    assert as_array.tree_height.mean == pytest.approx(as_float.tree_height.mean, rel=1e-14)
+
+    with pytest.raises(ValueError, match='population size trajectory of pop_0 must return a single number'):
+        list(islice(coalescent(lambda t: np.array([1 + t, 2])).demography.epochs, 3))
+
+    with pytest.raises(ValueError, match='migration rate trajectory from a to b must return a single number'):
+        list(islice(pg.Demography(pop_sizes={'a': 1, 'b': 1}, events=[pg.DiscretizedRateChange(
+            trajectory=lambda t: [0.1, 0.2], start_time=0, end_time=1, source='a', dest='b')]).epochs, 3))

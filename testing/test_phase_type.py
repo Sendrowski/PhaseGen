@@ -152,17 +152,17 @@ def test_tree_height_quantile_grid_terminates_when_the_ancestor_migrates(coal):
 
 def test_tree_height_quantile_boundary_levels():
     """
-    Levels 0 and 1 return the ends of the support, NaN levels return NaN, and the shape of the levels is kept.
+    Levels 0 and 1 return the ends of the support, and the shape of the levels is kept.
     """
     th = pg.Coalescent(n=5, demography=pg.Demography(pop_sizes={'pop_0': {0: 1, 0.5: 0.2}})).tree_height
-    q = np.array([[0.0, 0.5], [np.nan, 1.0]])
+    q = np.array([[0.0, 0.5], [0.25, 1.0]])
 
     out = th.quantile(q)
 
     assert out.shape == (2, 2)
     assert out[0, 0] == 0
     assert out[1, 1] == th.t_max
-    assert np.isnan(out[1, 0])
+    assert th.quantile(0.25) == out[1, 0]
     assert th.quantile(0.5) == out[0, 1]
 
 

@@ -19,7 +19,7 @@ from ..settings import Settings
 from .base import CallableDistributionFunctions, JointDensity, JointCDF, \
     ConditionalDensity, ConditionalCDF, ConditionalQuantileFunction, \
     _LSTCumulativeDistributionFunction, _LSTDensityFunction, _LSTQuantileFunction
-from ._common import N_EMPIRICAL_SAMPLES, _validate_order
+from ._common import N_EMPIRICAL_SAMPLES, _n_samples, _validate_order
 from ._moments import MomentEvaluator, _AUTO_PERM, _TRANSFORM_COST
 
 if TYPE_CHECKING:
@@ -273,10 +273,12 @@ class RewardDistribution(CallableDistributionFunctions):
         :param seed: Integer seed of a :class:`numpy.random.Generator`, or the generator itself. ``None`` draws fresh
             entropy.
         :return: The empirical distribution.
+        :raises ValueError: If ``n_samples`` is not a positive integer.
         """
         from .empirical import EmpiricalDistribution
 
-        samples = self._host._sample(n_samples, rewards=[self.reward], rng=np.random.default_rng(seed))
+        samples = self._host._sample(_n_samples(n_samples, minimum=1), rewards=[self.reward],
+                                     rng=np.random.default_rng(seed))
         dist = EmpiricalDistribution(samples[:, 0])
         dist.label = self.label
         dist._variable = self._variable
@@ -888,10 +890,11 @@ class JointRewardDistribution(CallableDistributionFunctions):
         :param seed: Integer seed of a :class:`numpy.random.Generator`, or the generator itself. ``None`` draws fresh
             entropy.
         :return: The empirical joint distribution.
+        :raises ValueError: If ``n_samples`` is not a positive integer.
         """
         from .empirical import EmpiricalJointDistribution
 
-        samples = self._host._sample(n_samples, rewards=[self.reward_a, self.reward_b],
+        samples = self._host._sample(_n_samples(n_samples, minimum=1), rewards=[self.reward_a, self.reward_b],
                                      rng=np.random.default_rng(seed))
         dist = EmpiricalJointDistribution(samples[:, 0], samples[:, 1],
                                           (self.reward_a._variable, self.reward_b._variable))
@@ -3217,12 +3220,12 @@ class _LineQuantile(ConditionalQuantileFunction):
         """
         :param q: Level or array of levels in ``[0, 1]``.
         :return: The quantiles, of the same shape.
-        :raises ValueError: If any ``q`` lies outside ``[0, 1]``.
+        :raises ValueError: If any ``q`` is NaN or lies outside ``[0, 1]``.
         """
         d = self._distribution
         d._warn_if_line_unresolved()
         qa = np.atleast_1d(np.asarray(q, dtype=float))
-        if np.any((qa < 0) | (qa > 1)):
+        if not np.all((qa >= 0) & (qa <= 1)):
             raise ValueError("Quantile must be between 0 and 1.")
 
         ys, ps = d._atom_values, d._atom_masses

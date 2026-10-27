@@ -848,10 +848,10 @@ class _LSTQuantileFunction(_LSTFunction, QuantileFunction):
         :param q: Probability level or array of levels :math:`q \in [0, 1]`.
         :return: The quantiles, of the same shape as ``q``.
         :raises NotImplementedError: If the coalescent has a bounded accumulation window.
-        :raises ValueError: If any ``q`` lies outside :math:`[0, 1]`.
+        :raises ValueError: If any ``q`` is NaN or lies outside :math:`[0, 1]`.
         """
         qa = np.atleast_1d(np.asarray(q, dtype=float))
-        if np.any((qa < 0) | (qa > 1)):
+        if not np.all((qa >= 0) & (qa <= 1)):
             raise ValueError("Quantile must be between 0 and 1.")
 
         if Settings.check_inversions and np.any(qa > _QUANTILE_TAIL_LEVEL):
@@ -860,11 +860,9 @@ class _LSTQuantileFunction(_LSTFunction, QuantileFunction):
                 "approximate.", self._distribution._titled('quantile'), _QUANTILE_TAIL_LEVEL
             )
 
-        # NaN levels are passed through, the grid taking the others
-        valid = ~np.isnan(qa)
-        out = np.full_like(qa, np.nan)
-        if valid.any():
-            out[valid] = self._interp_quantile(qa[valid], *self._cdf_grid(q_max=float(qa[valid].max())))
+        out = np.empty_like(qa)
+        if qa.size:
+            out[...] = self._interp_quantile(qa.ravel(), *self._cdf_grid(q_max=float(qa.max()))).reshape(qa.shape)
 
         return out if np.ndim(q) > 0 else float(out[0])
 

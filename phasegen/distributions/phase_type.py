@@ -22,8 +22,8 @@ from ..settings import Settings
 from ..spectrum import SFS, AbstractSpectrum
 from ..state_space import LineageCountingStateSpace, StateSpace
 
-from ._common import N_EMPIRICAL_SAMPLES, _validate_order, _validate_reward, _validate_reward_count, _validate_rewards, \
-    _validate_start_time, _sqrt_spectrum
+from ._common import N_EMPIRICAL_SAMPLES, _n_samples, _validate_order, _validate_reward, _validate_reward_count, \
+    _validate_rewards, _validate_start_time, _sqrt_spectrum
 from .base import CallableDistributionFunctions, DensityAwareDistribution, DistributionFunction, \
     MarginalDemeDistributions, MarginalLocusDistributions, MomentAwareDistribution, _LogSurvivalGrid, \
     _GridCumulativeDistributionFunction, _GridDensityFunction, _GridQuantileFunction
@@ -926,7 +926,10 @@ class PhaseTypeDistribution(CallableDistributionFunctions, MomentEvaluator, Mome
         :param seed: Integer seed of a :class:`numpy.random.Generator`, or the generator itself. ``None`` draws fresh
             entropy.
         :return: The samples, of shape ``(n_samples,)``.
+        :raises ValueError: If ``n_samples`` is not a non-negative integer.
         """
+        n_samples = _n_samples(n_samples)
+
         return self._sample(n_samples, rng=np.random.default_rng(seed)).reshape(n_samples)
 
     @staticmethod
@@ -954,11 +957,13 @@ class PhaseTypeDistribution(CallableDistributionFunctions, MomentEvaluator, Mome
         :param seed: Integer seed of a :class:`numpy.random.Generator`, or the generator itself. ``None`` draws fresh
             entropy.
         :return: The empirical distribution.
+        :raises ValueError: If ``n_samples`` is not a positive integer.
 
         .. versionadded:: 2.0
         """
         from .empirical import EmpiricalPhaseTypeDistribution
 
+        n_samples = _n_samples(n_samples, minimum=1)
         pops = self.lineage_config.pop_names
         n_loci = self.locus_config.n
 
@@ -1552,13 +1557,13 @@ class _ExpmQuantileFunction(_ExpmFunction, _GridQuantileFunction):
         :param q: Probability level or array of levels in :math:`[0, 1]`.
         :return: The quantiles, of the same shape as ``q``.
         :raises NotImplementedError: If the coalescent has a bounded accumulation window.
-        :raises ValueError: If any ``q`` lies outside :math:`[0, 1]`.
+        :raises ValueError: If any ``q`` is NaN or lies outside :math:`[0, 1]`.
         """
         self._distribution._assert_not_windowed()
 
         qa = np.atleast_1d(np.asarray(q, dtype=float))
 
-        if np.any((qa < 0) | (qa > 1)):
+        if not np.all((qa >= 0) & (qa <= 1)):
             raise ValueError("Specified quantile must be between 0 and 1.")
 
         out = self._interp_quantile(qa.ravel(), *self._cdf_grid()).reshape(qa.shape)

@@ -2679,21 +2679,21 @@ def test_bottleneck_conditional_matches_a_high_truncation_reference():
     assert np.abs(np.asarray(cdf(xs[body])) - ref[body]).max() < 2e-3
 
 
-def test_quantile_passes_nan_through():
-    """A NaN level gives a NaN quantile, leaves the other levels unchanged and builds no de Hoog nodes beyond those
-    the finite levels need. Regression: a NaN level marched the node ladder to its cap."""
-    d = pg.Coalescent(n=4).total_branch_length.distribution()
+def test_quantile_rejects_nan_levels():
+    """The quantiles of a tree height, of an accumulated reward and of a conditional on a line with an atom raise the
+    documented ValueError for a NaN level, alone or in an array, while their CDFs map NaN to NaN. Regression: the range
+    check ``(q < 0) | (q > 1)`` is False for NaN, so a NaN level passed it."""
+    coal = pg.Coalescent(n=3, model=pg.BetaCoalescent(alpha=1.5))
+    joint = coal.joint(pg.rewards.TreeHeightReward(), pg.rewards.TotalBranchLengthReward())
+    line = joint.conditional('b', float(joint.marginal('b').quantile(0.5)))
+    assert line._atom_values.size
 
-    out = d.quantile([0.5, np.nan])
+    for dist in (coal.tree_height, coal.sfs.bin(1), line):
+        for q in (np.nan, [0.5, np.nan]):
+            with pytest.raises(ValueError, match='between 0 and 1'):
+                dist.quantile(q)
 
-    assert np.isnan(out[1]) and np.isnan(d.quantile(np.nan))
-    assert out[0] == pytest.approx(d.quantile(0.5))
-    assert len(d.__dict__['_lst_curve_cache']['cdf_exact']) == 1
-
-    q1 = d.quantile(0.99)
-    d.quantile([0.99, np.nan])
-    assert len(d.__dict__['_lst_curve_cache']['cdf_exact']) < d.quantile._max_exact_nodes
-    assert d.quantile(0.99) == pytest.approx(q1, rel=1e-8)
+        assert np.isnan(dist.cdf(np.nan))
 
 
 def test_joint_axis_terms_follow_live_cos_terms():

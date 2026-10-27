@@ -28,8 +28,8 @@ from .spectra import FoldedSFSDistribution, SFSDistribution, _TajimaSFSMixin, Un
     JointSFSDistribution, TwoLocusSFSDistribution
 from .mutation_configs import MutationConfig, MutationLayout, _DefaultLayoutMixin
 from ._common import (
-    _descendant_config, _frequency_class, _make_hashable, _polymorphic_class, _sqrt_spectrum, _validate_order,
-    _validate_reward, _validate_reward_count, _validate_rewards, _validate_start_time
+    _descendant_config, _frequency_class, _make_hashable, _n_samples, _polymorphic_class, _sqrt_spectrum,
+    _validate_order, _validate_reward, _validate_reward_count, _validate_rewards, _validate_start_time
 )
 from .coalescent import AbstractCoalescent, Coalescent
 from .phase_type import PhaseTypeDistribution
@@ -5394,7 +5394,7 @@ class SampledCoalescent(AbstractCoalescent):  # pragma: no cover
         :param n_samples: Number of trajectories to simulate per statistic.
         :param seed: Non-negative integer seed, or a :class:`numpy.random.Generator` from which one is drawn at
             construction. ``None`` draws one from fresh entropy.
-        :raises ValueError: If ``seed`` is a negative integer.
+        :raises ValueError: If ``seed`` is a negative integer or ``n_samples`` is not a positive integer.
         """
         if seed is None:
             seed = np.random.default_rng()
@@ -5415,7 +5415,7 @@ class SampledCoalescent(AbstractCoalescent):  # pragma: no cover
         self._coalescent: Optional[Coalescent] = coalescent
 
         #: Number of trajectories sampled per statistic.
-        self.n_samples: int = n_samples
+        self.n_samples: int = _n_samples(n_samples, minimum=1)
 
         #: Random seed, drawn at construction if none is given.
         self.seed: int = int(seed.integers(2 ** 63)) if isinstance(seed, np.random.Generator) else seed
