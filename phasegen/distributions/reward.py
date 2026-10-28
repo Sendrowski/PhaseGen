@@ -259,6 +259,36 @@ class RewardDistribution(CallableDistributionFunctions):
         """Standard deviation of the accumulated reward."""
         return self.var ** 0.5
 
+    def moment(self, k: int, center: bool = True) -> float:
+        r"""
+        The moment of order :math:`k` of the accumulated reward, central by default, evaluated by
+        :meth:`PhaseTypeDistribution.moment() <phasegen.distributions.PhaseTypeDistribution.moment>`.
+
+        :param k: Order of the moment.
+        :param center: Whether to return the central moment.
+        :return: The moment.
+        :raises TypeError: If ``k`` is not a number.
+        :raises ValueError: If ``k`` is not a non-negative integer.
+        """
+        k = _validate_order(k)
+
+        return float(MomentEvaluator.moment(self._host, k=k, rewards=(self.reward,) * k, center=center))
+
+    @cached_property
+    def m2(self) -> float:
+        """Second (non-central) moment."""
+        return self.moment(k=2, center=False)
+
+    @cached_property
+    def m3(self) -> float:
+        """Third (non-central) moment."""
+        return self.moment(k=3, center=False)
+
+    @cached_property
+    def m4(self) -> float:
+        """Fourth (non-central) moment."""
+        return self.moment(k=4, center=False)
+
     def to_empirical(
             self,
             n_samples: int = N_EMPIRICAL_SAMPLES,

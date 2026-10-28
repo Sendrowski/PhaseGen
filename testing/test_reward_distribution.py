@@ -3259,3 +3259,17 @@ def test_joint_margin_check_warns_on_a_narrow_body(caplog):
 
     assert err > 0.05
     assert [r for r in caplog.records if 'joint inversion under-resolves' in r.getMessage()]
+
+
+def test_reward_distribution_moments_match_the_phase_type_moments():
+    """RewardDistribution.moment() and its m2, m3 and m4 equal the moments of the phase-type distribution of the same
+    reward, as on its siblings. Regression: RewardDistribution provided only the mean and variance."""
+    coal = pg.Coalescent(n=5, demography=pg.Demography(pop_sizes={'pop_0': {0: 1, 0.5: 0.3}}))
+    dist, tbl = coal.total_branch_length.distribution(), coal.total_branch_length
+
+    assert dist.moment(3) == pytest.approx(tbl.moment(3), rel=1e-12)
+    assert dist.moment(2) == pytest.approx(dist.var, rel=1e-12)
+    for m in ('m2', 'm3', 'm4'):
+        assert getattr(dist, m) == pytest.approx(getattr(tbl, m), rel=1e-12)
+
+    assert coal.sfs.bin(1).moment(2, center=False) == pytest.approx(coal.sfs.m2.data[1], rel=1e-12)
