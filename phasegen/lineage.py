@@ -116,4 +116,7 @@ class LineageConfig:
         :param other: Other lineage configuration
         :return: Whether the two lineage configurations are equal
         """
+        if not isinstance(other, LineageConfig):
+            return NotImplemented
+
         return list(self.lineage_dict.items()) == list(other.lineage_dict.items())

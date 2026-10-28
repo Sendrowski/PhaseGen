@@ -165,3 +165,11 @@ def test_single_locus_with_unlinked_lineages_or_recombination_raises(make):
     """Unlinked lineages and recombination were silently ignored on a single locus."""
     with pytest.raises(ValueError, match="single locus"):
         make()
+
+
+def test_locus_config_compares_unequal_to_other_types():
+    """A locus configuration is unequal to an object of another type. Regression: the comparison read the other
+    object's n and raised AttributeError."""
+    lc = pg.LocusConfig(n=2, n_unlinked=1, recombination_rate=0.5)
+
+    assert lc != None and lc != 5 and lc in [5, lc]

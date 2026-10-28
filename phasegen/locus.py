@@ -103,6 +103,9 @@ class LocusConfig:
         :param other: Other locus configuration
         :return: Whether the two locus configurations are equal
         """
+        if not isinstance(other, LocusConfig):
+            return NotImplemented
+
         return (
                 self.n == other.n
                 and self.n_unlinked == other.n_unlinked
