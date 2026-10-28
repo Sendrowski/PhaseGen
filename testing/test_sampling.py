@@ -700,3 +700,14 @@ def test_msprime_coalescent_rejects_unscaled_multiple_merger_time():
     for model in (pg.BetaCoalescent(alpha=1.5, scale_time=False), pg.DiracCoalescent(psi=0.5, c=1, scale_time=False)):
         with pytest.raises(ValueError, match='only on its own time scale'):
             MsprimeCoalescent(n=4, model=model, num_replicates=10)
+
+
+def test_empirical_single_deme_covariance_is_a_matrix():
+    """The deme and locus covariance and correlation of an empirical scalar statistic are (1, 1) matrices for one deme
+    and one locus, as for the exact distribution. Regression: np.cov of a single row gave a 0-d array."""
+    coal = pg.Coalescent(n=4)
+    sampled = SampledCoalescent(coal, n_samples=200, seed=SEED).tree_height
+
+    for name in ('cov', 'corr'):
+        assert getattr(sampled.demes, name).shape == getattr(coal.tree_height.demes, name).shape == (1, 1)
+        assert getattr(sampled.loci, name).shape == getattr(coal.tree_height.loci, name).shape == (1, 1)

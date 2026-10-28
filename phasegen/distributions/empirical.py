@@ -2153,17 +2153,17 @@ class EmpiricalPhaseTypeDistribution(_EmpiricalAccumulating, EmpiricalDistributi
         with np.errstate(divide='ignore', invalid='ignore'):
             #: Covariance matrix for the demes, of the per-deme samples summed over loci, ``None`` unless the samples
             #: resolve the demes
-            self.pops_cov: np.ndarray | None = np.cov(over_loci, bias=True) if resolves_demes else None
+            self.pops_cov: np.ndarray | None = np.atleast_2d(np.cov(over_loci, bias=True)) if resolves_demes else None
 
             #: Correlation matrix for the demes, of the per-deme samples summed over loci, ``None`` unless the samples
             #: resolve the demes
-            self.pops_corr: np.ndarray | None = np.corrcoef(over_loci) if resolves_demes else None
+            self.pops_corr: np.ndarray | None = np.atleast_2d(np.corrcoef(over_loci)) if resolves_demes else None
 
             #: Correlation matrix for the loci
-            self.loci_corr: np.ndarray = np.corrcoef(over_demes)
+            self.loci_corr: np.ndarray = np.atleast_2d(np.corrcoef(over_demes))
 
             #: Covariance matrix for the loci
-            self.loci_cov: np.ndarray = np.cov(over_demes, bias=True)
+            self.loci_cov: np.ndarray = np.atleast_2d(np.cov(over_demes, bias=True))
 
     def _touch(self, t: np.ndarray) -> None:
         """
