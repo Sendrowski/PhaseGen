@@ -636,8 +636,8 @@ class _LSTFunction(_LogSurvivalGrid):
             d = self._distribution
             d._logger.warning(
                 "%s: the expansion departs from the de Hoog CDF by %.2e at %.4g (bar %.0e). Its window ends at %.4g "
-                "and leaves out a mass of %.2e, which it folds back into the body. Settings.dehoog_tail_quantile = 0 "
-                "evaluates the CDF by the de Hoog inversion throughout.", d._titled('COS CDF (window)'), error, x_cut,
+                "and leaves out a mass of %.2e, which it folds back into the body, so the CDF, quantiles and density "
+                "below the cut may be biased.", d._titled('COS CDF (window)'), error, x_cut,
                 self._cos_join_tol, xs[-1], 1.0 - self._cdf_point(float(xs[-1]))
             )
 
