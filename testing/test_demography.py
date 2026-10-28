@@ -1537,3 +1537,15 @@ def test_rate_set_at_the_end_of_a_trajectory_takes_precedence():
 
     assert sizes.get_epoch(3).pop_sizes['pop_0'] == 3
     assert rates.get_epoch(3).migration_rates[('pop_0', 'pop_1')] == 0.5
+
+
+def test_to_demes_names_the_migration_restriction():
+    """A demography with a split, a pulse or a migration rate above 1 raises a ValueError naming the demes restriction.
+    Regression: demes raised 'invalid migration' from inside the conversion."""
+    split = pg.Demography(pop_sizes={'a': 1, 'b': 1},
+                          events=[pg.PopulationSplit(time=1, derived='b', ancestral='a')])
+    fast = pg.Demography(pop_sizes={'a': 1, 'b': 1}, migration_rates={('a', 'b'): 1.5})
+
+    for d in (split, fast):
+        with pytest.raises(ValueError, match='demes takes migration rates of at most 1'):
+            d.to_demes()

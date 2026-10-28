@@ -452,14 +452,28 @@ class Demography:
         Convert to a :class:`demes.Graph`, by way of :meth:`Demography.to_msprime()
         <phasegen.demography.Demography.to_msprime>`. Sizes and times are taken over unchanged, so
         :meth:`Demography.from_demes() <phasegen.demography.Demography.from_demes>` with ``ploidy=1`` recovers the
-        demography.
+        demography. A :class:`demes.Graph` takes migration rates as proportions of at most 1, so a demography with a
+        larger migration rate, or with a split or pulse, which :class:`msprime.Demography` expresses as a window of
+        fast migration, cannot be converted.
 
         :param max_epochs: Maximum number of epoch changes to use, as for :meth:`Demography.to_msprime()
             <phasegen.demography.Demography.to_msprime>`.
         :return: The :class:`demes.Graph`.
         :raises ImportError: If msprime is not installed.
+        :raises ValueError: If a migration rate exceeds 1, or the demography has a split or pulse.
         """
-        return self.to_msprime(max_epochs=max_epochs).to_demes()
+        demography = self.to_msprime(max_epochs=max_epochs)
+
+        import msprime as ms
+
+        rate = max([float(np.max(demography.migration_matrix, initial=0))] +
+                   [e.rate for e in demography.events if isinstance(e, ms.MigrationRateChange)])
+
+        if rate > 1:
+            raise ValueError(f"demes takes migration rates of at most 1, and the demography reaches {rate:g}, from a "
+                             f"migration rate or from the migration window of a split or pulse.")
+
+        return demography.to_demes()
 
     @property
     def _msprime_names(self) -> Dict[str, str]:
