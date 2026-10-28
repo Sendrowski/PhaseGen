@@ -566,6 +566,11 @@ class Demography:
         # drain rate, so that the epoch does not depend on the order of events sharing a start time
         splits = [e for e in self.events if isinstance(e, PopulationSplit)]
 
+        # a discretized trajectory holds its end value from its end time on, unless an event sets that rate there
+        for e in self.events:
+            if isinstance(e, DiscretizedDemographicEvent):
+                e._hold(epoch)
+
         # a rate set by two events in one epoch keeps the value of the later one in the list, which is sorted by
         # start time, so the precedence depends on how the changes are grouped into events
         setters = {}
@@ -1775,37 +1780,55 @@ class DiscretizedRateChange(DiscretizedDemographicEvent):
 
     def _apply(self, epoch: Epoch) -> set:
         """
-        Apply the demographic event to the given epoch if applicable.
+        Apply the demographic event to the given epoch if applicable. An epoch contained in the event, up to and
+        including a trailing partial interval ending at the end time, takes the mean of the trajectory at its ends.
 
         :param epoch: Epoch.
         :return: The keys of the rates set.
         """
-        # if epoch is contained in the event, up to and including a trailing partial interval ending at self.end_time
         if self.start_time <= epoch.start_time and epoch.end_time <= self.end_time:
-
-            rate = (self._rate(epoch.start_time) + self._rate(epoch.end_time)) / 2
-
-            if self.pop is None:
-                if not 0 <= rate < np.inf:
-                    raise ModelError(f'The migration rate trajectory from {self.source_pop} to {self.dest_pop} gives '
-                                     f'{rate} on [{epoch.start_time:g}, {epoch.end_time:g}), which is not finite and '
-                                     f'non-negative.')
-
-                epoch.migration_rates[(self.source_pop, self.dest_pop)] = rate
-
-                return {(self.source_pop, self.dest_pop)}
-
-            # a decaying trajectory may underflow to zero far out, which a simulation accepts and the exact
-            # computation rejects where it reaches that epoch
-            if not 0 <= rate < np.inf:
-                raise ModelError(f'The population size trajectory of {self.pop} gives {rate} on '
-                                 f'[{epoch.start_time:g}, {epoch.end_time:g}), which is negative or not finite.')
-
-            epoch.pop_sizes[self.pop] = rate
-
-            return {self.pop}
+            return self._set(epoch, (self._rate(epoch.start_time) + self._rate(epoch.end_time)) / 2)
 
         return set()
+
+    def _hold(self, epoch: Epoch) -> None:
+        """
+        Set the trajectory's value at the end time on the epoch starting there, which later epochs inherit. It runs
+        before the events are applied, so any event setting the rate at the end time takes precedence.
+
+        :param epoch: Epoch.
+        """
+        if epoch.start_time == self.end_time:
+            self._set(epoch, self._rate(self.end_time))
+
+    def _set(self, epoch: Epoch, rate: float) -> set:
+        """
+        Set the population size or migration rate on an epoch.
+
+        :param epoch: Epoch.
+        :param rate: The size or rate.
+        :return: The keys of the rates set.
+        :raises ModelError: If the rate is negative or not finite.
+        """
+        if self.pop is None:
+            if not 0 <= rate < np.inf:
+                raise ModelError(f'The migration rate trajectory from {self.source_pop} to {self.dest_pop} gives '
+                                 f'{rate} on [{epoch.start_time:g}, {epoch.end_time:g}), which is not finite and '
+                                 f'non-negative.')
+
+            epoch.migration_rates[(self.source_pop, self.dest_pop)] = rate
+
+            return {(self.source_pop, self.dest_pop)}
+
+        # a decaying trajectory may underflow to zero far out, which a simulation accepts and the exact
+        # computation rejects where it reaches that epoch
+        if not 0 <= rate < np.inf:
+            raise ModelError(f'The population size trajectory of {self.pop} gives {rate} on '
+                             f'[{epoch.start_time:g}, {epoch.end_time:g}), which is negative or not finite.')
+
+        epoch.pop_sizes[self.pop] = rate
+
+        return {self.pop}
 
 
 class DiscretizedRateChanges(DiscretizedDemographicEvent):
@@ -1905,6 +1928,16 @@ class DiscretizedRateChanges(DiscretizedDemographicEvent):
         :return: The keys of the rates set.
         """
         return set().union(*(e._apply(epoch) for e in self.events.values()))
+
+    def _hold(self, epoch: Epoch) -> None:
+        """
+        Set the value of each trajectory at its end time on the epoch starting there, which later epochs inherit and
+        any event setting the rate there overrides.
+
+        :param epoch: Epoch.
+        """
+        for e in self.events.values():
+            e._hold(epoch)
 
 
 class _ExponentialTrajectory:

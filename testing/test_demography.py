@@ -1500,3 +1500,40 @@ def test_discretized_trajectory_returning_a_size_one_array_is_coerced():
     with pytest.raises(ValueError, match='migration rate trajectory from a to b must return a single number'):
         list(islice(pg.Demography(pop_sizes={'a': 1, 'b': 1}, events=[pg.DiscretizedRateChange(
             trajectory=lambda t: [0.1, 0.2], start_time=0, end_time=1, source='a', dest='b')]).epochs, 3))
+
+
+def test_discretized_trajectory_holds_its_end_value_from_end_time_on(caplog):
+    """From its end time on, a discretized trajectory holds its value at the end time, which an event at that time
+    overrides without a clash warning. Regression: the epochs from the end time on inherited the mean of the last
+    step, which put the mean tree height of 10 lineages declining at rate 2 until time 1 at 10.21, against 11.10 from
+    msprime."""
+    def growth():
+        return pg.ExponentialPopSizeChanges(initial_size={'pop_0': 1}, growth_rate=-2, start_time=0, end_time=1)
+
+    d = pg.Demography(events=[growth()])
+
+    assert d.get_epoch(1.0).pop_sizes['pop_0'] == pytest.approx(np.exp(2), rel=1e-14)
+    assert d.get_epoch(5.0).pop_sizes['pop_0'] == pytest.approx(np.exp(2), rel=1e-14)
+    assert pg.Coalescent(n=10, demography=d).tree_height.mean == pytest.approx(11.10, rel=0.01)
+
+    with caplog.at_level('WARNING'):
+        explicit = pg.Demography(events=[growth(), pg.PopSizeChange(pop='pop_0', time=1, size=3)])
+
+        assert explicit.get_epoch(2.0).pop_sizes['pop_0'] == 3
+
+    assert not [r for r in caplog.records if 'Several events set' in r.getMessage()]
+
+
+def test_rate_set_at_the_end_of_a_trajectory_takes_precedence():
+    """A size or migration rate that an event starting before a trajectory sets at the trajectory's end time applies
+    from then on, as in msprime. Regression: the end value of the trajectory overwrote it whenever that event sorted
+    first, such as the pop_sizes and migration_rates dictionaries, which put the mean tree height of a demography
+    imported from msprime 24 standard errors from msprime."""
+    sizes = pg.Demography(pop_sizes={'pop_0': {0: 1, 2: 3}}, events=[pg.ExponentialPopSizeChanges(
+        initial_size={'pop_0': 1}, growth_rate=-1, start_time=0.5, end_time=2, step_size=0.25)])
+    rates = pg.Demography(pop_sizes={'pop_0': 1, 'pop_1': 1}, migration_rates={('pop_0', 'pop_1'): {0: 0.1, 2: 0.5}},
+                          events=[pg.DiscretizedRateChange(trajectory=lambda t: 0.1 * np.exp(t), start_time=0.5,
+                                                           end_time=2, source='pop_0', dest='pop_1')])
+
+    assert sizes.get_epoch(3).pop_sizes['pop_0'] == 3
+    assert rates.get_epoch(3).migration_rates[('pop_0', 'pop_1')] == 0.5
