@@ -4386,8 +4386,9 @@ class MsprimeCoalescent(AbstractCoalescent):
             require.
         :param simulate_mutations: Whether to simulate mutations.
         :param seed: Non-negative integer random seed. ``None`` draws one from fresh entropy.
-        :raises ValueError: If ``model`` is a Beta coalescent whose alpha exceeds 1.991, the largest that msprime
-            accepts, or if ``simulate_mutations`` is set without a ``mutation_rate``.
+        :raises ValueError: If ``model`` is a Beta coalescent with alpha above 1.991 or a Beta or Dirac coalescent
+            with ``scale_time=False``, neither of which ``msprime`` supports, if ``num_replicates`` is not a
+            positive integer, or if ``simulate_mutations`` is set without ``mutation_rate``.
         """
         super().__init__(
             n=n,
@@ -4402,6 +4403,12 @@ class MsprimeCoalescent(AbstractCoalescent):
             raise ValueError(
                 f"msprime accepts Beta coalescents with alpha up to {_MSPRIME_BETA_ALPHA_MAX}, got {self.model.alpha}."
             )
+
+        if isinstance(self.model, (BetaCoalescent, DiracCoalescent)) and not self.model.scale_time:
+            raise ValueError(f"msprime simulates {type(self.model).__name__} only on its own time scale, which is that "
+                             f"of scale_time=True.")
+
+        num_replicates = _n_samples(num_replicates, minimum=1)
 
         if simulate_mutations and mutation_rate is None:
             raise ValueError("Simulating mutations requires a mutation rate.")

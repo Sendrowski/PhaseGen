@@ -679,15 +679,24 @@ def test_every_sampling_entry_point_accepts_an_integral_count_of_any_numeric_typ
 
 
 def test_empirical_builds_reject_zero_samples():
-    """An empirical distribution needs at least one sample, so to_empirical() and SampledCoalescent reject a count of
-    0. Regression: the count was accepted, the moments came out NaN and cdf and quantile failed with reshape and index
-    errors."""
+    """An empirical distribution needs at least one sample, so to_empirical(), SampledCoalescent and MsprimeCoalescent
+    reject a count of 0. Regression: the count was accepted, the moments came out NaN and cdf and quantile failed with
+    reshape and index errors."""
     coal = pg.Coalescent(n=3)
 
     for build in (coal.tree_height.to_empirical, coal.sfs.to_empirical, coal.tree_height.distribution().to_empirical,
                   coal.joint(pg.TreeHeightReward(), pg.TotalBranchLengthReward()).to_empirical,
-                  lambda k: SampledCoalescent(coal, n_samples=k)):
+                  lambda k: SampledCoalescent(coal, n_samples=k), lambda k: MsprimeCoalescent(n=3, num_replicates=k)):
         with pytest.raises(ValueError, match='number of samples must be an integer of at least 1'):
             build(0)
 
     assert coal.tree_height.sample(0, seed=SEED).shape == (0,)
+
+
+def test_msprime_coalescent_rejects_unscaled_multiple_merger_time():
+    """MsprimeCoalescent rejects a Beta or Dirac coalescent with scale_time=False, whose time scale msprime does not
+    offer. Regression: msprime simulated its own time scale, giving a mean tree height of 2.60 for Beta(1.5) where the
+    exact value is 1.63."""
+    for model in (pg.BetaCoalescent(alpha=1.5, scale_time=False), pg.DiracCoalescent(psi=0.5, c=1, scale_time=False)):
+        with pytest.raises(ValueError, match='only on its own time scale'):
+            MsprimeCoalescent(n=4, model=model, num_replicates=10)
