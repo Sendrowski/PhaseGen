@@ -64,8 +64,15 @@ def plot_heatmap(
     for (n, d) in itertools.product(N, D):
         pbar.set_description(f"n={n}, d={d}")
 
+        pops = {'pop_0': n} | {f'pop_{i}': 0 for i in range(1, d)}
+
+        # unit migration between all demes, so that every state of the state space is reachable
         coal = pg.Coalescent(
-            n=pg.LineageConfig({'pop_0': n} | {f'pop_{i}': 0 for i in range(1, d)}),
+            n=pg.LineageConfig(pops),
+            demography=pg.Demography(
+                pop_sizes={p: 1 for p in pops},
+                migration_rates={(a, b): 1.0 for a in pops for b in pops if a != b}
+            ),
             loci=locus_config
         )
 
@@ -102,7 +109,7 @@ _ = pg.Coalescent(n={'pop_0': 3, 'pop_1': 0, 'pop_2': 0}).tree_height.to_empiric
 
 plot_heatmap(
     ax=ax[0],
-    N=np.arange(2, 13, 1),
+    N=np.arange(4, 48, 4),
     D=np.arange(1, 4),
     callback=lambda coal: coal.tree_height.to_empirical(N_SAMPLES).mean,
     title="Mean tree height, one locus"
@@ -110,7 +117,7 @@ plot_heatmap(
 
 plot_heatmap(
     ax=ax[1],
-    N=np.arange(2, 11, 1),
+    N=np.arange(2, 20, 2),
     D=np.arange(1, 4),
     callback=lambda coal: coal.sfs.to_empirical(N_SAMPLES).mean,
     title="Mean SFS, one locus"
@@ -118,7 +125,7 @@ plot_heatmap(
 
 plot_heatmap(
     ax=ax[2],
-    N=np.arange(2, 7, 1),
+    N=np.arange(3, 13, 2),
     D=np.arange(1, 3),
     callback=lambda coal: coal.tree_height.to_empirical(N_SAMPLES).mean,
     title="Mean tree height, two loci",
@@ -128,7 +135,7 @@ plot_heatmap(
 # mean two-locus SFS (the recombination-aware 2-SFS); single population
 plot_heatmap(
     ax=ax[3],
-    N=np.arange(2, 7, 1),
+    N=np.arange(2, 12, 2),
     D=np.arange(1, 2),
     callback=lambda coal: coal.sfs2.to_empirical(N_SAMPLES).mean,
     title="Mean two-locus SFS",
