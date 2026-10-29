@@ -3,6 +3,16 @@
 Changelog
 =========
 
+[2.3.0] - 2026-10-29
+^^^^^^^^^^^^^^^^^^^^
+- Choose between dense matrix exponentials and their action with one cost model, set by :attr:`Settings.expm_method <phasegen.settings.Settings.expm_method>`, which replaces ``Settings.expm_action_min_dim``.
+- Compute mutational configurations (:meth:`UnfoldedSFSDistribution.get_mutation_config() <phasegen.distributions.UnfoldedSFSDistribution.get_mutation_config>`) by adaptive uniformization, substantially faster on multi-epoch demographies.
+- Speed up the second moments of the spectra and multi-epoch models.
+- Add moments of any order with :meth:`RewardDistribution.moment() <phasegen.distributions.RewardDistribution.moment>`.
+- Hold the end value of a :class:`~phasegen.demography.DiscretizedRateChange` from its end time on, which changes discretized trajectories with a finite end time.
+- Validate inputs more thoroughly and fix several smaller defects.
+- :class:`~phasegen.inference.Inference` objects saved with version 2.2.0 cannot be loaded.
+
 [2.2.0] - 2026-10-24
 ^^^^^^^^^^^^^^^^^^^^
 - Differentiate inference losses exactly, at a cost independent of the number of parameters (:attr:`Inference.gradient <phasegen.inference.Inference.gradient>`), and expose the derivatives of moments of any order (:meth:`Coalescent.gradient() <phasegen.distributions.Coalescent.gradient>`, :class:`~phasegen.gradient.Gradient`).
