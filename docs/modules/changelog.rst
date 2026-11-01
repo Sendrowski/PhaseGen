@@ -3,6 +3,16 @@
 Changelog
 =========
 
+[2.3.0] - 2026-10-29
+^^^^^^^^^^^^^^^^^^^^
+- Choose between dense matrix exponentials and their action with one cost model, set by :attr:`Settings.expm_method <phasegen.settings.Settings.expm_method>`, which replaces ``Settings.expm_action_min_dim``.
+- Compute mutational configurations (:meth:`UnfoldedSFSDistribution.get_mutation_config() <phasegen.distributions.UnfoldedSFSDistribution.get_mutation_config>`) by adaptive uniformization, substantially faster on multi-epoch demographies.
+- Speed up the second moments of the spectra and multi-epoch models.
+- Add moments of any order with :meth:`RewardDistribution.moment() <phasegen.distributions.RewardDistribution.moment>`.
+- Hold the end value of a :class:`~phasegen.demography.DiscretizedRateChange` from its end time on, which changes discretized trajectories with a finite end time.
+- Validate inputs more thoroughly and fix several smaller defects.
+- :class:`~phasegen.inference.Inference` objects saved with version 2.2.0 cannot be loaded.
+
 [2.2.0] - 2026-10-24
 ^^^^^^^^^^^^^^^^^^^^
 - Differentiate inference losses exactly, at a cost independent of the number of parameters (:attr:`Inference.gradient <phasegen.inference.Inference.gradient>`), and expose the derivatives of moments of any order (:meth:`Coalescent.gradient() <phasegen.distributions.Coalescent.gradient>`, :class:`~phasegen.gradient.Gradient`).
@@ -50,7 +60,7 @@ Changelog
 - Add the two-locus site-frequency spectrum under recombination via :attr:`Coalescent.sfs2 <phasegen.distributions.Coalescent.sfs2>`, with support for multiple-merger coalescents.
 - Add summary statistics: Hudson's :attr:`Coalescent.fst <phasegen.distributions.Coalescent.fst>`, Patterson's f-statistics (:meth:`Coalescent.f2() <phasegen.distributions.Coalescent.f2>`, :meth:`Coalescent.f3() <phasegen.distributions.Coalescent.f3>`, :meth:`Coalescent.f4() <phasegen.distributions.Coalescent.f4>`), Tajima's :attr:`UnfoldedSFSDistribution.tajimas_d <phasegen.distributions.UnfoldedSFSDistribution.tajimas_d>` with the :attr:`UnfoldedSFSDistribution.theta_pi <phasegen.distributions.UnfoldedSFSDistribution.theta_pi>` and :attr:`UnfoldedSFSDistribution.theta_w <phasegen.distributions.UnfoldedSFSDistribution.theta_w>` estimators, and cross-locus linkage via the correlation of coalescence times.
 - Accelerate state-space construction with `numba <https://numba.pydata.org/>`__, which is now a required dependency.
-- Compute moments of large state spaces from the sparse action of the matrix exponential (threaded over epochs), controlled by :attr:`Settings.expm_action_min_dim <phasegen.settings.Settings.expm_action_min_dim>`.
+- Compute moments of large state spaces from the sparse action of the matrix exponential (threaded over epochs), controlled by ``Settings.expm_action_min_dim``.
 - Validate the new statistics against msprime/tskit ground truth, including within the scenario-comparison workflow (Kingman and multiple-merger models, and beyond the two-lineage case).
 - Use the ``spawn`` start method for the worker pool on macOS to avoid fork/numba deadlocks.
 - Documentation: add a dedicated *Spectra & summary statistics* reference page and drop the exponentiation-backend page.

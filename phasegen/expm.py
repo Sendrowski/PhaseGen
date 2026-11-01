@@ -6,16 +6,18 @@ Matrix exponentiation backends.
     exponentials, for which the default SciPy backend is faster than the TensorFlow, Jax and PyTorch ones, whose
     per-call overhead dominates at these sizes.
 
-Two operations are exposed: the dense matrix exponential :math:`\\exp(\\mathbf{A})`
-(:meth:`ExpmBackend.compute() <phasegen.expm.ExpmBackend.compute>`) and its action
+Three operations are exposed: the dense matrix exponential :math:`\\exp(\\mathbf{A})`
+(:meth:`ExpmBackend.compute() <phasegen.expm.ExpmBackend.compute>`), its action
 :math:`\\exp(\\mathbf{A})\\mathbf{v}` on a vector or thin matrix
-(:meth:`ExpmBackend.compute_action() <phasegen.expm.ExpmBackend.compute_action>`).
+(:meth:`ExpmBackend.compute_action() <phasegen.expm.ExpmBackend.compute_action>`), and that action at equally spaced
+multiples of :math:`\\mathbf{A}`
+(:meth:`ExpmBackend.compute_action_interval() <phasegen.expm.ExpmBackend.compute_action_interval>`).
 
-A registered backend reaches the Van Loan evaluation of moments, the tree-height distribution functions and the
-mutational configurations. The Laplace transform of an accumulated reward always calls SciPy. The occupation times of
-spectra call SciPy above :attr:`Settings.closed_form_sparse_min_states
-<phasegen.settings.Settings.closed_form_sparse_min_states>` and :attr:`Settings.expm_action_min_dim
-<phasegen.settings.Settings.expm_action_min_dim>`, and the registered backend below them.
+A registered backend reaches the Van Loan evaluation of moments and the tree-height distribution functions. The
+Laplace transform of an accumulated reward always calls SciPy. The occupation times of spectra call SciPy above
+:attr:`Settings.closed_form_sparse_min_states <phasegen.settings.Settings.closed_form_sparse_min_states>` and where
+:attr:`Settings.expm_method <phasegen.settings.Settings.expm_method>` selects the action, and the registered backend
+otherwise.
 """
 import logging
 from abc import ABC, abstractmethod
@@ -46,11 +48,12 @@ class _GrowthBound:
     A bound :math:`G(f) \ge f^{-1} \int_0^f \|\exp(s \mathbf{A})\|_1\, ds` for
     :meth:`Backend._stationary() <phasegen.expm.Backend._stationary>`. With :math:`\mathbf{A} = \mathbf{D} + \mathbf{N}`
     split into its :math:`L` diagonal blocks :math:`\mathbf{D}` and the strictly block triangular rest
-    :math:`\mathbf{N}`, the Dyson series of :math:`\exp(s \mathbf{A})` ends after :math:`L` terms, so that
+    :math:`\mathbf{N}`, the Dyson series of :math:`\exp(s \mathbf{A})` ends after :math:`d` terms, where
+    :math:`d \le L` is the length of the longest chain of blocks that :math:`\mathbf{N}` couples plus one, so that
 
     .. math::
         G(f) = \min_{p \in \{1, \infty\}} c_p \Big( \varphi(f m_p) + e^{f m_p}
-        \sum_{j=1}^{L-1} \frac{(f \beta_p)^j}{(j + 1)!} \Big),
+        \sum_{j=1}^{d-1} \frac{(f \beta_p)^j}{(j + 1)!} \Big),
 
     with :math:`m_p = \max(0, \mu_p(\mathbf{D}))` the positive part of the logarithmic :math:`p`-norm,
     :math:`\mu_1(\mathbf{D}) = \max_j (d_{jj} + \sum_{i \ne j} |d_{ij}|)` and :math:`\mu_\infty(\mathbf{D}) =
@@ -59,11 +62,12 @@ class _GrowthBound:
     the :math:`\infty`-norm bound to the 1-norm. For a transposed generator and :math:`L = 1`, :math:`G = 1`.
     """
 
-    def __init__(self, a, abs_a, blocks: int = 1) -> None:
+    def __init__(self, a, abs_a, blocks: int = 1, depth: int = None) -> None:
         r"""
         :param a: Square matrix :math:`\mathbf{A}`.
         :param abs_a: Its entrywise absolute value.
         :param blocks: The number :math:`L` of equal diagonal blocks.
+        :param depth: The number :math:`d` of terms of the Dyson series, by default :math:`L`.
         """
         coo = scipy.sparse.coo_matrix(abs_a)
         dim = a.shape[0]
@@ -72,6 +76,9 @@ class _GrowthBound:
 
         #: The number of blocks :math:`L`.
         self.blocks: int = blocks
+
+        #: The number of terms :math:`d` of the Dyson series.
+        self.depth: int = blocks if depth is None else depth
 
         #: The triples :math:`(c_p, m_p, \beta_p)` for :math:`p = 1, \infty`.
         self.norms: list = []
@@ -85,7 +92,7 @@ class _GrowthBound:
         :param f: The fraction :math:`f \ge 0`.
         :return: :math:`G(f)`, possibly infinite.
         """
-        j = np.arange(1, self.blocks)
+        j = np.arange(1, self.depth)
         out = np.inf
         with np.errstate(over='ignore', invalid='ignore'):
             for c, m, beta in self.norms:
@@ -130,6 +137,31 @@ class ExpmBackend(ABC):
         a_dense = a.toarray() if hasattr(a, 'toarray') else np.asarray(a)
 
         return self.compute(a_dense) @ b
+
+    def compute_action_interval(self, a, b: np.ndarray, stop: float, num: int) -> np.ndarray:
+        """
+        Compute the actions :math:`\\exp(s_j \\mathbf{A})\\mathbf{v}` at :math:`s_j = j\\, s / q` for
+        :math:`j = 1, \\ldots, q`, with :math:`s` the ``stop`` and :math:`q` the ``num``.
+
+        The default implementation forms the dense exponential of one step via :meth:`compute` and applies it
+        :math:`q` times. :class:`SciPyExpmBackend` overrides it with the interval algorithm of Al-Mohy and Higham
+        (2011) in :func:`scipy.sparse.linalg.expm_multiply`.
+
+        :param a: Matrix (typically a sparse matrix).
+        :param b: Vector or thin matrix.
+        :param stop: The largest multiple :math:`s`.
+        :param num: The number of multiples :math:`q`.
+        :return: The actions, stacked along the first axis.
+        """
+        a_dense = a.toarray() if hasattr(a, 'toarray') else np.asarray(a)
+        P = self.compute(a_dense * (stop / num))
+
+        out = []
+        for _ in range(num):
+            b = P @ b
+            out.append(b)
+
+        return np.stack(out)
 
 
 class TensorFlowExpmBackend(ExpmBackend):
@@ -217,6 +249,25 @@ class SciPyExpmBackend(ExpmBackend):
 
         return expm_multiply(a.astype(self.precision), np.asarray(b, dtype=self.precision))
 
+    def compute_action_interval(self, a, b: np.ndarray, stop: float, num: int) -> np.ndarray:
+        """
+        Compute the actions :math:`\\exp(s_j \\mathbf{A})\\mathbf{v}` at :math:`s_j = j\\, s / q` for
+        :math:`j = 1, \\ldots, q`, with :math:`s` the ``stop`` and :math:`q` the ``num``, by the interval algorithm of
+        Al-Mohy and Higham (2011) in :func:`scipy.sparse.linalg.expm_multiply`.
+
+        :param a: Matrix (typically a sparse matrix).
+        :param b: Vector or thin matrix.
+        :param stop: The largest multiple :math:`s`.
+        :param num: The number of multiples :math:`q`.
+        :return: The actions, stacked along the first axis.
+        """
+        from scipy.sparse.linalg import expm_multiply
+
+        return expm_multiply(
+            a.astype(self.precision), np.asarray(b, dtype=self.precision), start=0.0, stop=stop, num=num + 1,
+            endpoint=True
+        )[1:]
+
 
 class JaxExpmBackend(ExpmBackend):
     """
@@ -290,7 +341,14 @@ class Backend(ABC):
         return cls._writable(cls.backend.compute(m))
 
     @classmethod
-    def expm_multiply(cls, a, b: np.ndarray, action: Callable = None, blocks: int = 1) -> np.ndarray:
+    def expm_multiply(
+            cls,
+            a,
+            b: np.ndarray,
+            action: Callable = None,
+            blocks: int = 1,
+            depth: int = None
+    ) -> np.ndarray:
         """
         Compute the action of the matrix exponential, :math:`\\exp(\\mathbf{A})\\mathbf{v}` (``exp(a) @ b``), via the
         active backend, as a writable NumPy array. An argument of 1-norm above ``_ACTION_STEP_NORM`` is applied in steps
@@ -301,6 +359,7 @@ class Backend(ABC):
         :param b: Vector or thin matrix.
         :param action: The action ``exp(a) @ b`` of one step, by default that of the active backend.
         :param blocks: The number of equal diagonal blocks of ``a`` outside of which it is strictly block triangular.
+        :param depth: The length of the longest chain of blocks that ``a`` couples plus one, by default ``blocks``.
         :return: ``exp(a) @ b``.
         """
         action = cls.backend.compute_action if action is None else action
@@ -310,7 +369,7 @@ class Backend(ABC):
             return cls._writable(action(a, b))
 
         abs_a, v, done = abs(a), b, 0.0
-        growth = _GrowthBound(a, abs_a, blocks)
+        growth = _GrowthBound(a, abs_a, blocks, depth)
         for f in cls._step_fractions(norm):
             v = cls._writable(action(a * (f - done), v))
             done = f
@@ -318,6 +377,45 @@ class Backend(ABC):
                 break
 
         return v
+
+    @classmethod
+    def expm_multiply_interval(
+            cls,
+            a,
+            b: np.ndarray,
+            stop: float,
+            num: int,
+            interval: Callable = None,
+            advance: Callable = None
+    ) -> np.ndarray:
+        """
+        Compute the actions :math:`\\exp(s_j \\mathbf{A})\\mathbf{v}` at :math:`s_j = j\\, s / q` for
+        :math:`j = 1, \\ldots, q`, with :math:`s` the ``stop`` and :math:`q` the ``num``, via the active backend, as
+        a writable NumPy array. Where the 1-norm of :math:`s \\mathbf{A}` exceeds the norm above which
+        :meth:`expm_multiply` steps, the steps are applied one by one by ``advance``.
+
+        :param a: Matrix (typically a sparse matrix).
+        :param b: Vector or thin matrix.
+        :param stop: The largest multiple :math:`s`.
+        :param num: The number of multiples :math:`q`.
+        :param interval: The actions ``interval(a, b, stop, num)``, by default those of the active backend.
+        :param advance: The action ``advance(v, tau)`` of :math:`\\exp(\\tau \\mathbf{A})` on ``v``, by default
+            :meth:`expm_multiply`.
+        :return: The actions, stacked along the first axis.
+        """
+        interval = cls.backend.compute_action_interval if interval is None else interval
+        norm = float(abs(a).sum(axis=0).max()) * stop if a.shape[0] else 0.0
+
+        if np.isfinite(norm) and norm <= _ACTION_STEP_NORM:
+            return cls._writable(interval(a, b, stop, num))
+
+        advance = (lambda v, tau: cls.expm_multiply(a * tau, v)) if advance is None else advance
+        out = []
+        for _ in range(num):
+            b = advance(b, stop / num)
+            out.append(b)
+
+        return np.stack(out)
 
     @staticmethod
     def _step_fractions(norm: float) -> np.ndarray:

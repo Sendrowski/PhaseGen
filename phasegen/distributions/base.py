@@ -1,7 +1,6 @@
 """Distribution base classes and marginal (per-deme / per-locus) views."""
 
 import logging
-import warnings
 from abc import ABC, abstractmethod
 from collections.abc import Mapping
 from ..caching import cached_property
@@ -637,8 +636,8 @@ class _LSTFunction(_LogSurvivalGrid):
             d = self._distribution
             d._logger.warning(
                 "%s: the expansion departs from the de Hoog CDF by %.2e at %.4g (bar %.0e). Its window ends at %.4g "
-                "and leaves out a mass of %.2e, which it folds back into the body. Settings.dehoog_tail_quantile = 0 "
-                "evaluates the CDF by the de Hoog inversion throughout.", d._titled('COS CDF (window)'), error, x_cut,
+                "and leaves out a mass of %.2e, which it folds back into the body, so the CDF, quantiles and density "
+                "below the cut may be biased.", d._titled('COS CDF (window)'), error, x_cut,
                 self._cos_join_tol, xs[-1], 1.0 - self._cdf_point(float(xs[-1]))
             )
 
@@ -848,10 +847,10 @@ class _LSTQuantileFunction(_LSTFunction, QuantileFunction):
         :param q: Probability level or array of levels :math:`q \in [0, 1]`.
         :return: The quantiles, of the same shape as ``q``.
         :raises NotImplementedError: If the coalescent has a bounded accumulation window.
-        :raises ValueError: If any ``q`` lies outside :math:`[0, 1]`.
+        :raises ValueError: If any ``q`` is NaN or lies outside :math:`[0, 1]`.
         """
         qa = np.atleast_1d(np.asarray(q, dtype=float))
-        if np.any((qa < 0) | (qa > 1)):
+        if not np.all((qa >= 0) & (qa <= 1)):
             raise ValueError("Quantile must be between 0 and 1.")
 
         if Settings.check_inversions and np.any(qa > _QUANTILE_TAIL_LEVEL):
@@ -860,11 +859,9 @@ class _LSTQuantileFunction(_LSTFunction, QuantileFunction):
                 "approximate.", self._distribution._titled('quantile'), _QUANTILE_TAIL_LEVEL
             )
 
-        # NaN levels are passed through, the grid taking the others
-        valid = ~np.isnan(qa)
-        out = np.full_like(qa, np.nan)
-        if valid.any():
-            out[valid] = self._interp_quantile(qa[valid], *self._cdf_grid(q_max=float(qa[valid].max())))
+        out = np.empty_like(qa)
+        if qa.size:
+            out[...] = self._interp_quantile(qa.ravel(), *self._cdf_grid(q_max=float(qa.max()))).reshape(qa.shape)
 
         return out if np.ndim(q) > 0 else float(out[0])
 
@@ -1313,6 +1310,18 @@ class CallableDistributionFunctions:
                                       "(a bivariate joint quantile is not well-defined; use a marginal/conditional).")
         return self._function('quantile', self._quantile_function)
 
+    def plot_pdf(self, *args, **kwargs) -> 'plt.Axes':
+        """
+        Plot the PDF curve.
+
+        .. deprecated:: 2.0.0
+            Use ``pdf.plot()``. ``plot_pdf`` will be removed in a future release.
+        """
+        logger.getChild(type(self).__name__).warning(
+            "plot_pdf() is deprecated since 2.0.0 and will be removed in a future release, use .pdf.plot() instead."
+        )
+        return self.pdf.plot(*args, **kwargs)
+
     def plot_cdf(self, *args, **kwargs) -> 'plt.Axes':
         """
         Plot the CDF curve.
@@ -1320,8 +1329,9 @@ class CallableDistributionFunctions:
         .. deprecated:: 2.0.0
             Use ``cdf.plot()``. ``plot_cdf`` will be removed in a future release.
         """
-        warnings.warn("plot_cdf() is deprecated since 2.0.0 and will be removed in a future release; "
-                      "use .cdf.plot() instead.", DeprecationWarning, stacklevel=2)
+        logger.getChild(type(self).__name__).warning(
+            "plot_cdf() is deprecated since 2.0.0 and will be removed in a future release, use .cdf.plot() instead."
+        )
         return self.cdf.plot(*args, **kwargs)
 
     def _warn_if_negative(self, values: np.ndarray, label: str, rtol: float = 1e-3) -> np.ndarray:

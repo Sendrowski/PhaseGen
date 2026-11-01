@@ -1465,3 +1465,87 @@ def test_pulse_agrees_with_msprime_mass_migration_under_every_coalescent_model(m
     heights = np.array([ts.first().time(ts.first().root) for ts in reps])
 
     assert abs(exact - heights.mean()) < 4 * heights.std() / np.sqrt(len(heights))
+
+
+def test_nan_time_raises_its_own_error():
+    """A NaN epoch time raises a ValueError naming NaN. Regression: it was reported as a negative time."""
+    with pytest.raises(ValueError, match='Times must not be NaN'):
+        pg.DiscreteRateChanges(pop_sizes={'pop_0': {0: 1, np.nan: 2}})
+
+    with pytest.raises(ValueError, match='Times must not be NaN'):
+        pg.Demography(pop_sizes={'pop_0': {0: 1, np.nan: 2}})
+
+    with pytest.raises(ValueError, match='All times must not be negative'):
+        pg.DiscreteRateChanges(pop_sizes={'pop_0': {0: 1, -1: 2}})
+
+
+def test_discretized_trajectory_returning_a_size_one_array_is_coerced():
+    """A trajectory returning a size-1 array gives the same epochs as one returning the float, and one returning
+    several values raises a ValueError naming the trajectory. Regression: the array was stored as the rate unconverted
+    and failed later with an unrelated NumPy shape error."""
+    def coalescent(trajectory):
+        return pg.Coalescent(n=3, demography=pg.Demography(events=[pg.DiscretizedRateChange(
+            trajectory=trajectory, start_time=0, end_time=1, pop='pop_0', step_size=0.25)]))
+
+    as_float = coalescent(lambda t: 1 + t)
+    as_array = coalescent(lambda t: np.array([1 + t]))
+
+    sizes = [e.pop_sizes['pop_0'] for e in islice(as_array.demography.epochs, 5)]
+    assert all(type(s) is float for s in sizes)
+    assert as_array.tree_height.mean == pytest.approx(as_float.tree_height.mean, rel=1e-14)
+
+    with pytest.raises(ValueError, match='population size trajectory of pop_0 must return a single number'):
+        list(islice(coalescent(lambda t: np.array([1 + t, 2])).demography.epochs, 3))
+
+    with pytest.raises(ValueError, match='migration rate trajectory from a to b must return a single number'):
+        list(islice(pg.Demography(pop_sizes={'a': 1, 'b': 1}, events=[pg.DiscretizedRateChange(
+            trajectory=lambda t: [0.1, 0.2], start_time=0, end_time=1, source='a', dest='b')]).epochs, 3))
+
+
+def test_discretized_trajectory_holds_its_end_value_from_end_time_on(caplog):
+    """From its end time on, a discretized trajectory holds its value at the end time, which an event at that time
+    overrides without a clash warning. Regression: the epochs from the end time on inherited the mean of the last
+    step, which put the mean tree height of 10 lineages declining at rate 2 until time 1 at 10.21, against 11.10 from
+    msprime."""
+    def growth():
+        return pg.ExponentialPopSizeChanges(initial_size={'pop_0': 1}, growth_rate=-2, start_time=0, end_time=1)
+
+    d = pg.Demography(events=[growth()])
+
+    assert d.get_epoch(1.0).pop_sizes['pop_0'] == pytest.approx(np.exp(2), rel=1e-14)
+    assert d.get_epoch(5.0).pop_sizes['pop_0'] == pytest.approx(np.exp(2), rel=1e-14)
+    assert pg.Coalescent(n=10, demography=d).tree_height.mean == pytest.approx(11.10, rel=0.01)
+
+    with caplog.at_level('WARNING'):
+        explicit = pg.Demography(events=[growth(), pg.PopSizeChange(pop='pop_0', time=1, size=3)])
+
+        assert explicit.get_epoch(2.0).pop_sizes['pop_0'] == 3
+
+    assert not [r for r in caplog.records if 'Several events set' in r.getMessage()]
+
+
+def test_rate_set_at_the_end_of_a_trajectory_takes_precedence():
+    """A size or migration rate that an event starting before a trajectory sets at the trajectory's end time applies
+    from then on, as in msprime. Regression: the end value of the trajectory overwrote it whenever that event sorted
+    first, such as the pop_sizes and migration_rates dictionaries, which put the mean tree height of a demography
+    imported from msprime 24 standard errors from msprime."""
+    sizes = pg.Demography(pop_sizes={'pop_0': {0: 1, 2: 3}}, events=[pg.ExponentialPopSizeChanges(
+        initial_size={'pop_0': 1}, growth_rate=-1, start_time=0.5, end_time=2, step_size=0.25)])
+    rates = pg.Demography(pop_sizes={'pop_0': 1, 'pop_1': 1}, migration_rates={('pop_0', 'pop_1'): {0: 0.1, 2: 0.5}},
+                          events=[pg.DiscretizedRateChange(trajectory=lambda t: 0.1 * np.exp(t), start_time=0.5,
+                                                           end_time=2, source='pop_0', dest='pop_1')])
+
+    assert sizes.get_epoch(3).pop_sizes['pop_0'] == 3
+    assert rates.get_epoch(3).migration_rates[('pop_0', 'pop_1')] == 0.5
+
+
+def test_to_demes_names_the_migration_restriction():
+    """A demography with a split, a pulse or a migration rate above 1 raises a ValueError naming the demes restriction.
+    Regression: demes raised 'invalid migration' from inside the conversion."""
+    split = pg.Demography(pop_sizes={'a': 1, 'b': 1},
+                          events=[pg.PopulationSplit(time=1, derived='b', ancestral='a')])
+    fast = pg.Demography(pop_sizes={'a': 1, 'b': 1}, migration_rates={('a', 'b'): 1.5})
+
+    for d in (split, fast):
+        with pytest.raises(ValueError, match='demes takes migration rates of at most 1'):
+            d.to_demes()

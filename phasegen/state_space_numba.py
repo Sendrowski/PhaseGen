@@ -1,15 +1,15 @@
 """
 Numba-accelerated kernels for state-space construction.
 
-The kernels operate on integer state rows (the flattened ``lineages`` array of shape ``(n_demes, n_blocks)``) and build the rate matrix directly. Kinds 0 and 1
-build the single-locus lineage- and block-/joint-counting spaces, and kinds 2 and 3 the two-locus block- and
-lineage-counting spaces under recombination.
+The kernels operate on integer state rows (the flattened ``lineages`` array of shape ``(n_demes, n_blocks)``) and
+enumerate the states and their transitions. Kinds 0 and 1 build the single-locus lineage- and block-/joint-counting
+spaces, and kinds 2 and 3 the two-locus block- and lineage-counting spaces under recombination.
 
 Coalescent rates are reproduced from the model formulae (exact ``comb`` via an integer loop, the Euler beta via
 ``math.lgamma``, and the binomial pmf via ``comb`` and powers, all three in log space from
 ``_LOG_SPACE_MIN_LINEAGES`` lineages on, where the float binomial coefficient would overflow), parameterised by a
-``model_id`` (0 standard, 1 beta, 2 dirac) plus ``alpha``/``psi``/``c``. Per-deme timescales and the migration-rate
-matrix are precomputed in Python and passed in, so no transcendental model code other than the rates lives here.
+``model_id`` (0 standard, 1 beta, 2 dirac) plus ``alpha``/``psi``/``c``. The transitions are listed at unit time scales
+and unit migration rates, from which the state space assembles the rate matrix of each epoch.
 
 States are numbered in discovery order, which differs from the pure-Python enumeration. Parity tests compare the two
 constructions up to a permutation of the states.
@@ -199,16 +199,15 @@ def _find_or_add(rows, chain_next, head, target) -> int:
 # ---------------------------------------------------------------------------------------------------------------------
 
 @njit(cache=True)
-def _build(initial, kind, n_demes, n_blocks, mig, timescales, model_id, alpha, psi, c, block_vectors,
-           recomb_rate, recomb0, recomb1, max_states) -> tuple:
+def _build(initial, kind, n_demes, n_blocks, model_id, alpha, psi, c, block_vectors, recomb_rate, recomb0, recomb1,
+           max_states) -> tuple:
     """
-    Build the state graph by BFS over integer ``lineages`` rows.
+    Build the state graph by BFS over integer ``lineages`` rows, with coalescence rates at unit time scale and
+    migration rates at unit rate.
 
     :param initial: Flattened initial lineage row (length ``n_demes * n_blocks``).
     :param kind: 0 lineage-counting, 1 block-/joint-counting, 2 two-locus block-counting (recombination), 3 two-locus
         lineage-counting (recombination).
-    :param mig: ``(n_demes, n_demes)`` migration-rate matrix.
-    :param timescales: per-deme timescale by which coalescence rates are divided.
     :param block_vectors: ``(n_blocks, vdim)`` block labels (descendant vectors / size classes); the merged block of a
         merger is the one whose label equals the summed label of the merging blocks (found by linear search).
     :param recomb_rate: recombination rate (kinds 2 and 3 only).
@@ -258,9 +257,7 @@ def _build(initial, kind, n_demes, n_blocks, mig, timescales, model_id, alpha, p
                             carry1 += cnt
             absorbing = carry0 == 1 and carry1 == 1
 
-        # --- migration: move one lineage of each block between demes, rate scaled by source count ---
-        # the target states are discovered for every ordered deme pair regardless of the migration rate (matching
-        # the pure-Python construction, so the state set is epoch-independent); only the edge is rate-gated
+        # --- migration: move one lineage of each block between demes, at unit rate per lineage ---
         for d1 in range(n_demes):
             for d2 in range(n_demes):
                 if d1 == d2:
@@ -272,10 +269,9 @@ def _build(initial, kind, n_demes, n_blocks, mig, timescales, model_id, alpha, p
                         target[d1 * n_blocks + blk] -= 1
                         target[d2 * n_blocks + blk] += 1
                         tidx = _find_or_add(rows, chain_next, head, target)
-                        if mig[d1, d2] != 0.0:
-                            src.append(np.int64(cur))
-                            dst.append(np.int64(tidx))
-                            rate.append(mig[d1, d2] * cnt)
+                        src.append(np.int64(cur))
+                        dst.append(np.int64(tidx))
+                        rate.append(float(cnt))
 
         # --- coalescence (only when more than one lineage remains, and not yet absorbed for two loci) ---
         if total > 1 and not absorbing:
@@ -287,8 +283,6 @@ def _build(initial, kind, n_demes, n_blocks, mig, timescales, model_id, alpha, p
                     deme_total += source[base + blk]
                 if deme_total < 2:
                     continue
-
-                ts = timescales[deme]
 
                 if kind == 0:
                     # lineage-counting: merge k of the deme's lineages into one (count decreases by k - 1)
@@ -302,7 +296,7 @@ def _build(initial, kind, n_demes, n_blocks, mig, timescales, model_id, alpha, p
                         tidx = _find_or_add(rows, chain_next, head, target)
                         src.append(np.int64(cur))
                         dst.append(np.int64(tidx))
-                        rate.append(r / ts)
+                        rate.append(r)
                     continue
 
                 # block-/joint-counting: enumerate merger combinations over present blocks via an odometer
@@ -380,7 +374,7 @@ def _build(initial, kind, n_demes, n_blocks, mig, timescales, model_id, alpha, p
                     tidx = _find_or_add(rows, chain_next, head, target)
                     src.append(np.int64(cur))
                     dst.append(np.int64(tidx))
-                    rate.append(r / ts)
+                    rate.append(r)
 
         # --- recombination (two-locus): a block ancestral at both loci splits into the two single-locus blocks, per
         # deme, at rate r per such lineage. Kind 2 (block-counting) splits (a_0, a_1) -> (a_0, 0) + (0, a_1); kind 3
@@ -425,13 +419,11 @@ def _build(initial, kind, n_demes, n_blocks, mig, timescales, model_id, alpha, p
     return rows_arr, src_arr, dst_arr, rate_arr
 
 
-def build_rate_matrix(
+def build_transitions(
         initial: np.ndarray,
         kind: int,
         n_demes: int,
         n_blocks: int,
-        mig: np.ndarray,
-        timescales: np.ndarray,
         model_id: int,
         alpha: float,
         psi: float,
@@ -441,24 +433,18 @@ def build_rate_matrix(
         recomb0: np.ndarray = None,
         recomb1: np.ndarray = None,
         max_states: int = 2 ** 62,
-        dense_max_states: int = 0,
 ) -> tuple:
     """
-    Python entry point: build the state rows and the rate matrix via the numba kernel.
+    Python entry point: enumerate the states and the transitions via the numba kernel, at unit time scales and unit
+    migration rates, so that every migration transition is listed. The kernel's BFS is aborted once it discovers more
+    than ``max_states`` states, and a :class:`MemoryError` is raised. The cap bounds the number of states, not the
+    memory, which grows with the width of a state row.
 
-    The kernel's BFS is aborted once it discovers more than ``max_states`` states, and a :class:`MemoryError` is
-    raised. The cap bounds the number of states, not the memory, which grows with the width of a state row. The COO
-    transitions the kernel returns are assembled, in one place, into either a dense array (below ``dense_max_states``
-    states, where dense is cheap and the dense moment paths are faster) or a :class:`scipy.sparse.csr_matrix` (above
-    it, since the generator is sparse, each state coalescing to only O(n) others, and a dense ``n_states**2`` matrix
-    would be prohibitive).
-
-    :return: ``(rows, S)`` where ``rows`` is ``(n_states, n_demes * n_blocks)`` integer lineage rows (discovery
-        order) and ``S`` is the dense or sparse intensity matrix, whose diagonal holds the negative row sums.
+    :return: ``(rows, src, dst, rate)`` where ``rows`` is ``(n_states, n_demes * n_blocks)`` integer lineage rows
+        (discovery order) and ``src``, ``dst``, ``rate`` the transitions, a pair of states possibly listed several
+        times.
     :raises MemoryError: if the state space exceeds ``max_states``.
     """
-    from scipy.sparse import coo_matrix
-
     # the recombination split maps are only used for the two-locus kernels (kinds 2 and 3), pass dummies otherwise
     if recomb0 is None:
         recomb0 = np.zeros(n_blocks, dtype=np.int64)
@@ -467,30 +453,17 @@ def build_rate_matrix(
 
     rows, src, dst, rate = _build(
         initial.astype(np.int64), kind, n_demes, n_blocks,
-        mig.astype(np.float64), timescales.astype(np.float64),
         model_id, float(alpha), float(psi), float(c),
         block_vectors.astype(np.int64),
         float(recomb_rate), recomb0.astype(np.int64), recomb1.astype(np.int64),
         int(max_states),
     )
 
-    n = rows.shape[0]
-
     # the BFS aborts once it exceeds the cap, so a returned count over it means the (incomplete) space is too large
-    if n > max_states:
+    if rows.shape[0] > max_states:
         raise MemoryError(
             f"State space exceeds the maximum of {max_states} states (construction aborted to avoid running out "
             f"of memory). Increase Settings.max_state_space_size to override, or reduce the sample size."
         )
 
-    # off-diagonal transitions (a target may be reached by several transitions, e.g. multiple-merger paths, so
-    # duplicate (src, dst) entries are summed by ``coo_matrix``) plus the diagonal = negative out-rate per row
-    row_sums = np.bincount(src, weights=rate, minlength=n)
-    diag = np.arange(n)
-    data = np.concatenate([rate, -row_sums])
-    rows_idx = np.concatenate([src, diag])
-    cols_idx = np.concatenate([dst, diag])
-    S = coo_matrix((data, (rows_idx, cols_idx)), shape=(n, n))
-
-    # one place decides the representation: dense where it is cheap and faster, sparse where dense would be too big
-    return rows, (S.toarray() if n < dense_max_states else S.tocsr())
+    return rows, src, dst, rate

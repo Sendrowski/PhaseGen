@@ -1,6 +1,7 @@
 """Shared helpers for the distributions package."""
 import copy
 import functools
+import numbers
 
 import numpy as np
 from typing import Callable, Mapping, Sequence, Tuple
@@ -115,6 +116,26 @@ def _validate_start_time(start_time: float) -> None:
     """
     if not start_time >= 0:
         raise ValueError(f"Start time must be greater than or equal to 0, got {start_time}.")
+
+
+def _n_samples(n_samples: 'int | float', minimum: int = 0) -> int:
+    """
+    Validate a number of samples.
+
+    :param n_samples: The number of samples, of any numeric type with an integral value of at least ``minimum``.
+    :param minimum: The smallest number of samples allowed.
+    :return: The number of samples as an integer.
+    :raises ValueError: if ``n_samples`` is not an integer of at least ``minimum``.
+    """
+    if isinstance(n_samples, np.ndarray) and n_samples.ndim == 0:
+        n_samples = n_samples.item()
+
+    if (isinstance(n_samples, bool) or not isinstance(n_samples, numbers.Real)
+            or not float(n_samples).is_integer() or n_samples < minimum):
+        kind = 'a non-negative integer' if minimum == 0 else f'an integer of at least {minimum}'
+        raise ValueError(f"The number of samples must be {kind}, got {n_samples!r}.")
+
+    return int(n_samples)
 
 
 def _frequency_class(i: 'int | float', n: int) -> int:

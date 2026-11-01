@@ -13,7 +13,7 @@ import numpy as np
 from ._blas import BlasThreadLimit
 from .distributions import Coalescent, DemographyGradient
 from .distributions._common import _sqrt_spectrum, _validate_order
-from .distributions._gradient import _generator_basis, _passes, _rate_parameters
+from .distributions._gradient import _passes, _rate_parameters
 from .spectrum import AbstractSpectrum
 
 #: The distributions of a :class:`~phasegen.distributions.Coalescent` whose moments the gradient supports.
@@ -515,7 +515,7 @@ class Gradient:
     def supported(self, params: Dict[str, float]) -> bool:
         """
         Whether the statistic has an exact Jacobian at the given parameters. This holds if it reads only the moments
-        listed in :class:`~phasegen.gradient.Gradient`, of state spaces whose generator is affine in the rates.
+        listed in :class:`~phasegen.gradient.Gradient`.
 
         :param params: The parameters.
         :return: Whether the Jacobian at these parameters is exact.
@@ -534,27 +534,7 @@ class Gradient:
         except Exception:
             return None
 
-        if recorder.rejection is not None:
-            return recorder.rejection
-
-        try:
-            for read in recorder.reads:
-                _generator_basis(self._host(read).state_space)
-        except ValueError as e:
-            return str(e)
-
-        return None
-
-    @staticmethod
-    def _host(read: _Read) -> Any:
-        """
-        The distribution whose state space carries the reward vectors of a read, that of the flattened mean for an SFS
-        of the standard coalescent.
-
-        :param read: The read.
-        :return: The distribution.
-        """
-        return read.dist._mean_host() if read.kind == 'mean' else read.dist
+        return recorder.rejection
 
     def _record(self, coal: Coalescent) -> Optional[Tuple[np.ndarray, _CoalescentRecorder]]:
         """
@@ -595,8 +575,8 @@ class Gradient:
         :param params: The parameters.
         :param bounds: The bounds of the parameters.
         :return: The entries and the Jacobian, or ``None`` where the statistic reads an unsupported quantity, a moment
-            is windowed, an entry is not finite, absorption is not certain in the last epoch, the generator is not affine
-            in the rates, or the value of the backward pass differs from the moments.
+            is windowed, an entry is not finite, absorption is not certain in the last epoch, or the value of the backward
+            pass differs from the moments.
         """
         coal = self.coal(**params)
         record = self._record(coal)
@@ -725,19 +705,13 @@ class Gradient:
         :param hosts: The host and its weighted orderings of ``_group_terms``, by key.
         :param contraction: The weighted values of each column, against which the backward passes are checked.
         :param magnitude: The sum of the moduli of the weighted values of each column.
-        :return: The derivatives, or ``None`` where the generator is not affine in the rates, absorption is not certain
-            in the last epoch, or the value of the backward pass differs from the moments.
+        :return: The derivatives, or ``None`` where absorption is not certain in the last epoch or the value of the
+            backward pass differs from the moments.
         """
         n_columns = len(contraction)
         adjoint = np.zeros(n_columns)
         derivatives = []
         for host, terms in hosts.values():
-            try:
-                _generator_basis(host.state_space)
-            except ValueError as e:
-                self._log.info("%s Using finite differences.", e)
-                return None
-
             outs = _passes(host, terms, n_columns)
             if outs is None:
                 return None

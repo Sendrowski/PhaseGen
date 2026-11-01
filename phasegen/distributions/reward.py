@@ -6,7 +6,7 @@ Distributions of accumulated rewards obtained from their Laplace transforms: the
 """
 import logging
 from math import comb, factorial
-from typing import Any, NoReturn, TYPE_CHECKING, Optional, Sequence, Union
+from typing import Any, NoReturn, TYPE_CHECKING, Optional, Sequence, Tuple, Union
 
 import numpy as np
 import scipy.linalg as sla
@@ -19,8 +19,8 @@ from ..settings import Settings
 from .base import CallableDistributionFunctions, JointDensity, JointCDF, \
     ConditionalDensity, ConditionalCDF, ConditionalQuantileFunction, \
     _LSTCumulativeDistributionFunction, _LSTDensityFunction, _LSTQuantileFunction
-from ._common import N_EMPIRICAL_SAMPLES, _validate_order
-from ._moments import MomentEvaluator, _AUTO_PERM
+from ._common import N_EMPIRICAL_SAMPLES, _n_samples, _validate_order
+from ._moments import MomentEvaluator, _AUTO_PERM, _TRANSFORM_COST
 
 if TYPE_CHECKING:
     from .phase_type import PhaseTypeDistribution
@@ -30,6 +30,14 @@ logger = logging.getLogger('phasegen')
 
 #: Mass beyond the window of the 2D cosine expansion of a joint distribution above which a warning is logged.
 _COS2D_TAIL_WARN = 1e-2
+
+#: Levels within the continuous part of each marginal, above its atom at 0, at whose quantiles
+#: ``JointRewardDistribution._cos2d_wiggle_check`` compares the margins of the 2D cosine expansion with the marginal
+#: CDFs. They are densest at low levels, where a steep rise above the atom or a narrow body sits.
+_COS2D_CHECK_LEVELS = np.array([0.01, 0.03, 0.06, 0.1, 0.15, 0.2, 0.3, 0.4, 0.5, 0.65, 0.8, 0.95])
+
+#: Largest gap between a margin of the 2D cosine expansion and the marginal CDF above which a warning is logged.
+_COS2D_MARGIN_WARN = 0.03
 
 #: Error of the Euler inversion of a unit step (``_euler_step_error``) at or below which
 #: ``JointRewardDistribution._jump_correction`` leaves the jumps out. Steps far below the point of inversion err by
@@ -251,6 +259,36 @@ class RewardDistribution(CallableDistributionFunctions):
         """Standard deviation of the accumulated reward."""
         return self.var ** 0.5
 
+    def moment(self, k: int, center: bool = True) -> float:
+        r"""
+        The moment of order :math:`k` of the accumulated reward, central by default, evaluated by
+        :meth:`PhaseTypeDistribution.moment() <phasegen.distributions.PhaseTypeDistribution.moment>`.
+
+        :param k: Order of the moment.
+        :param center: Whether to return the central moment.
+        :return: The moment.
+        :raises TypeError: If ``k`` is not a number.
+        :raises ValueError: If ``k`` is not a non-negative integer.
+        """
+        k = _validate_order(k)
+
+        return float(MomentEvaluator.moment(self._host, k=k, rewards=(self.reward,) * k, center=center))
+
+    @cached_property
+    def m2(self) -> float:
+        """Second (non-central) moment."""
+        return self.moment(k=2, center=False)
+
+    @cached_property
+    def m3(self) -> float:
+        """Third (non-central) moment."""
+        return self.moment(k=3, center=False)
+
+    @cached_property
+    def m4(self) -> float:
+        """Fourth (non-central) moment."""
+        return self.moment(k=4, center=False)
+
     def to_empirical(
             self,
             n_samples: int = N_EMPIRICAL_SAMPLES,
@@ -265,10 +303,12 @@ class RewardDistribution(CallableDistributionFunctions):
         :param seed: Integer seed of a :class:`numpy.random.Generator`, or the generator itself. ``None`` draws fresh
             entropy.
         :return: The empirical distribution.
+        :raises ValueError: If ``n_samples`` is not a positive integer.
         """
         from .empirical import EmpiricalDistribution
 
-        samples = self._host._sample(n_samples, rewards=[self.reward], rng=np.random.default_rng(seed))
+        samples = self._host._sample(_n_samples(n_samples, minimum=1), rewards=[self.reward],
+                                     rng=np.random.default_rng(seed))
         dist = EmpiricalDistribution(samples[:, 0])
         dist.label = self.label
         dist._variable = self._variable
@@ -324,7 +364,10 @@ class RewardDistribution(CallableDistributionFunctions):
 
         .. rubric:: Implementation
 
-        - The exponentials are formed densely. The last-epoch system is solved by a sparse LU factorization from
+        - The exponentials of the bounded epochs are applied to the batch of arguments by a truncated Taylor series
+          or formed densely by Pade approximants, as
+          :attr:`Settings.expm_method <phasegen.settings.Settings.expm_method>` selects. The
+          last-epoch system is solved by a sparse LU factorization from
           :attr:`Settings.closed_form_sparse_min_states <phasegen.settings.Settings.closed_form_sparse_min_states>`
           transient states on, and by a dense one below.
         - Transient states that the initial vector cannot reach in any epoch carry no mass and are left out.
@@ -529,24 +572,26 @@ def _shift_rows(s, r: np.ndarray, tau: float) -> np.ndarray:
 
 
 def _lst_taylor_from_shift(shifts: np.ndarray, deriv: np.ndarray, alpha: np.ndarray, T_epochs, sparse: bool,
-                           perm=_AUTO_PERM, order: int = 2) -> np.ndarray:
+                           perm=_AUTO_PERM, order: int = 2, action: bool = None) -> np.ndarray:
     """The Taylor coefficients ``[Phi_0, ..., Phi_order]`` of ``_lst_from_shift_batch`` at the shift
     ``shift + eps * deriv`` for each row ``shift`` of ``shifts``, described at ``JointRewardDistribution.lst_taylor``:
     bounded epochs propagate the block-bidiagonal matrix over the truncated polynomial ring by
-    ``_ShiftedGenerator.propagate``, decided and chunked as in ``_lst_from_shift_batch``, and the last epoch
-    back-substitutes with one LU per row. Returns an array of shape ``(len(shifts), order + 1)``."""
+    ``_ShiftedGenerator.propagate``, decided (unless ``action`` is given) and chunked as in ``_lst_from_shift_batch``,
+    and the last epoch back-substitutes with one LU per row. Returns an array of shape ``(len(shifts), order + 1)``."""
     nt, k = len(alpha), order + 1
     n_aug = nt + 1
     K = len(shifts)
 
-    action = k * n_aug >= Settings.expm_action_min_dim
+    if action is None:
+        exits = (_exit_rates(T) for T, _, _ in T_epochs[:-1])
+        action = _takes_action(k * n_aug, K, len(T_epochs) - 1, _shifted_blocks(T_epochs, exits, shifts, deriv, order))
     chunk = max(1, (_LST_VECTOR_ENTRIES // (k * n_aug)) if action else (_LST_MATRIX_ENTRIES // (k * n_aug) ** 2))
     if K > chunk:
         # the Taylor action of a chunk costs as many products as its largest shift needs, so chunk similar shifts
         by_size = np.argsort(np.abs(shifts).max(axis=1), kind='stable') if action else np.arange(K)
         out = np.empty((K, k), dtype=complex)
         out[by_size] = np.concatenate([
-            _lst_taylor_from_shift(shifts[by_size[i:i + chunk]], deriv, alpha, T_epochs, sparse, perm, order)
+            _lst_taylor_from_shift(shifts[by_size[i:i + chunk]], deriv, alpha, T_epochs, sparse, perm, order, action)
             for i in range(0, K, chunk)
         ])
         return out
@@ -875,10 +920,11 @@ class JointRewardDistribution(CallableDistributionFunctions):
         :param seed: Integer seed of a :class:`numpy.random.Generator`, or the generator itself. ``None`` draws fresh
             entropy.
         :return: The empirical joint distribution.
+        :raises ValueError: If ``n_samples`` is not a positive integer.
         """
         from .empirical import EmpiricalJointDistribution
 
-        samples = self._host._sample(n_samples, rewards=[self.reward_a, self.reward_b],
+        samples = self._host._sample(_n_samples(n_samples, minimum=1), rewards=[self.reward_a, self.reward_b],
                                      rng=np.random.default_rng(seed))
         dist = EmpiricalJointDistribution(samples[:, 0], samples[:, 1],
                                           (self.reward_a._variable, self.reward_b._variable))
@@ -1385,34 +1431,42 @@ class JointRewardDistribution(CallableDistributionFunctions):
 
     @property
     def _cos2d_wiggle_check(self) -> float:
-        """The largest near-origin gap between ``F(x, inf)`` of the cosine expansion and the marginal CDF of ``R_a``,
-        logged as a warning above 0.03. The cosine error concentrates near the axes, so this margin comparison detects
-        an under-resolved near-origin rise. It reads the coefficients directly, so it does not recurse into
-        ``_cc_box``."""
+        """The largest gap between the margins ``F(x, inf)`` and ``F(inf, y)`` of the cosine expansion and the marginal
+        CDFs of ``R_a`` and ``R_b``, at quantiles from 1% to 95% of the continuous part of each marginal above its atom
+        at 0, logged as a warning above 0.03. A gap shows that :attr:`Settings.cos_terms_2d
+        <phasegen.settings.Settings.cos_terms_2d>` under-resolves the joint distribution. It reads the coefficients
+        directly, so it does not recurse into ``_cc_box``."""
         return self._cos_memo('wiggle', self._build_cos2d_wiggle_check,
                               (Settings.cos_terms, Settings.cos_terms_2d))
 
     def _build_cos2d_wiggle_check(self) -> float:
         """Build ``_cos2d_wiggle_check``."""
         st = self._cos2d
-        ma = self.marginal('a')
-        # near-origin points of the continuous part, where the bias concentrates. They lie above the atom at 0, where
-        # the inversion of the continuous part is defined
-        a0 = float(self._atoms['a0'])
-        xs = np.linspace(0.0, float(ma.quantile(a0 + 0.4 * (1.0 - a0))), 5)[1:]
-        # cosine full CDF F(x, inf) = axis atoms (de Hoog) + the cosine continuous box integrated to the window edge
-        box = self._cos_antideriv(st['ua'], np.minimum(xs, st['ba'])) @ st['A'] @ self._cos_antideriv(st['ub'], np.array([st['bb']])).T
-        g_b = ma._invert(lambda s: self.lst_batch(s, np.inf) / s, xs)
-        cos_cdf = g_b + self._atoms['a0'] - self._atoms['both0'] + box[:, 0]
-        true_cdf = np.array([float(ma.cdf(float(x))) for x in xs])
-        err = float(np.abs(cos_cdf - true_cdf).max())
-        if Settings.check_inversions and err > 0.03:
+        both0 = self._atoms['both0']
+        errs = {}
+        for axis in ('a', 'b'):
+            marg = self.marginal(axis)
+            a0 = float(self._atoms[axis + '0'])
+            xs = np.asarray(marg.quantile(a0 + (1.0 - a0) * _COS2D_CHECK_LEVELS), dtype=float)
+            # cosine margin = axis atoms (de Hoog) + the cosine continuous box integrated to the other window edge
+            if axis == 'a':
+                box = (self._cos_antideriv(st['ua'], np.minimum(xs, st['ba'])) @ st['A']
+                       @ self._cos_antideriv(st['ub'], np.array([st['bb']])).T)[:, 0]
+                g = marg._invert(lambda s: self.lst_batch(s, np.inf) / s, xs)
+            else:
+                box = (self._cos_antideriv(st['ua'], np.array([st['ba']])) @ st['A']
+                       @ self._cos_antideriv(st['ub'], np.minimum(xs, st['bb'])).T)[0]
+                g = marg._invert(lambda s: self.lst_batch(np.inf, s) / s, xs)
+            cos_cdf = g + self._atoms[axis + '0'] - both0 + box
+            errs[axis] = float(np.abs(cos_cdf - marg.cdf._cdf_point(xs)).max())
+        axis = max(errs, key=errs.get)
+        if Settings.check_inversions and errs[axis] > _COS2D_MARGIN_WARN:
             self._logger.warning(
-                "The 2D Fourier-cosine joint inversion under-resolves near the origin: its CDF deviates from the "
-                "marginal CDF by up to %.3g there. The joint CDF and density may be biased near the axes, where the "
-                "cosine series cannot capture a sharp or skewed rise.", err,
+                "The 2D Fourier-cosine joint inversion under-resolves the joint distribution: its margin deviates from "
+                "the marginal CDF of R_%s by up to %.3g. The joint CDF and density may be biased. Increase "
+                "Settings.cos_terms_2d (currently %d) to resolve it.", axis, errs[axis], Settings.cos_terms_2d,
             )
-        return err
+        return errs[axis]
 
     @property
     def _density_grid(self) -> dict:
@@ -2445,9 +2499,8 @@ class _TaylorAction:
         :param diag: The diagonals of the matrices, of shape ``(K, dim)``.
         :param off_norm: The column 1-norms of their off-diagonal parts, shared by all of them.
         """
+        plain, shifted = self.norms(diag, off_norm)
         mu = diag.mean(axis=1)
-        plain = float((off_norm + np.abs(diag)).max(initial=0.0))
-        shifted = float((off_norm + np.abs(diag - mu[:, None])).max(initial=0.0))
 
         if not np.isfinite(plain):
             raise ValueError(f'The matrices of the Taylor action must be finite, got a 1-norm bound of {plain}.')
@@ -2467,6 +2520,19 @@ class _TaylorAction:
                 steps = max(1, int(np.ceil(self.norm / theta)))
                 if m * steps < cost:
                     cost, self.m, self.s = m * steps, m, steps
+
+    @staticmethod
+    def norms(diag: np.ndarray, off_norm: np.ndarray) -> Tuple[float, float]:
+        """
+        The bounds on the 1-norms of the matrices, unshifted and shifted by their mean diagonals :math:`\\mu_k`,
+        whose smaller one sets the degree and steps.
+
+        :param diag: The diagonals of the matrices, of shape ``(K, dim)``.
+        :param off_norm: The column 1-norms of their off-diagonal parts, shared by all of them.
+        :return: The unshifted and the shifted bound.
+        """
+        return (float((off_norm + np.abs(diag)).max(initial=0.0)),
+                float((off_norm + np.abs(diag - diag.mean(axis=1)[:, None])).max(initial=0.0)))
 
     def apply(self, W: np.ndarray, product) -> np.ndarray:
         """
@@ -2496,9 +2562,8 @@ class _TaylorAction:
 
 class _EpochSteps:
     r"""
-    The exponentials :math:`e^{\mathbf{M}_e}` of a stack of epoch matrices applied to single vectors, formed densely
-    by ``_expm_batch`` below :attr:`Settings.expm_action_min_dim
-    <phasegen.settings.Settings.expm_action_min_dim>` and applied by ``_TaylorAction`` at or above it.
+    The exponentials :math:`e^{\mathbf{M}_e}` of a stack of epoch matrices, each applied to a single vector, formed
+    densely by ``_expm_batch`` or applied by ``_TaylorAction`` as ``_takes_action`` decides.
     """
 
     def __init__(self, M: np.ndarray):
@@ -2506,7 +2571,8 @@ class _EpochSteps:
         :param M: The matrices, of shape ``(E, n, n)``.
         """
         self.M = M
-        self._dense = _expm_batch(M) if M.shape[-1] < Settings.expm_action_min_dim else None
+        blocks = (((np.diagonal(m)[None], np.abs(m).sum(axis=0) - np.abs(np.diagonal(m))),) for m in M)
+        self._dense = None if _takes_action(M.shape[-1], 1, len(M), blocks) else _expm_batch(M)
 
     def _action(self, w: np.ndarray, M: np.ndarray) -> np.ndarray:
         r"""The row :math:`\mathbf{w} e^{\mathbf{M}}` by ``_TaylorAction``."""
@@ -2568,13 +2634,54 @@ def _expm_batch(A: np.ndarray) -> np.ndarray:
     return R
 
 
+def _shifted_blocks(T_epochs, exits, shifts: np.ndarray, deriv: np.ndarray = None, order: int = 0):
+    """Per bounded epoch, the diagonals and off-diagonal column norms of the ``_ShiftedGenerator`` of blocks of the
+    shift vectors, at most ``_LST_VECTOR_ENTRIES`` diagonal entries each, the input of ``_takes_action``."""
+    rows = max(1, _LST_VECTOR_ENTRIES // ((order + 1) * (shifts.shape[1] + 1)))
+    for (T, t0, t1), q in zip(T_epochs[:-1], exits):
+        yield ((g.diag, g.off_norm) for g in (_ShiftedGenerator(T, q, t1 - t0, shifts[i:i + rows], deriv, order)
+                                              for i in range(0, len(shifts), rows)))
+
+
+def _takes_action(dim: int, batch: int, n_epochs: int, epochs) -> bool:
+    r"""
+    Whether a batch of ``batch`` matrices of dimension ``dim`` per epoch is propagated by ``_TaylorAction`` rather
+    than exponentiated by ``_expm_batch``, by the bound of ``_TRANSFORM_COST`` on the step norms of
+    ``_TaylorAction.norms`` summed over the epochs, read only where the bound is finite and positive.
+
+    :param dim: The dimension of each matrix.
+    :param batch: The number of matrices of each epoch.
+    :param n_epochs: The number of epochs.
+    :param epochs: Per epoch, an iterable over blocks of its matrices, each given by their diagonals, of shape
+        ``(b, dim)``, and the column 1-norms of their off-diagonal parts, shared by all of them.
+    :return: Whether to take the action.
+    """
+    bound = _TRANSFORM_COST.bound(dim, dim, 1, n_epochs, n_epochs, batch=batch)
+    if bound == np.inf:
+        return True
+
+    if not n_epochs or bound < 0:
+        return False
+
+    norm = 0.0
+    for blocks in epochs:
+        plain = shifted = 0.0
+        for diag, off_norm in blocks:
+            p, q = _TaylorAction.norms(diag, off_norm)
+            plain, shifted = max(plain, p), max(shifted, q)
+        norm += min(plain, shifted)
+
+    return not norm > bound
+
+
 def _lst_from_shift_batch(shifts: np.ndarray, alpha, T_epochs, exits: list, sparse: bool,
-                          perm=_AUTO_PERM) -> np.ndarray:
+                          perm=_AUTO_PERM, action: bool = None) -> np.ndarray:
     r"""
     The transform of ``RewardDistribution.lst`` with the diagonal shift :math:`s \mathbf{r}_T` replaced by an arbitrary
     vector, which is :math:`s_a \mathbf{r}_a + s_b \mathbf{r}_b` for the joint transform, at each row of a stack of
-    shift vectors ``(k, nt)``. The bounded epochs propagate the batch by ``_ShiftedGenerator.propagate``, in chunks of
-    at most ``_LST_VECTOR_ENTRIES`` vector or ``_LST_MATRIX_ENTRIES`` matrix entries. A dense last epoch is solved as
+    shift vectors ``(k, nt)``. The bounded epochs propagate the batch by ``_ShiftedGenerator.propagate``, by the
+    Taylor action or the dense exponentials as ``_takes_action`` decides for the whole batch, in chunks of at most
+    ``_LST_VECTOR_ENTRIES`` vector or ``_LST_MATRIX_ENTRIES`` matrix entries. A dense last epoch is solved as
     one stacked ``np.linalg.solve``, a sparse one by the block-triangular sparse LU of ``MomentEvaluator._lu_solver``
     per shift, with ``perm`` the ordering of the last-epoch sub-intensity matrix, which depends only on its sparsity
     pattern. An infinite shift removes its state, which gives the limit of the shift growing without bound: the rows
@@ -2586,6 +2693,7 @@ def _lst_from_shift_batch(shifts: np.ndarray, alpha, T_epochs, exits: list, spar
     :param exits: The per-epoch exit vectors :math:`-\mathbf{T}\mathbf{e}`.
     :param sparse: Whether the last-epoch solve is sparse.
     :param perm: The block-triangular ordering of the last-epoch sub-intensity matrix.
+    :param action: Whether the bounded epochs take the Taylor action, decided by ``_takes_action`` if ``None``.
     :return: The transform at each shift vector.
     """
     nt = len(alpha)
@@ -2606,14 +2714,15 @@ def _lst_from_shift_batch(shifts: np.ndarray, alpha, T_epochs, exits: list, spar
                                                   sparse, sub_perm)
         return out
 
-    action = nt + 1 >= Settings.expm_action_min_dim
+    if action is None:
+        action = _takes_action(nt + 1, k, len(T_epochs) - 1, _shifted_blocks(T_epochs, exits, shifts))
     chunk = max(1, (_LST_VECTOR_ENTRIES // (nt + 1)) if action else (_LST_MATRIX_ENTRIES // (nt + 1) ** 2))
     if k > chunk:
         # the Taylor action of a chunk costs as many products as its largest shift needs, so chunk similar shifts
         by_size = np.argsort(np.abs(shifts).max(axis=1), kind='stable') if action else np.arange(k)
         out = np.empty(k, dtype=complex)
         out[by_size] = np.concatenate([_lst_from_shift_batch(shifts[by_size[i:i + chunk]], alpha, T_epochs, exits,
-                                                             sparse, perm) for i in range(0, k, chunk)])
+                                                             sparse, perm, action) for i in range(0, k, chunk)])
         return out
 
     diag = np.arange(nt)
@@ -3141,12 +3250,12 @@ class _LineQuantile(ConditionalQuantileFunction):
         """
         :param q: Level or array of levels in ``[0, 1]``.
         :return: The quantiles, of the same shape.
-        :raises ValueError: If any ``q`` lies outside ``[0, 1]``.
+        :raises ValueError: If any ``q`` is NaN or lies outside ``[0, 1]``.
         """
         d = self._distribution
         d._warn_if_line_unresolved()
         qa = np.atleast_1d(np.asarray(q, dtype=float))
-        if np.any((qa < 0) | (qa > 1)):
+        if not np.all((qa >= 0) & (qa <= 1)):
             raise ValueError("Quantile must be between 0 and 1.")
 
         ys, ps = d._atom_values, d._atom_masses

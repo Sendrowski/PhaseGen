@@ -110,3 +110,46 @@ def test_a_backend_returning_read_only_arrays_gives_multi_epoch_moments():
         pg.Backend.backend = previous
 
     assert got == pytest.approx(expected, rel=1e-12)
+
+
+@pytest.mark.parametrize('stiff', [False, True])
+def test_expm_multiply_interval_steps_where_stiff(stiff):
+    """
+    The interval action matches the actions of each multiple. Below the stiff threshold it takes one interval action
+    of the backend, above it it applies the steps one by one, each stopping once the vector is stationary.
+    """
+    from unittest.mock import patch
+    import scipy.sparse as sp
+    from scipy.sparse.linalg import expm_multiply
+    from phasegen.expm import Backend
+
+    rng = np.random.default_rng(0)
+    S = sp.random(30, 30, density=0.2, random_state=1).toarray()
+    S -= np.diag(S.sum(axis=1) + 0.5)
+    a = sp.csr_matrix(S.T * (1e3 if stiff else 1.0))
+    b = rng.uniform(size=30)
+    stop, num = 2.0, 7
+
+    with patch.object(Backend.backend, 'compute_action_interval', wraps=Backend.backend.compute_action_interval) as spy:
+        out = Backend.expm_multiply_interval(a, b, stop, num)
+
+    assert spy.call_count == (0 if stiff else 1)
+    assert out.shape == (num, 30)
+
+    ref = np.stack([expm_multiply(a * (stop * (j + 1) / num), b) for j in range(num)])
+    np.testing.assert_allclose(out, ref, rtol=1e-12, atol=1e-14 * np.abs(ref).max())
+
+
+def test_default_backend_interval_action():
+    """The interval action of a backend without its own repeats the dense exponential of one step."""
+    from phasegen.expm import ExpmBackend
+
+    class Dense(ExpmBackend):
+        def compute(self, m):
+            return scipy.linalg.expm(m)
+
+    a = np.array([[-1.0, 1.0], [0.0, -2.0]])
+    b = np.array([1.0, 2.0])
+    out = Dense().compute_action_interval(a, b, 3.0, 3)
+
+    np.testing.assert_allclose(out, [scipy.linalg.expm(a * s) @ b for s in (1, 2, 3)], rtol=1e-13)

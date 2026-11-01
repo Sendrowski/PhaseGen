@@ -159,7 +159,11 @@ class Reward(ABC):
         return all([reward.supports(state_space) for reward in rewards])
 
     @staticmethod
-    def _check_accumulable(state_space: StateSpace, rewards: Iterable['Reward']) -> None:
+    def _check_accumulable(
+            state_space: StateSpace,
+            rewards: Iterable['Reward'],
+            vectors: Iterable[np.ndarray] = None
+    ) -> None:
         r"""
         Check that the rewards vanish on the absorbing states of the state space. The reward accumulated up to
         absorption is determined by the transient entries alone, so a reward with mass on an absorbing state is
@@ -167,10 +171,13 @@ class Reward(ABC):
 
         :param state_space: The state space the rewards are resolved against.
         :param rewards: The rewards to accumulate.
+        :param vectors: The reward vectors of ``rewards`` on the state space, if already resolved.
         :raises ValueError: If a reward is not a vector with one entry per state, or is non-zero on an absorbing state.
         """
-        for reward in rewards:
-            values = np.asarray(reward._get(state_space), dtype=float)
+        rewards = list(rewards)
+        vectors = [r._get(state_space) for r in rewards] if vectors is None else vectors
+        for reward, values in zip(rewards, vectors):
+            values = np.asarray(values, dtype=float)
 
             if values.shape != (state_space.k,):
                 raise ValueError(

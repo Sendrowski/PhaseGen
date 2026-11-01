@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "phasegen"
-version = "2.2.0"
+version = "2.3.0"
 description = "Computation and inference on exact solutions of coalescent distributions under diverse demographic scenarios."
 authors = ["Janek Sendrowski <sendrowski.janek@gmail.com>"]
 license = "GPL-3.0-or-later"
@@ -9,11 +9,11 @@ readme = "README.md"
 [tool.poetry.dependencies]
 python = ">=3.11,<3.15"
 typing-extensions = "^4.11.0"
-matplotlib = "^3.8.4"
+matplotlib = "^3.9"
 seaborn = "^0.13.2"
 numpy = ">=1.26.4"
 pandas = ">=2.2.2,<4"
-jsonpickle = ">=3.0.4,<5"
+jsonpickle = ">=3.4.2,<5"
 multiprocess = "^0.70.16"
 dill = ">=0.3.8"
 pyyaml = "^6.0.1"

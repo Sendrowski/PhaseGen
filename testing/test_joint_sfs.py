@@ -496,10 +496,16 @@ def test_jsfs_valid_configs_pass_validation(two_pop_coalescent):
     assert jsfs._bin_config(np.array([1, 0])) == (1, 0) and jsfs._bin_config((1.0, 2.0)) == (1, 2)
 
 
-def test_bin_distributions_are_served_when_the_cache_is_off(two_pop_coalescent):
+def test_bin_distributions_are_served_when_the_cache_is_off(symmetric_demography):
     """With ``Settings.cache`` off, a stored per-bin distribution is still served and a new one is not stored.
-    Regression: the stored entry was bypassed and its fit rebuilt on every call."""
-    for spectrum, key, other in ((pg.Coalescent(n=4).sfs, 1, 2), (two_pop_coalescent.jsfs, (1, 0), (0, 1))):
+    Regression: the stored entry was bypassed and its fit rebuilt on every call. The coalescents are built here, as
+    a bin stored by an earlier test on a shared one would defeat the second assertion."""
+    joint = pg.Coalescent(
+        n={'pop_0': 2, 'pop_1': 2},
+        demography=symmetric_demography({'pop_0': 1.0, 'pop_1': 1.5}, migration_rate=0.75)
+    )
+
+    for spectrum, key, other in ((pg.Coalescent(n=4).sfs, 1, 2), (joint.jsfs, (1, 0), (0, 1))):
         stored = spectrum._bin_distribution(key)
         pg.Settings.cache = False
 

@@ -13,6 +13,7 @@ import scipy.sparse as sp
 from .._blas import BlasThreadLimit
 from ..demography import Demography, Epoch
 from ..expm import Backend, _GrowthBound
+from ._grid import _Propagators, _StepRuns
 from ..errors import ModelError
 from ..lineage import LineageConfig
 from ..locus import LocusConfig
@@ -21,8 +22,8 @@ from ..settings import Settings
 from ..spectrum import SFS, AbstractSpectrum
 from ..state_space import LineageCountingStateSpace, StateSpace
 
-from ._common import N_EMPIRICAL_SAMPLES, _validate_order, _validate_reward, _validate_reward_count, _validate_rewards, \
-    _validate_start_time, _sqrt_spectrum
+from ._common import N_EMPIRICAL_SAMPLES, _n_samples, _validate_order, _validate_reward, _validate_reward_count, \
+    _validate_rewards, _validate_start_time, _sqrt_spectrum
 from .base import CallableDistributionFunctions, DensityAwareDistribution, DistributionFunction, \
     MarginalDemeDistributions, MarginalLocusDistributions, MomentAwareDistribution, _LogSurvivalGrid, \
     _GridCumulativeDistributionFunction, _GridDensityFunction, _GridQuantileFunction
@@ -510,8 +511,8 @@ class PhaseTypeDistribution(CallableDistributionFunctions, MomentEvaluator, Mome
         the rates redirects it, and the value of the redirected mass afterwards. Within the integral, the rate change
         :math:`\mathbf{H}` acts at the fraction :math:`\sigma` of the epoch, with the unperturbed rates acting before
         and after it. It is computed on the same path as the exponential in the
-        forward pass, densely or by reversing the Taylor action (see :attr:`Settings.expm_action_min_dim
-        <phasegen.settings.Settings.expm_action_min_dim>`).
+        forward pass, densely or by reversing the Taylor action (see :attr:`Settings.expm_method
+        <phasegen.settings.Settings.expm_method>`).
 
         The entries of the generator :math:`\mathbf{S}_i` of epoch :math:`i`, of which :math:`\mathbf{T}_i` is the
         transient block, change linearly with the inverse coalescent time scales, the migration rates, the
@@ -570,8 +571,7 @@ class PhaseTypeDistribution(CallableDistributionFunctions, MomentEvaluator, Mome
         :return: The derivatives.
         :raises NotImplementedError: If the moment is accumulated over a time window.
         :raises ValueError: If ``k`` is not a positive integer, if the number of rewards differs from ``k``, if a
-            reward is non-zero on an absorbing state, if absorption is not certain in the last epoch, or if the
-            generator is not affine in the rates.
+            reward is non-zero on an absorbing state, or if absorption is not certain in the last epoch.
         :raises TypeError: If ``k`` is not a number or an entry of ``rewards`` is not a
             :class:`~phasegen.rewards.Reward`.
         """
@@ -926,7 +926,10 @@ class PhaseTypeDistribution(CallableDistributionFunctions, MomentEvaluator, Mome
         :param seed: Integer seed of a :class:`numpy.random.Generator`, or the generator itself. ``None`` draws fresh
             entropy.
         :return: The samples, of shape ``(n_samples,)``.
+        :raises ValueError: If ``n_samples`` is not a non-negative integer.
         """
+        n_samples = _n_samples(n_samples)
+
         return self._sample(n_samples, rng=np.random.default_rng(seed)).reshape(n_samples)
 
     @staticmethod
@@ -954,11 +957,13 @@ class PhaseTypeDistribution(CallableDistributionFunctions, MomentEvaluator, Mome
         :param seed: Integer seed of a :class:`numpy.random.Generator`, or the generator itself. ``None`` draws fresh
             entropy.
         :return: The empirical distribution.
+        :raises ValueError: If ``n_samples`` is not a positive integer.
 
         .. versionadded:: 2.0
         """
         from .empirical import EmpiricalPhaseTypeDistribution
 
+        n_samples = _n_samples(n_samples, minimum=1)
         pops = self.lineage_config.pop_names
         n_loci = self.locus_config.n
 
@@ -1309,6 +1314,13 @@ class _ExpmFunction(_LogSurvivalGrid):
     #: Largest number of bisections of an epoch.
     _max_depth: int = 64
 
+    #: Number of advances of the state distribution by which ``_build_cdf_grid`` estimates its cost, over about twice
+    #: the span of the grid.
+    _expected_advances: int = 2000
+
+    #: Number of distinct segment widths per epoch by which ``_build_cdf_grid`` estimates its cost.
+    _expected_widths: int = 20
+
     def _cdf_grid(self, x_max: float = 0.0, q_max: float = 0.0) -> tuple:
         """The grid over ``[0, t_max]``, built once. The arguments are ignored."""
         return self._shared('expm_cdf_grid', self._build_cdf_grid)
@@ -1331,6 +1343,15 @@ class _ExpmFunction(_LogSurvivalGrid):
         epochs = itertools.takewhile(lambda ep: ep.start_time < t_max, d.demography.epochs)
         bounds = [float(ep.start_time) for ep in epochs] + [t_max]
 
+        # the dense propagators of the distinct segment widths against one action per advance, as
+        # ``_dense_expm_is_faster`` weighs them
+        steps = []
+        for a, b in zip(bounds[:-1], bounds[1:]):
+            count = max(1, round(self._expected_advances * (b - a) / t_max))
+            steps += [(d.demography.get_epoch(a), 2 * (b - a) / count)] * count
+        k = d.state_space.k
+        dense = d._dense_expm_is_faster(k, k, 1, steps, self._expected_widths * (len(bounds) - 1))
+
         w = np.asarray(d.state_space.alpha, dtype=float)
         nodes, log_survival, left, right = [0.0], [float(self._log_survival(d._cum(w)))], [], []
 
@@ -1342,7 +1363,6 @@ class _ExpmFunction(_LogSurvivalGrid):
             memo, propagators = {}, {}
             # the absorbed and the surviving mass and the absorption flux of a row vector, in one product
             reads = np.column_stack([1 - e, e, d._exit_rates()])
-            dense = d.state_space.k < Settings.expm_action_min_dim
 
             def advance(v: np.ndarray, tau: float) -> np.ndarray:
                 """
@@ -1350,11 +1370,11 @@ class _ExpmFunction(_LogSurvivalGrid):
                 propagator of ``tau / 2`` where that exists.
                 """
                 if not dense:
-                    return d._propagate(v, tau, memo)
+                    return d._propagate(v, tau, memo, False)
 
                 if tau not in propagators:
                     half = propagators.get(tau / 2)
-                    propagators[tau] = d._propagate(np.eye(d.state_space.k), tau, memo) if half is None else half @ half
+                    propagators[tau] = d._propagate(np.eye(k), tau, memo, True) if half is None else half @ half
 
                 return v @ propagators[tau]
 
@@ -1375,7 +1395,7 @@ class _ExpmFunction(_LogSurvivalGrid):
 
             # segments from the epoch start of widths h, h, 2h, 4h, ..., with h the longest step of ``_propagate``,
             # up to the first node where H reaches h_top or to the epoch end, each bisected below
-            h = d._per_epoch(memo, 'step', d._step_constants)[2]
+            h = d._per_epoch(memo, 'step', d._step_constants)[1]
             width = b - a if h is None else h
             lo = point(a, w)
             segments = [(0.0, 0, lo)]
@@ -1537,13 +1557,13 @@ class _ExpmQuantileFunction(_ExpmFunction, _GridQuantileFunction):
         :param q: Probability level or array of levels in :math:`[0, 1]`.
         :return: The quantiles, of the same shape as ``q``.
         :raises NotImplementedError: If the coalescent has a bounded accumulation window.
-        :raises ValueError: If any ``q`` lies outside :math:`[0, 1]`.
+        :raises ValueError: If any ``q`` is NaN or lies outside :math:`[0, 1]`.
         """
         self._distribution._assert_not_windowed()
 
         qa = np.atleast_1d(np.asarray(q, dtype=float))
 
-        if np.any((qa < 0) | (qa > 1)):
+        if not np.all((qa >= 0) & (qa <= 1)):
             raise ValueError("Specified quantile must be between 0 and 1.")
 
         out = self._interp_quantile(qa.ravel(), *self._cdf_grid()).reshape(qa.shape)
@@ -1609,9 +1629,8 @@ class TreeHeightDistribution(PhaseTypeDistribution, DensityAwareDistribution):
 
     where :math:`\boldsymbol{\alpha}_T e^{\mathbf{T} x}` holds the probabilities of the transient states at time
     :math:`x` and :math:`\mathbf{q}` their absorption rates (Bladt and Nielsen, 2017). The density is read off the
-    same vector as the CDF, without differencing. Above :attr:`Settings.expm_action_min_dim
-    <phasegen.settings.Settings.expm_action_min_dim>` states, the density far in the tail is accurate to roundoff
-    relative to its maximum, not relative to its own value.
+    same vector as the CDF, without differencing. Where the exponential is applied as a sparse action, the density
+    far in the tail is accurate to roundoff relative to its maximum, not relative to its own value.
 
     .. rubric:: Several epochs
 
@@ -1628,10 +1647,9 @@ class TreeHeightDistribution(PhaseTypeDistribution, DensityAwareDistribution):
 
     .. rubric:: Implementation
 
-    - The state probabilities are propagated from point to point in ascending order. The exponential is formed
-      densely by the active matrix-exponential backend below :attr:`Settings.expm_action_min_dim
-      <phasegen.settings.Settings.expm_action_min_dim>` states, and is otherwise applied as a sparse action (Al-Mohy
-      and Higham, 2011).
+    - The state probabilities are propagated from point to point in ascending order, with the exponentials evaluated
+      as :attr:`Settings.expm_method <phasegen.settings.Settings.expm_method>` selects. Equally spaced points share
+      one exponential per step length.
     - The quantile is read from the log-survival grid of :class:`~phasegen.distributions.QuantileFunction` on
       :math:`[0, t_\mathrm{max}]`, with :math:`t_\mathrm{max}` given by :attr:`TreeHeightDistribution.t_max
       <phasegen.distributions.TreeHeightDistribution.t_max>`. Each node carries the exact negative log-survival
@@ -1749,8 +1767,7 @@ class TreeHeightDistribution(PhaseTypeDistribution, DensityAwareDistribution):
         """
         The quantities of the current epoch that ``_propagate`` reads.
 
-        :return: The rate matrix, its dense form below ``Settings.expm_action_min_dim`` states (``None`` at or above),
-            the longest step whose exponent stays within ``_max_step_norm`` (``None`` for a zero rate matrix) and the
+        :return: The rate matrix, the longest step whose exponent stays within ``_max_step_norm`` (``None`` for a zero rate matrix) and the
             slowest mean exit time of a transient state.
         :raises ModelError: If the rates are not finite.
         """
@@ -1771,14 +1788,19 @@ class TreeHeightDistribution(PhaseTypeDistribution, DensityAwareDistribution):
         exit_rates = exit_rates[exit_rates > 0]
         t_exit = 1 / exit_rates.min() if exit_rates.size else 0
 
-        dense = self._dense_rate_matrix() if self.state_space.k < Settings.expm_action_min_dim else None
+        return S, h, t_exit
 
-        return S, dense, h, t_exit
-
-    def _propagate(self, w: np.ndarray, tau: float, memo: dict = None) -> np.ndarray:
+    def _propagate(
+            self,
+            w: np.ndarray,
+            tau: float,
+            memo: dict = None,
+            dense: bool = None,
+            propagators: _Propagators = None
+    ) -> np.ndarray:
         """
-        Advance the state distribution ``w`` by ``tau`` within the current epoch, by the dense exponential below
-        ``Settings.expm_action_min_dim`` states and by the sparse action at or above it. A step whose exponent
+        Advance the state distribution ``w`` by ``tau`` within the current epoch, by the dense exponential or by the
+        sparse action, as ``_dense_expm_is_faster`` decides for this one step unless ``dense`` is given. A step whose exponent
         exceeds ``_max_step_norm`` is split into steps of doubling length. On the dense path, propagation ends once a
         step at least as long as the slowest mean exit time of a transient state leaves the transient entries
         unchanged. The absorbing states never feed the transient ones, so those entries are then stationary, and the
@@ -1789,6 +1811,8 @@ class TreeHeightDistribution(PhaseTypeDistribution, DensityAwareDistribution):
         :param w: The row vector to advance, or a matrix whose rows are advanced.
         :param tau: Time to advance by, within the current epoch.
         :param memo: Per-epoch values of the sweep, see ``_per_epoch``.
+        :param dense: Whether to take the dense exponential, by default as decided for this step.
+        :param propagators: The dense exponentials of the current epoch by step, computed afresh if not given.
         :return: The advanced row vector.
         """
         if tau <= 0:
@@ -1797,22 +1821,28 @@ class TreeHeightDistribution(PhaseTypeDistribution, DensityAwareDistribution):
         if tau == np.inf:
             return self._limit(w)
 
-        S, dense, h, t_exit = self._per_epoch(memo, 'step', self._step_constants)
+        S, h, t_exit = self._per_epoch(memo, 'step', self._step_constants)
         h = tau if h is None else h
 
         if dense is None:
+            k = self.state_space.k
+            dense = self._dense_expm_is_faster(k, k, 1, [(self.state_space.epoch, tau)])
+
+        if dense:
+            S_dense = self._per_epoch(memo, 'dense', self._dense_rate_matrix)
+        else:
             # ``expm_multiply`` computes ``exp(a) @ b``, so the left action ``w @ exp(S tau)`` is ``exp(S^T tau) @ w``
             St, abs_St, growth = self._per_epoch(memo, 'action', self._action_constants)
 
         while tau > 0:
             step = min(tau, h)
 
-            if dense is None:
+            if not dense:
                 w = Backend.expm_multiply(St * step, w)
                 tau, h = tau - step, 2 * h
                 stationary = tau > 0 and Backend._stationary(St, abs_St, w, tau, growth(tau))
             else:
-                v = w @ expm(dense * step)
+                v = w @ (expm(S_dense * step) if propagators is None else propagators(step))
                 stationary = step >= t_exit and np.array_equal(v * self._e, w * self._e)
                 w, tau, h = v, tau - step, 2 * h
 
@@ -1941,27 +1971,119 @@ class TreeHeightDistribution(PhaseTypeDistribution, DensityAwareDistribution):
         :math:`F = \mathbf{p}\,(\mathbf{1} - \mathbf{h}) / \mathbf{p}\,\mathbf{1}` and
         :math:`f = \mathbf{p}\,\mathbf{S}_\ell\,(\mathbf{1} - \mathbf{h})` are read off, with :math:`\mathbf{h}` the
         indicator of the transient states, :math:`\mathbf{1}` the vector of ones and :math:`\mathbf{S}_\ell` the rate
-        matrix of the epoch :math:`\ell` holding the time.
+        matrix of the epoch :math:`\ell` holding the time. Within an epoch, the times are taken as runs of equal
+        steps (``_StepRuns``), each run reusing one dense exponential per step length, or taking one interval action
+        of :meth:`Backend.expm_multiply_interval() <phasegen.expm.Backend.expm_multiply_interval>` on the sparse path,
+        as ``_dense_expm_is_faster`` decides from ``_sweep_steps``.
 
         :param t: Ascending times to evaluate at.
         :return: The CDF and the density at ``t``.
         """
         w = np.asarray(self.state_space.alpha, dtype=float)
-        epoch = self.demography.get_epoch(0)
-        u_prev = 0.0
+        k = self.state_space.k
+        plan = self._sweep_plan(t)
+        dense = self._dense_expm_is_faster(k, k, 1, *self._sweep_steps(plan))
 
         cdf, pdf = np.zeros(len(t)), np.zeros(len(t))
-        memo = {}
+        memo, i = {}, 0
+        absorbed = 1 - self._e
 
-        for i, u in enumerate(t):
-            w = self._sweep_to(w, u_prev, float(u), epoch, memo)
-            epoch = self.state_space.epoch
+        for epoch, runs, remainder in plan:
+            self.state_space.update_epoch(epoch)
+            self._per_epoch(memo, 'stable', lambda: self._check_numerical_stability(self.state_space.S, epoch.index))
+            propagators = _Propagators(
+                lambda tau: expm(self._per_epoch(memo, 'dense', self._dense_rate_matrix) * tau)
+            ) if dense else None
+            exit_rates = self._per_epoch(memo, 'exit', self._exit_rates)
 
-            cdf[i] = self._cum(w)
-            pdf[i] = float(w @ self._per_epoch(memo, 'exit', self._exit_rates))
-            u_prev = float(u)
+            for step, count in runs:
+                W = self._propagate_run(w, step, count, memo, dense, propagators)
+                w = W[-1]
+                cdf[i:i + count] = W @ absorbed / W.sum(axis=1)
+                pdf[i:i + count] = W @ exit_rates
+                i += count
+
+            w = self._propagate(w, remainder, memo, dense, propagators)
 
         return cdf, pdf
+
+    def _sweep_plan(self, t: np.ndarray) -> List[Tuple['Epoch', List[Tuple[float, int]], float]]:
+        """
+        The propagation of ``_sweep`` through the ascending times ``t``: per epoch it reaches, the runs of equal steps
+        (``_StepRuns``) to its times, a time on a boundary taking the epoch ending there, and the remainder to the epoch
+        end, zero in the last epoch reached.
+
+        :param t: Ascending times.
+        :return: The epochs, their runs as pairs of step and number of steps, and their remainders.
+        """
+        epoch = self.demography.get_epoch(0)
+        plan, x, i = [], 0.0, 0
+
+        while i < len(t):
+            j = int(np.searchsorted(t, epoch.end_time, side='right'))
+            runs, x_end = _StepRuns.split(x, np.asarray(t[i:j], dtype=float))
+            i = j
+
+            plan.append((epoch, runs, epoch.end_time - x_end if i < len(t) else 0.0))
+
+            if i < len(t):
+                x = epoch.end_time
+                epoch = self.demography.get_epoch(epoch.end_time)
+
+        return plan
+
+    @staticmethod
+    def _sweep_steps(plan: List[Tuple['Epoch', List[Tuple[float, int]], float]]) -> Tuple[List[Tuple['Epoch', float]], int]:
+        """
+        The actions and the number of distinct dense exponentials of a ``_sweep_plan``: one interval action per run of
+        several finite steps and one action per other step and per remainder, and one dense exponential per epoch and
+        step length. Infinite steps take the limit and neither.
+
+        :param plan: The plan.
+        :return: The epochs and the times of the actions, and the number of dense exponentials.
+        """
+        steps, dense = [], set()
+        for epoch, runs, remainder in plan:
+            for step, count in runs + [(remainder, 1)]:
+                if 0 < step < np.inf:
+                    steps.append((epoch, step * count))
+                    dense.add((epoch.index, step))
+
+        return steps, len(dense)
+
+    def _propagate_run(
+            self,
+            w: np.ndarray,
+            step: float,
+            count: int,
+            memo: dict,
+            dense: bool,
+            propagators: _Propagators = None
+    ) -> np.ndarray:
+        """
+        The row vector advanced ``count`` times by ``step`` within the current epoch, by ``_propagate`` per step, or on
+        the sparse path by one interval action, which itself steps where the run is stiff.
+
+        :param w: The row vector to advance.
+        :param step: The step.
+        :param count: The number of steps.
+        :param memo: Per-epoch values of the sweep, see ``_per_epoch``.
+        :param dense: Whether to take the dense exponentials.
+        :param propagators: The dense exponentials of the current epoch by step.
+        :return: The row vectors after each step, of shape ``(count, len(w))``.
+        """
+        if not dense and count > 1 and 0 < step < np.inf:
+            St = self._per_epoch(memo, 'action', self._action_constants)[0]
+
+            return Backend.expm_multiply_interval(
+                St, w, step * count, count, advance=lambda v, tau: self._propagate(v, tau, memo, False)
+            )
+
+        W = np.empty((count, len(w)))
+        for c in range(count):
+            w = W[c] = self._propagate(w, step, memo, dense, propagators)
+
+        return W
 
     @cached_property
     def t_max(self) -> float:

@@ -12,6 +12,7 @@ import numpy as np
 import pytest
 
 import phasegen as pg
+from phasegen.distributions import _uniformization
 from phasegen.distributions.empirical import MsprimeCoalescent
 
 #: Migration rates of the two-deme scenarios.
@@ -549,8 +550,8 @@ def test_single_epoch_mutation_config_builds_one_state_space(monkeypatch):
     absorption check built the lineage-counting space of the tree height for its initial vector, which the epoch
     search reads only for a demography with a finite epoch, adding about 0.3 ms to every fresh coalescent.
     """
-    build, built = pg.StateSpace._construct_numba, []
-    monkeypatch.setattr(pg.StateSpace, '_construct_numba', lambda ss: built.append(type(ss)) or build(ss))
+    build, built = pg.StateSpace._enumerate, []
+    monkeypatch.setattr(pg.StateSpace, '_enumerate', lambda ss: built.append(type(ss)) or build(ss))
 
     pg.Coalescent(n=5).sfs.get_mutation_config((1, 1, 0, 0), theta=1)
 
@@ -580,10 +581,10 @@ def test_multi_epoch_expm_action_matches_dense_exponential(sparse, monkeypatch):
     monkeypatch.setattr(pg.Settings, 'closed_form_sparse_min_states', 1 if sparse else 10 ** 9)
     configs = ((0, 0, 0), (1, 0, 0), (2, 1, 0), (0, 1, 2))
 
-    monkeypatch.setattr(pg.Settings, 'expm_action_min_dim', 10 ** 9)
+    monkeypatch.setattr(pg.Settings, 'expm_method', 'dense')
     dense = [pg.Coalescent(n=4, demography=ONE_DEME[1]).sfs.get_mutation_config(c, 1.3) for c in configs]
 
-    monkeypatch.setattr(pg.Settings, 'expm_action_min_dim', 1)
+    monkeypatch.setattr(pg.Settings, 'expm_method', 'action')
     action = [pg.Coalescent(n=4, demography=ONE_DEME[1]).sfs.get_mutation_config(c, 1.3) for c in configs]
 
     np.testing.assert_allclose(action, dense, rtol=1e-12)
@@ -837,3 +838,74 @@ def test_default_layout_built_once_across_lookups(spectrum, monkeypatch):
     p_uncached, n_uncached = probabilities(make())
     assert n_uncached > 1
     np.testing.assert_allclose(p, p_uncached, rtol=1e-12)
+
+
+@pytest.mark.parametrize('layout, sizes, config, reference', [
+    ('fsfs', {0: 0.03, 0.1: 37.0, 1.1: 3.0, 1.2: 0.3}, [15, 14], 5.758978235722657e-42),
+    ('sfs', {0: 0.03, 0.1: 37.0, 1.1: 3.0}, [8, 6, 3], 2.842654944150204e-15),
+])
+def test_multi_epoch_small_probabilities_keep_their_relative_accuracy(layout, sizes, config, reference):
+    """A configuration probability far below the double-precision resolution of the total keeps its relative accuracy
+    over several epochs, against a 90-digit evaluation of the same lattice. Reading the occupation of a finite epoch
+    off the difference of the propagated vectors through a solve cancelled to 1e-11 relative on the unfolded case and
+    returned -1.5e-26 on the folded one, whether the exponential was dense or a sparse action."""
+    coal = pg.Coalescent(n=4, demography=pg.Demography(pop_sizes={'pop_0': sizes}))
+
+    p = getattr(coal, layout).get_mutation_config(config, theta=0.1)
+
+    assert p == pytest.approx(reference, rel=1e-12)
+
+
+def test_absorption_rates_carry_no_cancellation():
+    """The probability of no mutation at a high mutation rate over two epochs matches a 90-digit evaluation of the
+    same lattice. Taking the absorption rates as minus the row sums of the transient rate matrix left a rounding
+    residue of about 1e-16 of the rates on states that never absorb, which put it 69% low."""
+    coal = pg.Coalescent(n=8, demography=pg.Demography(pop_sizes={'pop_0': {0: 92.0, 1.9: 0.024}}))
+
+    p = coal.sfs.get_mutation_config([0] * 7, theta=20.0)
+
+    assert p == pytest.approx(5.472599088389316e-22, rel=1e-11)
+
+
+def test_drained_deme_of_a_split_leaves_mutation_configs_fast_and_unchanged():
+    """A derived deme shrunk after a split leaves the configuration probability unchanged, since its lineages left at
+    the split. Regression: the uniformization rate of every later epoch was the drain rate of the derived deme, a
+    hundred times its coalescence rate, which under the Dirac timescale reached 1e6 at a size of 0.01, so that states
+    holding below 1e-20 of the mass took the step in about 46000 chunks, 29 s in place of 0.07 s, and moved the probabilities
+    by 7e-12 and 1.6e-11 relative through the drift of the chunks."""
+
+    def p(size: float) -> list:
+        demography = pg.Demography(pop_sizes={'pop_0': {0: 1, 5: 1.5}, 'pop_1': {0: 1, 0.5: size}},
+                                   events=[pg.PopulationSplit(time=0.3, derived='pop_1', ancestral='pop_0')])
+        coal = pg.Coalescent(n={'pop_0': 2, 'pop_1': 2}, demography=demography,
+                             model=pg.DiracCoalescent(psi=0.5, c=1))
+        return [coal.sfs.get_mutation_config(config, theta=1.0) for config in ([1, 1, 1], [0, 0, 3])]
+
+    np.testing.assert_allclose(p(0.01), p(1), rtol=1e-12)
+
+
+def test_founder_bottleneck_across_a_split_takes_few_uniformization_chunks(monkeypatch):
+    """A Dirac founder bottleneck of the derived deme across a split, under migration, keeps the configuration
+    probabilities of v2.2.0 in fewer than a thousand uniformization chunks. Regression: the split leaves a residue of
+    1e-9 in the derived deme, whose states drain a hundred times faster than the fastest coalescence. Taking every
+    later step at that drain rate over the states reachable from the residue took about 7e4 chunks for these
+    probabilities, 16 s in place of 0.06 s, and moved them by 9e-11 relative through the drift of the chunks."""
+    demography = pg.Demography(pop_sizes={'pop_0': {0: 1.0, 3.0: 2.0}, 'pop_1': {0: 1.0, 0.8: 0.01}},
+                               migration_rates={('pop_0', 'pop_1'): 0.5, ('pop_1', 'pop_0'): 0.5},
+                               events=[pg.PopulationSplit(time=1.0, derived='pop_1', ancestral='pop_0')])
+    coal = pg.Coalescent(n={'pop_0': 2, 'pop_1': 2}, model=pg.DiracCoalescent(psi=0.3, c=1.0), demography=demography)
+
+    calls = []
+    series = _uniformization._series
+
+    def counting(*args):
+        calls.append(1)
+        return series(*args)
+
+    monkeypatch.setattr(_uniformization, '_series', counting)
+    p = [coal.sfs.get_mutation_config(c, theta=1.0) for c in ([1, 0, 0], [0, 0, 1], [1, 1, 1], [2, 1, 0])]
+
+    # v2.2.0
+    np.testing.assert_allclose(p, [0.053658726258410464, 0.0062329153619128195, 0.004436058492367974,
+                                   0.03534297033441059], rtol=1e-10)
+    assert len(calls) < 1000

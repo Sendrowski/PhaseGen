@@ -2,7 +2,7 @@
 Settings for the PhaseGen application.
 """
 from contextlib import contextmanager
-from typing import Any, Iterator, Optional
+from typing import Any, Iterator, Literal, Optional
 
 
 class _SettingsMeta(type):
@@ -20,7 +20,12 @@ class _SettingsMeta(type):
         :param name: Name of the setting.
         :param value: Value to assign.
         :raises AttributeError: If no setting of that name exists.
+        :raises ValueError: If :attr:`Settings.expm_method` is given a value other than ``'auto'``, ``'dense'`` or
+            ``'action'``.
         """
+        if name == 'expm_method' and value not in ('auto', 'dense', 'action'):
+            raise ValueError(f"Settings.expm_method must be 'auto', 'dense' or 'action', got {value!r}.")
+
         if not name.startswith('_') and not hasattr(cls, name):
             available = ', '.join(sorted(n for n in vars(cls) if not n.startswith('_')))
             raise AttributeError(
@@ -37,8 +42,8 @@ class Settings(metaclass=_SettingsMeta):
     The attributes are class-level and read directly (e.g. ``Settings.use_pbar = True``). Assigning a name that is
     not declared here raises :class:`AttributeError`.
     """
-    #: Whether to evaluate the mean site-frequency spectrum of a single population and locus under the standard
-    #: coalescent on the lineage-counting state space, see :meth:`PhaseTypeDistribution.moment()
+    #: Whether to compute the moments of the site-frequency spectrum of a single population and locus under the
+    #: standard coalescent on the smaller lineage-counting state space, see :meth:`PhaseTypeDistribution.moment()
     #: <phasegen.distributions.PhaseTypeDistribution.moment>`.
     flatten_block_counting: bool = True
 
@@ -65,10 +70,13 @@ class Settings(metaclass=_SettingsMeta):
     #: pure-Python construction.
     use_numba: bool = True
 
-    #: Matrix dimension at or above which a matrix exponential is applied to a vector by the action algorithm and not
-    #: formed densely. It applies to moments, distribution functions, mutational configurations and the Laplace
-    #: transforms of reward distributions. The result is unchanged. Set to 0 or very large to force either path.
-    expm_action_min_dim: int = 1500
+    #: How matrix exponentials are evaluated for moments, distribution functions and the Laplace transforms of reward
+    #: distributions. ``'dense'`` forms each exponential, at memory quadratic and cost cubic in its dimension, and
+    #: suits small state spaces only. ``'action'`` applies each exponential to its vector (Al-Mohy and Higham, 2011).
+    #: ``'auto'`` takes whichever is cheaper by a cost model in the dimension, the number of exponentials and the 1-norm
+    #: of the matrix times the step, and the action for large dimensions to bound memory. All three agree up to
+    #: rounding.
+    expm_method: Literal['auto', 'dense', 'action'] = 'auto'
 
     #: Number of BLAS threads while moments, their gradients and inferences are evaluated, or ``None`` to leave them
     #: unchanged. More threads gain little on these small matrices, and with the NumPy and SciPy wheels, which each
@@ -84,8 +92,8 @@ class Settings(metaclass=_SettingsMeta):
     #: sparse block-triangular LU factorization and not a dense one. It applies to the closed-form moments (see
     #: :meth:`PhaseTypeDistribution.moment() <phasegen.distributions.PhaseTypeDistribution.moment>`), the last-epoch
     #: solve of the Laplace transform and the multi-epoch mutational configurations, where it is compared against the
-    #: number of count vectors times the number of transient states. The result is unchanged. Set to 0 to always use
-    #: the sparse path, or very large to always use the dense path.
+    #: number of transient states of the solve shared by all count vectors. The result is unchanged. Set to 0 to always
+    #: use the sparse path, or very large to always use the dense path.
     closed_form_sparse_min_states: int = 256
 
     #: State count at or above which the rate matrix is stored sparse. The sparse solves and actions read the sparse

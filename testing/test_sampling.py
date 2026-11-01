@@ -4,6 +4,8 @@ Tests for the public ``sample`` / ``to_empirical`` methods of the distributions 
 the exact analytic statistics (up to Monte-Carlo error), the self-consistency that the scenario suite exercises
 end-to-end via the nested ``tolerance.empirical`` blocks in ``test_scenarios.py`` configs.
 """
+from fractions import Fraction
+
 import numpy as np
 import pytest
 
@@ -631,3 +633,81 @@ def test_mutation_binning_matches_a_walk_over_the_mutations():
 
     assert mts.num_trees > 1 and expected.sum() > 10
     np.testing.assert_array_equal(stats.mutations, expected)
+
+
+@pytest.mark.parametrize('n_samples', [3.5, -1, -2.0, np.nan, np.inf, '3', True])
+def test_sample_rejects_a_count_that_is_not_a_non_negative_integer(n_samples):
+    """Every public sampling method raises a ValueError for a count that is not a non-negative integer. Regression:
+    the count was passed to NumPy, which raised a TypeError for a float and 'negative dimensions' for -1."""
+    dem = pg.Demography(pop_sizes={'p0': 1, 'p1': 1}, migration_rates={('p0', 'p1'): 1, ('p1', 'p0'): 1})
+    two_locus = pg.Coalescent(n=3, loci=2, recombination_rate=1.0).sfs2
+
+    for sample in (pg.Coalescent(n=3).tree_height.sample, pg.Coalescent(n=3).sfs.sample,
+                   pg.Coalescent(n={'p0': 2, 'p1': 1}, demography=dem).jsfs.sample, two_locus.sample,
+                   two_locus.sample_per_locus):
+        with pytest.raises(ValueError, match='number of samples must be a non-negative integer'):
+            sample(n_samples, seed=SEED)
+
+
+def test_sample_accepts_an_integral_float_count():
+    """An integral float count draws that many samples, as the integer count does with the same seed. Regression:
+    NumPy rejected the float as a shape."""
+    dist = pg.Coalescent(n=3).tree_height
+
+    np.testing.assert_array_equal(dist.sample(3.0, seed=SEED), dist.sample(3, seed=SEED))
+    assert pg.Coalescent(n=3).sfs.sample(np.float64(2), seed=SEED).shape == (2, 4)
+
+
+@pytest.mark.parametrize('n_samples', [np.array(2), np.int64(2), 2.0, np.float32(2), Fraction(2)])
+def test_every_sampling_entry_point_accepts_an_integral_count_of_any_numeric_type(n_samples):
+    """Every public sampling entry point draws as many samples for an integral count of any numeric type, a 0-d
+    array included, as for the integer count. Regression: ``sample()`` rejected a 0-d array, while ``to_empirical()``
+    and ``SampledCoalescent`` passed the count to NumPy, which rejected a float as a shape."""
+    coal = pg.Coalescent(n=3)
+    two_locus = pg.Coalescent(n=3, loci=2, recombination_rate=1.0).sfs2
+    joint = coal.joint(pg.TreeHeightReward(), pg.TotalBranchLengthReward())
+
+    assert coal.tree_height.sample(n_samples, seed=SEED).shape == (2,)
+    assert coal.sfs.sample(n_samples, seed=SEED).shape == (2, 4)
+    assert two_locus.sample(n_samples, seed=SEED).shape[0] == 2
+    assert two_locus.sample_per_locus(n_samples, seed=SEED)[0].shape[0] == 2
+    assert coal.tree_height.to_empirical(n_samples, seed=SEED).n_samples == 2
+    assert coal.tree_height.loci[0].demes['pop_0'].to_empirical(n_samples, seed=SEED).samples.shape == (2,)
+    assert len(joint.to_empirical(n_samples, seed=SEED)._a) == 2
+    assert coal.sfs.to_empirical(n_samples, seed=SEED).n_samples == 2
+    assert SampledCoalescent(coal, n_samples=n_samples, seed=SEED).n_samples == 2
+
+
+def test_empirical_builds_reject_zero_samples():
+    """An empirical distribution needs at least one sample, so to_empirical(), SampledCoalescent and MsprimeCoalescent
+    reject a count of 0. Regression: the count was accepted, the moments came out NaN and cdf and quantile failed with
+    reshape and index errors."""
+    coal = pg.Coalescent(n=3)
+
+    for build in (coal.tree_height.to_empirical, coal.sfs.to_empirical, coal.tree_height.distribution().to_empirical,
+                  coal.joint(pg.TreeHeightReward(), pg.TotalBranchLengthReward()).to_empirical,
+                  lambda k: SampledCoalescent(coal, n_samples=k), lambda k: MsprimeCoalescent(n=3, num_replicates=k)):
+        with pytest.raises(ValueError, match='number of samples must be an integer of at least 1'):
+            build(0)
+
+    assert coal.tree_height.sample(0, seed=SEED).shape == (0,)
+
+
+def test_msprime_coalescent_rejects_unscaled_multiple_merger_time():
+    """MsprimeCoalescent rejects a Beta or Dirac coalescent with scale_time=False, whose time scale msprime does not
+    offer. Regression: msprime simulated its own time scale, giving a mean tree height of 2.60 for Beta(1.5) where the
+    exact value is 1.63."""
+    for model in (pg.BetaCoalescent(alpha=1.5, scale_time=False), pg.DiracCoalescent(psi=0.5, c=1, scale_time=False)):
+        with pytest.raises(ValueError, match='only on its own time scale'):
+            MsprimeCoalescent(n=4, model=model, num_replicates=10)
+
+
+def test_empirical_single_deme_covariance_is_a_matrix():
+    """The deme and locus covariance and correlation of an empirical scalar statistic are (1, 1) matrices for one deme
+    and one locus, as for the exact distribution. Regression: np.cov of a single row gave a 0-d array."""
+    coal = pg.Coalescent(n=4)
+    sampled = SampledCoalescent(coal, n_samples=200, seed=SEED).tree_height
+
+    for name in ('cov', 'corr'):
+        assert getattr(sampled.demes, name).shape == getattr(coal.tree_height.demes, name).shape == (1, 1)
+        assert getattr(sampled.loci, name).shape == getattr(coal.tree_height.loci, name).shape == (1, 1)

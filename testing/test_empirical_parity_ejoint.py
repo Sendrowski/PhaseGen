@@ -162,7 +162,7 @@ def test_empirical_joint_pdf_excludes_the_axes_and_needs_two_points():
         jd.pdf(1.0, 1.0)
 
 
-def test_empirical_joint_plots_as_the_exact_one(one_deme):
+def test_empirical_joint_plots_as_the_exact_one(one_deme, caplog):
     """The joint CDF and density draw heatmaps and surfaces, the density at its cell centres, and plot_cdf works."""
     import matplotlib.pyplot as plt
 
@@ -172,8 +172,8 @@ def test_empirical_joint_plots_as_the_exact_one(one_deme):
     sampled.cdf.plot(show=False)
     sampled.pdf.plot(show=False)
     sampled.pdf.plot_surface(show=False)
-    with pytest.warns(DeprecationWarning):
-        sampled.plot_cdf(show=False)
+    sampled.plot_cdf(show=False)
+    assert any('plot_cdf() is deprecated' in r.getMessage() for r in caplog.records)
     plt.close('all')
 
     cdf, pdf = sampled.cdf._plot_data(n_points=12), sampled.pdf._plot_data(n_points=12)

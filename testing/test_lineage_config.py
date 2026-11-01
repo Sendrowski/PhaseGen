@@ -89,3 +89,11 @@ def test_population_names_must_be_strings():
     """Integer population names were accepted and failed later when the names were sorted with the defaults."""
     with pytest.raises(TypeError, match="Population names must be strings"):
         pg.LineageConfig({0: 2, 1: 1})
+
+
+def test_lineage_config_compares_unequal_to_other_types():
+    """A lineage configuration is unequal to an object of another type. Regression: the comparison read the other
+    object's lineage_dict and raised AttributeError."""
+    lc = pg.LineageConfig({'a': 2, 'b': 1})
+
+    assert lc != None and lc != 3 and lc in [3, lc]

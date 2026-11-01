@@ -14,20 +14,25 @@ import pytest
 
 import phasegen as pg
 import phasegen.distributions as _pgd
+from phasegen.errors import ModelError
 from phasegen.settings import Settings
 from testing import TestCase
 
 _HI, _LO = 10 ** 12, 0
 
-# the closed-form / batched dispatch entry points (every one is gated on ``_use_closed_form``)
-_CF_ENTRY_POINTS = ("_accumulate_closed_form", "_occupation_times", "_two_point_occupation")
+# the closed-form / batched dispatch entry points, and the factorization of the last epoch that the closed forms of
+# every order and the second moments of spectra share
+_CF_ENTRY_POINTS = ("_accumulate_closed_form", "_occupation_times", "_last_epoch_solver")
 
 
 @contextlib.contextmanager
 def _count_closed_form_calls():
     """Count calls to the closed-form / batched entry points while still executing them normally."""
+    cls = _pgd.PhaseTypeDistribution
     counts = {name: 0 for name in _CF_ENTRY_POINTS}
-    originals = {name: getattr(_pgd.PhaseTypeDistribution, name) for name in _CF_ENTRY_POINTS}
+    originals = {name: getattr(cls, name) for name in _CF_ENTRY_POINTS}
+    # an entry point inherited from a base class is restored by deleting the wrapper from this class
+    own = {name: vars(cls)[name] for name in _CF_ENTRY_POINTS if name in vars(cls)}
 
     def make(name, orig):
         def wrapper(self, *args, **kwargs):
@@ -38,11 +43,14 @@ def _count_closed_form_calls():
 
     try:
         for name in _CF_ENTRY_POINTS:
-            setattr(_pgd.PhaseTypeDistribution, name, make(name, originals[name]))
+            setattr(cls, name, make(name, originals[name]))
         yield counts
     finally:
         for name in _CF_ENTRY_POINTS:
-            setattr(_pgd.PhaseTypeDistribution, name, originals[name])
+            if name in own:
+                setattr(cls, name, own[name])
+            else:
+                delattr(cls, name)
 
 
 def _both(fn):
@@ -60,18 +68,18 @@ def _four_paths(fn):
     Evaluate ``fn`` under all four moment solvers, forcing each via the path-selection thresholds:
     dense/sparse matrix exponential (closed form off) and dense/sparse closed form (closed form on).
     """
-    # (closed_form_last_epoch, expm_action_min_dim, closed_form_sparse_min_states); _HI/_LO force the
+    # (closed_form_last_epoch, expm_method, closed_form_sparse_min_states); _HI/_LO force the
     # dense/sparse sub-paths
     configs = {
-        "dense-expm": (False, _HI, _HI),
-        "sparse-expm": (False, _LO, _HI),
-        "dense-cf": (True, _HI, _HI),
-        "sparse-cf": (True, _LO, _LO),
+        "dense-expm": (False, 'dense', _HI),
+        "sparse-expm": (False, 'action', _HI),
+        "dense-cf": (True, 'dense', _HI),
+        "sparse-cf": (True, 'action', _LO),
     }
     out = {}
-    for name, (cf, eamd, cfmin) in configs.items():
+    for name, (cf, method, cfmin) in configs.items():
         Settings.closed_form_last_epoch = cf
-        Settings.expm_action_min_dim = eamd
+        Settings.expm_method = method
         Settings.closed_form_sparse_min_states = cfmin
         out[name] = np.asarray(fn(), dtype=float)
     return out
@@ -110,7 +118,7 @@ _CASES = {
     "2-deme jsfs.mean": lambda: pg.Coalescent(n={'pop_0': 2, 'pop_1': 2}, demography=_MIG).jsfs.mean.data,
     "2-epoch 2-deme jsfs.mean":
         lambda: pg.Coalescent(n={'pop_0': 2, 'pop_1': 2}, demography=_MIG_2EPOCH).jsfs.mean.data,
-    # joint-SFS second moments, batched through the shared two-point occupation (single and multi epoch)
+    # joint-SFS second moments, from one forward pass over all bins (single and multi epoch)
     "2-deme jsfs.cov": lambda: pg.Coalescent(n={'pop_0': 2, 'pop_1': 2}, demography=_MIG).jsfs.cov,
     "2-deme jsfs.var": lambda: pg.Coalescent(n={'pop_0': 2, 'pop_1': 2}, demography=_MIG).jsfs.var.data,
     "2-epoch 2-deme jsfs.cov":
@@ -163,20 +171,18 @@ def test_disabled_uses_only_matrix_exponential(name):
     assert sum(counts.values()) == 0, f"{name}: closed-form/batched path used while disabled: {counts}"
 
 
-# the documented dispatch: which closed-form / batched entry points each moment kind reaches when enabled.
-# (covariances also touch ``_occupation_times`` because they subtract the batched mean.)
+# the documented dispatch: which closed-form / batched entry points each moment kind reaches when enabled
 _EXPECTED_PATHS = {
-    "tree_height.mean": {"_accumulate_closed_form"},
-    "tree_height.var": {"_accumulate_closed_form"},
+    "tree_height.mean": {"_accumulate_closed_form", "_last_epoch_solver"},
+    "tree_height.var": {"_accumulate_closed_form", "_last_epoch_solver"},
     # single-population SFS mean flattens (k=1, standard) onto the occupation of the lineage-counting space
     "sfs.mean": {"_occupation_times"},
-    # the cov's mean flattens onto the lineage-counting occupation, and the covariance uses the two-point operator
-    "sfs.cov 1-epoch": {"_two_point_occupation", "_occupation_times"},
-    # multi-epoch covariance: the batched single-epoch operator is declined (returns None) -> stacked closed form
-    "sfs.cov 3-epoch": {"_two_point_occupation", "_occupation_times", "_accumulate_closed_form"},
+    # the covariances take their means and cross-moments from one forward pass closed in the last epoch
+    "sfs.cov 1-epoch": {"_last_epoch_solver"},
+    "sfs.cov 3-epoch": {"_last_epoch_solver"},
     # joint SFS is multi-population, so flattening does not apply: mean uses the batched occupation
     "jsfs.mean": {"_occupation_times"},
-    "jsfs.cov": {"_two_point_occupation", "_occupation_times"},
+    "jsfs.cov": {"_last_epoch_solver"},
 }
 
 
@@ -259,6 +265,22 @@ class ClosedFormLastEpochTestCase(TestCase):
         np.testing.assert_allclose(on, off, rtol=1e-8)
 
 
+@pytest.mark.parametrize("migration_rates", [
+    {},
+    {('a', 'b'): {0: 1.0, 1.0: 0.0}, ('b', 'a'): {0: 1.0, 1.0: 0.0}},
+], ids=["no-migration", "migration-before-1"])
+@pytest.mark.parametrize("moment", ["sfs.var", "sfs.cov", "jsfs.cov"])
+def test_second_moments_of_spectra_raise_when_the_demography_does_not_absorb(migration_rates, moment):
+    """The variances and covariances of the spectra raise on two demes that are disconnected in the last epoch.
+    Regression: the second moments of the bins closed the last epoch without checking that it absorbs."""
+    coal = pg.Coalescent(n={'a': 2, 'b': 2}, demography=pg.Demography(
+        pop_sizes={'a': 1.0, 'b': 1.0}, migration_rates=migration_rates))
+    spectrum, attr = moment.split('.')
+
+    with pytest.raises(ModelError, match="does not absorb"):
+        _ = getattr(getattr(coal, spectrum), attr)
+
+
 @pytest.mark.parametrize("sparse", [False, True], ids=["dense-cf", "sparse-cf"])
 def test_closed_form_finite_epochs_exact_at_large_population_size(sparse):
     """
@@ -269,7 +291,7 @@ def test_closed_form_finite_epochs_exact_at_large_population_size(sparse):
     """
     Settings.closed_form_last_epoch = True
     Settings.closed_form_sparse_min_states = _LO if sparse else _HI
-    Settings.expm_action_min_dim = _LO if sparse else _HI
+    Settings.expm_method = 'action' if sparse else 'dense'
 
     def third_moment(N: float, sizes: dict) -> float:
         demography = pg.Demography(pop_sizes={'pop_0': {t * N: s * N for t, s in sizes.items()}})

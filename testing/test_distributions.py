@@ -106,7 +106,7 @@ class DistributionTestCase(TestCase):
     def test_matrix_exponential_action_agrees_with_the_dense_path(self):
         """
         The tree-height cdf / pdf / quantile must not depend on which propagation path
-        :attr:`Settings.expm_action_min_dim` selects: the sparse action and the dense exponential compute the same
+        :attr:`Settings.expm_method` selects: the sparse action and the dense exponential compute the same
         thing. This is what a state space too large to densify relies on, and the CDF used to ignore the setting
         outright and form the dense ``k x k`` propagator regardless.
         """
@@ -120,12 +120,9 @@ class DistributionTestCase(TestCase):
         dense = pg.Coalescent(n=15, demography=demo).tree_height
         ref = dense.cdf(t), dense.pdf(t), dense.quantile(q)
 
-        try:
-            Settings.expm_action_min_dim = 1  # force every propagation through the sparse action
-            action = pg.Coalescent(n=15, demography=demo).tree_height
-            got = action.cdf(t), action.pdf(t), action.quantile(q)
-        finally:
-            Settings.expm_action_min_dim = 1500
+        Settings.expm_method = 'action'
+        action = pg.Coalescent(n=15, demography=demo).tree_height
+        got = action.cdf(t), action.pdf(t), action.quantile(q)
 
         for a, b in zip(ref, got):
             np.testing.assert_allclose(b, a, rtol=1e-8, atol=1e-10)
@@ -177,22 +174,17 @@ class DistributionTestCase(TestCase):
         """
         from phasegen.settings import Settings
 
-        dim = Settings.expm_action_min_dim
+        for method in ('dense', 'action'):
+            Settings.expm_method = method
+            th = pg.Coalescent(n=5, demography=pg.Demography(pop_sizes={'pop_0': {0: 1, 2: 0.5}})).tree_height
 
-        try:
-            for min_dim in (10 ** 9, 1):
-                Settings.expm_action_min_dim = min_dim
-                th = pg.Coalescent(n=5, demography=pg.Demography(pop_sizes={'pop_0': {0: 1, 2: 0.5}})).tree_height
+            x = np.array([1.0, 1e300, np.inf])
+            cdf, pdf = th.cdf(x), th.pdf(x)
 
-                x = np.array([1.0, 1e300, np.inf])
-                cdf, pdf = th.cdf(x), th.pdf(x)
-
-                self.assertAlmostEqual(cdf[0], th.cdf(1.0), delta=1e-14)
-                np.testing.assert_array_equal(cdf[1:], 1.0)
-                np.testing.assert_allclose(pdf[1:], 0.0, atol=1e-300)
-                self.assertEqual(th.cdf(np.inf), 1.0)
-        finally:
-            Settings.expm_action_min_dim = dim
+            self.assertAlmostEqual(cdf[0], th.cdf(1.0), delta=1e-14)
+            np.testing.assert_array_equal(cdf[1:], 1.0)
+            np.testing.assert_allclose(pdf[1:], 0.0, atol=1e-300)
+            self.assertEqual(th.cdf(np.inf), 1.0)
 
     def test_tree_height_quantile_resolves_the_lower_tail(self):
         """

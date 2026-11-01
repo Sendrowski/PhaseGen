@@ -33,7 +33,7 @@ from .demography import Epoch
 from .initial import InitialDistribution
 from .lineage import LineageConfig
 from .locus import LocusConfig
-from .state_space_numba import build_rate_matrix
+from .state_space_numba import build_transitions
 
 logger = logging.getLogger('phasegen')
 
@@ -68,6 +68,154 @@ def _numba_model_params(model: CoalescentModel) -> Tuple[int, float, float, floa
 _WARNED_SIZES: set = set()
 
 
+class _GeneratorBasis:
+    r"""
+    The intensity matrix of a state space as a combination of fixed parts on one sparsity pattern,
+
+    .. math::
+        \mathbf{S} = \mathbf{K} + \sum_d \frac{\mathbf{C}_d}{s(N_d)} + \sum_{a \neq b} m_{ab} \mathbf{M}_{ab},
+
+    where :math:`N_d` is the population size of deme :math:`d`, :math:`s(N)` the time scale of the coalescent model at
+    size :math:`N`, :math:`m_{ab}` the backward migration rate from deme :math:`a` to deme :math:`b`,
+    :math:`\mathbf{C}_d` the coalescence part of deme :math:`d` at unit inverse time scale, :math:`\mathbf{M}_{ab}` the
+    migration part at unit rate, and :math:`\mathbf{K}` the part depending on neither, the recombination of two loci.
+    Each part has zero row sums. Part 0 is :math:`\mathbf{K}`, parts :math:`1, \dots, D` the coalescence of the
+    :math:`D` demes, and the remaining parts the migration of the ordered pairs :attr:`pairs`.
+    """
+
+    def __init__(
+            self,
+            states: List['State'],
+            src: np.ndarray,
+            dst: np.ndarray,
+            rates: np.ndarray,
+            parts: np.ndarray,
+            pops: List[str],
+            model: CoalescentModel
+    ) -> None:
+        """
+        Fix the sparsity pattern of the transitions and the diagonal.
+
+        :param states: The states.
+        :param src: The source state of each transition.
+        :param dst: The target state of each transition.
+        :param rates: The rate of each transition in its part.
+        :param parts: The part of each transition.
+        :param pops: The demes.
+        :param model: The coalescent model, whose time scale weights the coalescence parts.
+        """
+        n = len(states)
+
+        #: The states, in the row order of the rate matrix.
+        self.states: List['State'] = states
+
+        #: The demes.
+        self.pops: List[str] = list(pops)
+
+        #: The ordered pairs of demes of the migration parts.
+        self.pairs: List[Tuple[str, str]] = [(a, b) for a in self.pops for b in self.pops if a != b]
+
+        #: The coalescent model, whose time scale weights the coalescence parts.
+        self.model: CoalescentModel = model
+
+        #: The source state, rate in its part and part of each transition.
+        self.src, self.rates, self.parts = src, rates, parts
+
+        # every transition and diagonal entry lands on one entry of the CSR pattern, duplicates being summed
+        keys = np.concatenate([src, np.arange(n)]) * n + np.concatenate([dst, np.arange(n)])
+        # a stable sort, fast on keys the enumeration lists by ascending source
+        order = np.argsort(keys, kind='stable')
+        ordered = keys[order]
+        first = np.concatenate([[True], ordered[1:] != ordered[:-1]])
+        self._entry = np.empty(len(keys), dtype=np.int64)
+        self._entry[order] = np.cumsum(first) - 1
+        self._rows, self._cols = np.divmod(ordered[first], n)
+        self._diagonal = self._rows == self._cols
+
+    @property
+    def n_parts(self) -> int:
+        """
+        The number of parts.
+        """
+        return 1 + len(self.pops) + len(self.pairs)
+
+    def coefficients(self, pop_sizes: Dict[str, float], migration_rates: Dict[Tuple[str, str], float]) -> np.ndarray:
+        """
+        The coefficients of the parts, one, the inverse time scales and the migration rates, as numerators (first
+        row) and denominators (second row), so that a coalescence rate is divided by the time scale.
+
+        :param pop_sizes: The population sizes by deme.
+        :param migration_rates: The migration rates by ordered pair, zero where absent.
+        :return: The numerators and denominators.
+        """
+        n_pops = len(self.pops)
+
+        numerators = [1.0] * (1 + n_pops) + [migration_rates.get(pair, 0.0) for pair in self.pairs]
+        denominators = [1.0] + [self.model._get_timescale(pop_sizes[p]) for p in self.pops] + [1.0] * len(self.pairs)
+
+        return np.array([numerators, denominators])
+
+    def matrix(self, coefficients: np.ndarray, dense: bool = False) -> 'np.ndarray | sp.csr_matrix':
+        """
+        The combination of the parts. The sparse form leaves out the off-diagonal entries that are zero.
+
+        :param coefficients: The numerators and denominators of the coefficients of the parts.
+        :param dense: Whether to return a dense array, otherwise a :class:`scipy.sparse.csr_matrix`.
+        :return: The matrix.
+        """
+        n = len(self.states)
+        rates = self.rates * coefficients[0][self.parts] / coefficients[1][self.parts]
+        terms = np.concatenate([rates, -np.bincount(self.src, weights=rates, minlength=n)])
+        data = np.bincount(self._entry, weights=terms, minlength=len(self._rows))
+
+        if dense:
+            S = np.zeros((n, n))
+            S[self._rows, self._cols] = data
+            return S
+
+        keep = (data != 0) | self._diagonal
+        indptr = np.concatenate([[0], np.cumsum(np.bincount(self._rows[keep], minlength=n))])
+
+        return sp.csr_matrix((data[keep], self._cols[keep], indptr), shape=(n, n))
+
+    def part(self, i: int) -> sp.csr_matrix:
+        """
+        A part on its own.
+
+        :param i: The part.
+        :return: The part.
+        """
+        return self.matrix(np.stack([np.eye(self.n_parts)[i], np.ones(self.n_parts)]))
+
+    @staticmethod
+    def _parts(totals: np.ndarray, src: np.ndarray, dst: np.ndarray) -> np.ndarray:
+        """
+        The part of each transition, from the change of the number of lineages per deme: a coalescence reduces the
+        number in one deme, a migration moves lineages between two demes, and a recombination changes no deme or
+        adds a lineage.
+
+        :param totals: The number of lineages per state and deme.
+        :param src: The source state of each transition.
+        :param dst: The target state of each transition.
+        :return: The parts.
+        """
+        n_demes = totals.shape[1]
+        delta = np.take(totals, dst, axis=0) - np.take(totals, src, axis=0)
+        total = totals.sum(axis=1)
+        change = total[dst] - total[src]
+        lose, gain = delta.argmin(axis=1), delta.argmax(axis=1)
+
+        parts = np.zeros(len(src), dtype=np.int64)
+        coalescence = change < 0
+        parts[coalescence] = 1 + lose[coalescence]
+        # a change summing to zero is a migration unless it is none, where the first deme is both minimum and maximum
+        migration = (change == 0) & (lose != gain)
+        parts[migration] = (1 + n_demes + lose[migration] * (n_demes - 1) + gain[migration] -
+                            (gain[migration] > lose[migration]))
+
+        return parts
+
+
 class StateSpace(ABC):
     r"""
     Abstract base class for coalescent state spaces.
@@ -94,11 +242,8 @@ class StateSpace(ABC):
     #: Initial distribution over locus configurations, ``None`` for the single configuration :attr:`locus_config`
     locus_distribution: InitialDistribution | None = None
 
-    #: Rate matrix of the epoch left last, keyed by that epoch, restored by :meth:`update_epoch` on returning to it
-    _previous_S: Dict[Epoch, np.ndarray] = {}
-
-    #: The basis of the generator kept for the exact gradients of moments, or the error of a space without one.
-    _generator_basis: Any = None
+    #: The derivatives of the generator kept for the exact gradients of moments.
+    _generator_derivatives: Any = None
 
     def __init__(
             self,
@@ -156,43 +301,99 @@ class StateSpace(ABC):
         #: Epoch
         self.epoch: Epoch = epoch
 
-        #: Transitions and states per epoch of the pure-Python construction
-        self._cache: Dict[Epoch, Tuple[Dict[Tuple['State', 'State'], Tuple[float, str]], List['State']]] = {}
-
-        # time in seconds to compute original rate matrix
+        #: Time in seconds taken to enumerate the states and transitions
         self.time: float | None = None
 
     @cached_property
     def states(self) -> List['State']:
         """
-        The states of the space, in the row order of :attr:`StateSpace.S <phasegen.state_space.StateSpace.S>`.
-
-        :raises ModelError: If a population size of the current epoch is not positive.
+        The states of the space, in the row order of :attr:`StateSpace.S <phasegen.state_space.StateSpace.S>`. They
+        do not depend on the epoch.
         """
-        # both constructions evaluate the rates of the current epoch
-        self._assert_positive_sizes(self.epoch)
+        return self._basis.states
 
-        start = time.time()
+    @cached_property
+    def _basis(self) -> _GeneratorBasis:
+        """
+        The basis of the rate matrices of all epochs, from one enumeration of the states and transitions. The states
+        held by a copy of ``_with`` keep their order.
 
+        :raises MemoryError: If the number of states exceeds the cap.
+        """
         # The builder aborts with a MemoryError once the number of states exceeds ``Settings.max_state_space_size``,
         # for every state-space type and without an a-priori size formula. The cap bounds the number of states, not
         # the memory, which grows with the width of a state, so the joint block-counting space of several demes can
         # exhaust memory below it. After a successful build the actual count is warned about (escalating with size),
         # again for every type.
-        if self._use_numba():
-            states, S = self._construct_numba()
-            # the states are epoch-independent, but prime the current epoch's rate matrix to avoid rebuilding it
-            self.__dict__.setdefault('S', S)
-        else:
-            transitions, states = self.get_transitions()
-            self._cache[self.epoch] = (transitions, states)
+        start = time.time()
+        states, src, dst, rates = self._enumerate()
 
-        # record time to compute rate matrix
+        if 'states' in self.__dict__:
+            order = {s: i for i, s in enumerate(self.__dict__['states'])}
+            perm = np.array([order[s] for s in states], dtype=np.int64)
+            states, src, dst = self.__dict__['states'], perm[src], perm[dst]
+
+        # the number of ancestral lineages per deme, a linked lineage counting once over the loci
+        lineages = np.array([s.lineages for s in states])
+        totals = lineages.sum(axis=(1, 3))
+        if lineages.shape[1] > 1:
+            totals -= (lineages.shape[1] - 1) * np.array([s.linked[0] for s in states]).sum(axis=2)
+
+        parts = _GeneratorBasis._parts(totals, src, dst)
+
+        # the pure-Python construction lists coalescence rates at unit population size
+        if not self._use_numba():
+            rates[(parts >= 1) & (parts <= totals.shape[1])] *= self.model._get_timescale(1.0)
+
         self.time = time.time() - start
-
         self._warn_if_large(len(states))
 
-        return states
+        return _GeneratorBasis(states, src, dst, rates, parts, self.lineage_config.pop_names, self.model)
+
+    def _enumerate(self) -> Tuple[List['State'], np.ndarray, np.ndarray, np.ndarray]:
+        """
+        Enumerate the states and the transitions at unit population sizes and unit migration rates.
+
+        :return: The states, and the source state, target state and rate of each transition.
+        """
+        if self._use_numba():
+            init = self._get_initial()
+            n_blocks = self._numba_n_blocks(init)
+            model_id, alpha, psi, c = _numba_model_params(self.model)
+            recomb_rate, recomb0, recomb1 = self._numba_recombination()
+
+            rows, src, dst, rates = build_transitions(
+                initial=self._numba_initial(init),
+                kind=self._numba_kind(),
+                n_demes=init.lineages.shape[1],
+                n_blocks=n_blocks,
+                model_id=model_id,
+                alpha=alpha,
+                psi=psi,
+                c=c,
+                block_vectors=self._numba_block_vectors(n_blocks),
+                recomb_rate=recomb_rate,
+                recomb0=recomb0,
+                recomb1=recomb1,
+                max_states=Settings.max_state_space_size,
+            )
+
+            return [self._numba_to_state(row, init) for row in rows], src, dst, rates
+
+        epoch, pops = self.epoch, self.lineage_config.pop_names
+        self.epoch = Epoch(pop_sizes={p: 1.0 for p in pops},
+                           migration_rates={(a, b): 1.0 for a in pops for b in pops if a != b})
+
+        try:
+            transitions, states = self.get_transitions()
+        finally:
+            self.epoch = epoch
+
+        index = {s: i for i, s in enumerate(states)}
+        src = np.array([index[a] for a, _ in transitions], dtype=np.int64)
+        dst = np.array([index[b] for _, b in transitions], dtype=np.int64)
+
+        return states, src, dst, np.array([r for r, _ in transitions.values()], dtype=float)
 
     def _warn_if_large(self, n_states: int) -> None:
         """
@@ -331,11 +532,17 @@ class StateSpace(ABC):
         the rate of the event taking state :math:`x` to state :math:`y`. The diagonal follows the zero-row-sum
         convention :math:`s_{xx} = -\sum_{y \ne x} s_{xy}`, so :math:`\mathbf{S}\mathbf{e} = \mathbf{0}`, and the
         absorption rates are :math:`\mathbf{q} = -\mathbf{T}\mathbf{e}_T` for the transient block :math:`\mathbf{T}`.
+        It is a dense array below :attr:`Settings.dense_rate_matrix_max_states
+        <phasegen.settings.Settings.dense_rate_matrix_max_states>` states and a :class:`scipy.sparse.csr_matrix` from
+        there on.
 
         :raises ModelError: If a population size of the epoch is not positive.
         """
         self._assert_positive_sizes(self.epoch)
-        return self._get_rate_matrix()
+        basis = self._basis
+
+        return basis.matrix(basis.coefficients(self.epoch.pop_sizes, self.epoch.migration_rates),
+                            dense=len(basis.states) < Settings.dense_rate_matrix_max_states)
 
     def _initial_components(self) -> List[Tuple[float, LineageConfig, LocusConfig]]:
         """
@@ -426,13 +633,7 @@ class StateSpace(ABC):
                 self.S *= self._get_scaling_factor(self.epoch, epoch)
 
             else:
-                # keep the rate matrix of the epoch being left, and restore that of the epoch entered if it was the
-                # one left last
-                previous = self._previous_S
-                self._previous_S = {self.epoch: self.__dict__.pop('S')} if 'S' in self.__dict__ else {}
-
-                if epoch in previous:
-                    self.__dict__['S'] = previous[epoch]
+                self.drop_S()
 
         self.epoch = epoch
 
@@ -470,11 +671,11 @@ class StateSpace(ABC):
 
     def __getstate__(self) -> dict:
         """
-        The state without the generator basis, which is rebuilt on use.
+        The state without the derivatives of the generator, which are rebuilt on use.
 
         :return: The state.
         """
-        return {k: v for k, v in self.__dict__.items() if k != '_generator_basis'}
+        return {k: v for k, v in self.__dict__.items() if k != '_generator_derivatives'}
 
     def __eq__(self, other) -> bool:
         """
@@ -497,16 +698,12 @@ class StateSpace(ABC):
         """
         Drop the current rate matrix.
         """
-        try:
-            # noinspection all
-            del self.S
-        except AttributeError:
-            pass
+        self.__dict__.pop('S', None)
 
     def _with(self, model: CoalescentModel = None, locus_config: LocusConfig = None) -> 'StateSpace':
         """
-        A copy of the state space with another coalescent model or locus configuration, sharing the states, whose rate
-        matrices are built anew.
+        A copy of the state space with another coalescent model or locus configuration, sharing the states in their
+        order, whose rate matrices are built anew.
 
         :param model: The coalescent model, by default that of this space.
         :param locus_config: The locus configuration, by default that of this space.
@@ -526,14 +723,12 @@ class StateSpace(ABC):
 
     def drop_cache(self) -> None:
         """
-        Drop the rate matrix cache, the current rate matrix, that of the epoch left last and the generator basis of the
-        gradients.
+        Drop the current rate matrix, the basis of the rate matrices and the derivatives of the generator kept for the
+        gradients. The states are kept.
         """
         self.drop_S()
-
-        self._previous_S = {}
-        self._cache = {}
-        self._generator_basis = None
+        self.__dict__.pop('_basis', None)
+        self._generator_derivatives = None
 
     @abstractmethod
     def _get_initial(self) -> 'State':
@@ -625,102 +820,6 @@ class StateSpace(ABC):
     def _numba_to_state(self, row: np.ndarray, init: 'State') -> 'State':
         """Rebuild a :class:`State` from a kernel row (default: reshape into the lineage array; linkage is static)."""
         return State((row.reshape(init.lineages.shape).astype(init.lineages.dtype), init.linked.copy()))
-
-    def _construct_numba(self) -> Tuple[List['State'], np.ndarray]:
-        """
-        Build the states and rate matrix for the current epoch via the numba kernel.
-
-        :return: The states (in kernel discovery order) and the intensity matrix, a :class:`scipy.sparse.csr_matrix`
-            from :attr:`Settings.dense_rate_matrix_max_states <phasegen.settings.Settings.dense_rate_matrix_max_states>`
-            states on and dense below.
-        """
-        init = self._get_initial()
-        n_demes = init.lineages.shape[1]
-        n_blocks = self._numba_n_blocks(init)
-        pops = self.lineage_config.pop_names
-
-        mig = np.zeros((n_demes, n_demes))
-        for i, a in enumerate(pops):
-            for j, b in enumerate(pops):
-                if i != j:
-                    mig[i, j] = self.epoch.migration_rates[(a, b)]
-
-        timescales = np.array([self.model._get_timescale(self.epoch.pop_sizes[p]) for p in pops])
-        model_id, alpha, psi, c = _numba_model_params(self.model)
-        recomb_rate, recomb0, recomb1 = self._numba_recombination()
-
-        rows, S = build_rate_matrix(
-            initial=self._numba_initial(init),
-            kind=self._numba_kind(),
-            n_demes=n_demes,
-            n_blocks=n_blocks,
-            mig=mig,
-            timescales=timescales,
-            model_id=model_id,
-            alpha=alpha,
-            psi=psi,
-            c=c,
-            block_vectors=self._numba_block_vectors(n_blocks),
-            recomb_rate=recomb_rate,
-            recomb0=recomb0,
-            recomb1=recomb1,
-            max_states=Settings.max_state_space_size,
-            dense_max_states=Settings.dense_rate_matrix_max_states,
-        )
-
-        states = [self._numba_to_state(row, init) for row in rows]
-
-        return states, S
-
-    def _get_rate_matrix(self) -> np.ndarray:
-        """
-        Get the rate matrix.
-
-        :return: The rate matrix.
-        """
-        if self._use_numba():
-            start = time.time()
-            states, S = self._construct_numba()
-            # materialising S before .states makes this the first construction: record the time and warn about a large
-            # space here too, since the states cached_property (which otherwise owns that bookkeeping) will not run.
-            if 'states' not in self.__dict__:
-                self.__dict__['states'] = states
-                self.time = time.time() - start
-                self._warn_if_large(len(states))
-            return S
-
-        if self.epoch not in self._cache:
-            self._cache[self.epoch] = self.get_transitions()
-
-        transitions, states = self._cache[self.epoch]
-
-        return self._graph_to_matrix(transitions, states)
-
-    @staticmethod
-    def _graph_to_matrix(
-            transitions: Dict[Tuple['State', 'State'], Tuple[float, str]],
-            states: List['State']
-    ) -> np.ndarray:
-        """
-        Convert transition graph to rate matrix.
-
-        :param transitions: Transitions.
-        :param states: States.
-        :return: Rate matrix.
-        """
-        S = np.zeros((len(states), len(states)))
-
-        # order of original states
-        ordering = {s: i for i, s in enumerate(states)}
-
-        # fill rate matrix
-        for (source, target), transition in transitions.items():
-            S[ordering[source], ordering[target]] = transition[0]
-
-        # fill diagonal with negative sum of row
-        S[np.diag_indices_from(S)] = -np.sum(S, axis=1)
-
-        return S
 
     def _get_color_state(self, i: int) -> str:
         """

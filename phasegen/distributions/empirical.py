@@ -28,8 +28,8 @@ from .spectra import FoldedSFSDistribution, SFSDistribution, _TajimaSFSMixin, Un
     JointSFSDistribution, TwoLocusSFSDistribution
 from .mutation_configs import MutationConfig, MutationLayout, _DefaultLayoutMixin
 from ._common import (
-    _descendant_config, _frequency_class, _make_hashable, _polymorphic_class, _sqrt_spectrum, _validate_order,
-    _validate_reward, _validate_reward_count, _validate_rewards, _validate_start_time
+    _descendant_config, _frequency_class, _make_hashable, _n_samples, _polymorphic_class, _sqrt_spectrum,
+    _validate_order, _validate_reward, _validate_reward_count, _validate_rewards, _validate_start_time
 )
 from .coalescent import AbstractCoalescent, Coalescent
 from .phase_type import PhaseTypeDistribution
@@ -1776,7 +1776,7 @@ class EmpiricalTwoLocusSFSDistribution(_EmpiricalAccumulating, EmpiricalSpectrum
         return TwoLocusSFSDistribution._layout_of(lineages, locus_config, loci, folded)
 
     cdf = pdf = quantile = property(TwoLocusSFSDistribution._no_univariate_distribution)
-    plot_cdf = bin = TwoLocusSFSDistribution._no_univariate_distribution
+    plot_pdf = plot_cdf = bin = TwoLocusSFSDistribution._no_univariate_distribution
 
     def _no_marginals(self, *args, **kwargs) -> NoReturn:
         """
@@ -2153,17 +2153,17 @@ class EmpiricalPhaseTypeDistribution(_EmpiricalAccumulating, EmpiricalDistributi
         with np.errstate(divide='ignore', invalid='ignore'):
             #: Covariance matrix for the demes, of the per-deme samples summed over loci, ``None`` unless the samples
             #: resolve the demes
-            self.pops_cov: np.ndarray | None = np.cov(over_loci, bias=True) if resolves_demes else None
+            self.pops_cov: np.ndarray | None = np.atleast_2d(np.cov(over_loci, bias=True)) if resolves_demes else None
 
             #: Correlation matrix for the demes, of the per-deme samples summed over loci, ``None`` unless the samples
             #: resolve the demes
-            self.pops_corr: np.ndarray | None = np.corrcoef(over_loci) if resolves_demes else None
+            self.pops_corr: np.ndarray | None = np.atleast_2d(np.corrcoef(over_loci)) if resolves_demes else None
 
             #: Correlation matrix for the loci
-            self.loci_corr: np.ndarray = np.corrcoef(over_demes)
+            self.loci_corr: np.ndarray = np.atleast_2d(np.corrcoef(over_demes))
 
             #: Covariance matrix for the loci
-            self.loci_cov: np.ndarray = np.cov(over_demes, bias=True)
+            self.loci_cov: np.ndarray = np.atleast_2d(np.cov(over_demes, bias=True))
 
     def _touch(self, t: np.ndarray) -> None:
         """
@@ -4386,8 +4386,9 @@ class MsprimeCoalescent(AbstractCoalescent):
             require.
         :param simulate_mutations: Whether to simulate mutations.
         :param seed: Non-negative integer random seed. ``None`` draws one from fresh entropy.
-        :raises ValueError: If ``model`` is a Beta coalescent whose alpha exceeds 1.991, the largest that msprime
-            accepts, or if ``simulate_mutations`` is set without a ``mutation_rate``.
+        :raises ValueError: If ``model`` is a Beta coalescent with alpha above 1.991 or a Beta or Dirac coalescent
+            with ``scale_time=False``, neither of which ``msprime`` supports, if ``num_replicates`` is not a
+            positive integer, or if ``simulate_mutations`` is set without ``mutation_rate``.
         """
         super().__init__(
             n=n,
@@ -4402,6 +4403,12 @@ class MsprimeCoalescent(AbstractCoalescent):
             raise ValueError(
                 f"msprime accepts Beta coalescents with alpha up to {_MSPRIME_BETA_ALPHA_MAX}, got {self.model.alpha}."
             )
+
+        if isinstance(self.model, (BetaCoalescent, DiracCoalescent)) and not self.model.scale_time:
+            raise ValueError(f"msprime simulates {type(self.model).__name__} only on its own time scale, which is that "
+                             f"of scale_time=True.")
+
+        num_replicates = _n_samples(num_replicates, minimum=1)
 
         if simulate_mutations and mutation_rate is None:
             raise ValueError("Simulating mutations requires a mutation rate.")
@@ -5394,7 +5401,7 @@ class SampledCoalescent(AbstractCoalescent):  # pragma: no cover
         :param n_samples: Number of trajectories to simulate per statistic.
         :param seed: Non-negative integer seed, or a :class:`numpy.random.Generator` from which one is drawn at
             construction. ``None`` draws one from fresh entropy.
-        :raises ValueError: If ``seed`` is a negative integer.
+        :raises ValueError: If ``seed`` is a negative integer or ``n_samples`` is not a positive integer.
         """
         if seed is None:
             seed = np.random.default_rng()
@@ -5415,7 +5422,7 @@ class SampledCoalescent(AbstractCoalescent):  # pragma: no cover
         self._coalescent: Optional[Coalescent] = coalescent
 
         #: Number of trajectories sampled per statistic.
-        self.n_samples: int = n_samples
+        self.n_samples: int = _n_samples(n_samples, minimum=1)
 
         #: Random seed, drawn at construction if none is given.
         self.seed: int = int(seed.integers(2 ** 63)) if isinstance(seed, np.random.Generator) else seed

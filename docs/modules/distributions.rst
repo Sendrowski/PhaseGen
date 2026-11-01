@@ -64,7 +64,7 @@ Phase-type distributions. The :class:`~phasegen.distributions.Coalescent` class 
 .. autoclass:: phasegen.distributions.JointSFSDistribution
 
 .. autoclass:: phasegen.distributions.TwoLocusSFSDistribution
-   :exclude-members: cdf, pdf, quantile, plot_cdf, bin, loci, demes
+   :exclude-members: cdf, pdf, quantile, plot_cdf, plot_pdf, bin, loci, demes
 
 .. autoclass:: phasegen.distributions.DemographyGradient
 
@@ -75,10 +75,10 @@ Phase-type distributions. The :class:`~phasegen.distributions.Coalescent` class 
 .. autoclass:: phasegen.distributions.RewardDistribution
 
 .. autoclass:: phasegen.distributions.ConditionalRewardDistribution
-   :exclude-members: __init__, plot_cdf
+   :exclude-members: __init__, plot_cdf, plot_pdf
 
 .. autoclass:: phasegen.distributions.JointRewardDistribution
-   :exclude-members: quantile, plot_cdf
+   :exclude-members: quantile, plot_cdf, plot_pdf
 
 .. autoclass:: phasegen.distributions.DistributionFunction
    :members:

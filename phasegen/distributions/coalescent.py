@@ -518,7 +518,9 @@ class Coalescent(AbstractCoalescent, Serializable):
     """
     Coalescent process of a sample of lineages under a demography, a coalescent model and a locus configuration. Its
     tree height, total branch length, site-frequency spectra and any other accumulated reward are phase-type
-    distributed.
+    distributed. A :class:`~phasegen.distributions.Coalescent` is not thread-safe: its statistics share state spaces
+    that switch between epochs, so concurrent threads each need their own
+    :class:`~phasegen.distributions.Coalescent`, or processes are used.
 
     The following example computes the mean tree height and site-frequency spectrum of five lineages in a population
     whose size drops to 0.2 at time 0.5.
@@ -954,8 +956,7 @@ class Coalescent(AbstractCoalescent, Serializable):
         :return: The derivatives.
         :raises NotImplementedError: If the moment is accumulated over a time window.
         :raises ValueError: If ``k`` is not a positive integer, if the number of rewards differs from ``k``, if a
-            reward is non-zero on an absorbing state, if absorption is not certain in the last epoch, or if the
-            generator is not affine in the rates.
+            reward is non-zero on an absorbing state, or if absorption is not certain in the last epoch.
         :raises TypeError: If ``k`` is not a number or an entry of ``rewards`` is not a
             :class:`~phasegen.rewards.Reward`.
         """

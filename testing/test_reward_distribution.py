@@ -12,6 +12,7 @@ import numpy as np
 import pytest
 import scipy.linalg as sla
 import scipy.sparse as sp
+from scipy.integrate import trapezoid
 
 import phasegen as pg
 from phasegen.settings import Settings
@@ -356,7 +357,7 @@ def test_two_locus_sfs_has_no_univariate_distribution():
     """A 2-SFS entry is a cross-moment (product of two rewards), so CDF/PDF/quantile/plots must raise clearly.
     Regression: ``sfs2.cdf.plot()`` raised AttributeError."""
     sfs2 = pg.Coalescent(n=4, loci=2, recombination_rate=1.0).sfs2
-    for method in ('cdf', 'pdf', 'quantile', 'plot_cdf'):
+    for method in ('cdf', 'pdf', 'quantile', 'plot_cdf', 'plot_pdf'):
         with pytest.raises(NotImplementedError):
             getattr(sfs2, method)(1.0)
 
@@ -653,7 +654,7 @@ def test_conditional_distribution():
     # a real nested inversion, so keep the grid small)
     xs = np.linspace(0.3, ma._range(scale=4), 6)
     cond_means = [jd.conditional('a', float(x))._cumulants()[0] for x in xs]
-    e_recon = np.trapezoid(np.array(cond_means) * ma.pdf(xs), xs)
+    e_recon = trapezoid(np.array(cond_means) * ma.pdf(xs), xs)
     assert e_recon == pytest.approx(mb._cumulants()[0], rel=0.15)
 
     # a self-pair conditional is a point mass at ``value`` -> not representable, raises
@@ -972,9 +973,9 @@ def test_plot_endpoint_tracks_quantile_setting():
         Settings.plot_endpoint_quantile = prev
 
 
-def test_distribution_functions_are_callable_and_plottable():
+def test_distribution_functions_are_callable_and_plottable(caplog):
     """``pdf``/``cdf``/``quantile`` are :class:`DistributionFunction`s: calling them evaluates (unchanged), and they
-    expose ``.plot()``. The former ``plot_cdf`` still works but warns (deprecated)."""
+    expose ``.plot()``. The former ``plot_cdf`` and ``plot_pdf`` still work but warn (deprecated)."""
     import matplotlib
     matplotlib.use('Agg')
     from phasegen.distributions.base import DistributionFunction
@@ -1003,13 +1004,15 @@ def test_distribution_functions_are_callable_and_plottable():
         pg.Coalescent(n=4, loci=2, recombination_rate=1.0).sfs2.cdf(1.0)
 
     # deprecated aliases still work but warn
-    with pytest.warns(DeprecationWarning):
-        coal.sfs.plot_cdf(show=False)
-    with pytest.warns(DeprecationWarning):
-        jd.plot_cdf(show=False, n_points=12)
+    caplog.clear()
+    coal.sfs.plot_cdf(show=False)
+    coal.tree_height.plot_pdf(show=False)
+    jd.plot_cdf(show=False, n_points=12)
+    assert [r.getMessage().split('(')[0] for r in caplog.records if 'is deprecated' in r.getMessage()] == \
+           ['plot_cdf', 'plot_pdf', 'plot_cdf']
 
 
-def test_deprecated_plot_cdf_accepts_the_1_2_0_arguments(tmp_path):
+def test_deprecated_plot_cdf_accepts_the_1_2_0_arguments(tmp_path, caplog):
     """``plot_cdf`` takes the keyword arguments of version 1.2.0, ``ax``, ``t``, ``show``, ``file``, ``clear``,
     ``label`` and ``title``, and passes them to ``cdf.plot()``."""
     import matplotlib
@@ -1019,14 +1022,14 @@ def test_deprecated_plot_cdf_accepts_the_1_2_0_arguments(tmp_path):
     ax = plt.figure().gca()
     file = tmp_path / 'cdf.png'
 
-    with pytest.warns(DeprecationWarning):
-        out = pg.Coalescent(n=4).tree_height.plot_cdf(ax=ax, t=np.linspace(0, 3, 20), show=False, file=str(file),
-                                                      clear=False, label='th', title='T')
+    out = pg.Coalescent(n=4).tree_height.plot_cdf(ax=ax, t=np.linspace(0, 3, 20), show=False, file=str(file),
+                                                  clear=False, label='th', title='T')
+
+    assert any('plot_cdf() is deprecated' in r.getMessage() for r in caplog.records)
 
     assert out is ax and ax.get_title() == 'T' and file.exists()
     np.testing.assert_allclose(ax.lines[-1].get_xdata(), np.linspace(0, 3, 20))
     assert ax.lines[-1].get_label() == 'th'
-    assert not hasattr(pg.Coalescent(n=4).tree_height, 'plot_pdf')
     plt.close('all')
 
 
@@ -2305,7 +2308,7 @@ def test_joint_near_origin_check_probes_the_continuous_part(caplog):
     with caplog.at_level('WARNING'):
         assert joint._cos2d_wiggle_check < 0.01
 
-    assert not [r for r in caplog.records if 'under-resolves near the origin' in r.getMessage()]
+    assert not [r for r in caplog.records if 'joint inversion under-resolves' in r.getMessage()]
 
 
 def test_joint_cosine_expansion_follows_the_term_count():
@@ -2678,21 +2681,21 @@ def test_bottleneck_conditional_matches_a_high_truncation_reference():
     assert np.abs(np.asarray(cdf(xs[body])) - ref[body]).max() < 2e-3
 
 
-def test_quantile_passes_nan_through():
-    """A NaN level gives a NaN quantile, leaves the other levels unchanged and builds no de Hoog nodes beyond those
-    the finite levels need. Regression: a NaN level marched the node ladder to its cap."""
-    d = pg.Coalescent(n=4).total_branch_length.distribution()
+def test_quantile_rejects_nan_levels():
+    """The quantiles of a tree height, of an accumulated reward and of a conditional on a line with an atom raise the
+    documented ValueError for a NaN level, alone or in an array, while their CDFs map NaN to NaN. Regression: the range
+    check ``(q < 0) | (q > 1)`` is False for NaN, so a NaN level passed it."""
+    coal = pg.Coalescent(n=3, model=pg.BetaCoalescent(alpha=1.5))
+    joint = coal.joint(pg.rewards.TreeHeightReward(), pg.rewards.TotalBranchLengthReward())
+    line = joint.conditional('b', float(joint.marginal('b').quantile(0.5)))
+    assert line._atom_values.size
 
-    out = d.quantile([0.5, np.nan])
+    for dist in (coal.tree_height, coal.sfs.bin(1), line):
+        for q in (np.nan, [0.5, np.nan]):
+            with pytest.raises(ValueError, match='between 0 and 1'):
+                dist.quantile(q)
 
-    assert np.isnan(out[1]) and np.isnan(d.quantile(np.nan))
-    assert out[0] == pytest.approx(d.quantile(0.5))
-    assert len(d.__dict__['_lst_curve_cache']['cdf_exact']) == 1
-
-    q1 = d.quantile(0.99)
-    d.quantile([0.99, np.nan])
-    assert len(d.__dict__['_lst_curve_cache']['cdf_exact']) < d.quantile._max_exact_nodes
-    assert d.quantile(0.99) == pytest.approx(q1, rel=1e-8)
+        assert np.isnan(dist.cdf(np.nan))
 
 
 def test_joint_axis_terms_follow_live_cos_terms():
@@ -3198,3 +3201,75 @@ def test_multi_epoch_transform_grid_in_row_blocks_matches_one_block(monkeypatch)
     monkeypatch.setattr(reward, '_LST_VECTOR_ENTRIES', 1)
 
     np.testing.assert_allclose(joint._lst_grid(s_a, s_b), whole, rtol=1e-13, atol=0)
+
+
+def test_joint_margin_check_warns_on_an_under_resolved_bottleneck(caplog):
+    """The margin check of the joint cosine expansion compares both margins with the marginal CDFs over the bulk of
+    each marginal and names ``Settings.cos_terms_2d`` as the remedy. Through a strong bottleneck, 128 cosine terms give
+    the margin ``F(x, inf)`` 0.730 at the 0.8 quantile of the tree height, against the exact 0.800, and the joint CDF
+    at the pair of 0.8 quantiles 0.676 against 0.740 from msprime. Regression: the check compared only the margin of
+    ``R_a``, at four points up to its 0.4 quantile, found a gap of 0.0115 and logged nothing. A constant population
+    size stays silent."""
+    def warnings():
+        return [r.getMessage() for r in caplog.records if 'joint inversion under-resolves' in r.getMessage()]
+
+    bottleneck = pg.Coalescent(n=10, demography=pg.Demography(
+        pop_sizes={'pop_0': {0: 1, 0.3: 0.02, 0.35: 1.5, 2: 0.5}}))
+
+    with caplog.at_level('WARNING'):
+        err = bottleneck.joint(pg.TreeHeightReward(), pg.TotalBranchLengthReward())._cos2d_wiggle_check
+
+    assert err > 0.03
+    assert len(warnings()) == 1 and 'Settings.cos_terms_2d' in warnings()[0]
+
+    caplog.clear()
+    with caplog.at_level('WARNING'):
+        err = pg.Coalescent(n=10).joint(pg.TreeHeightReward(), pg.TotalBranchLengthReward())._cos2d_wiggle_check
+
+    assert err < 0.03
+    assert not warnings()
+
+
+
+def test_joint_margin_check_warns_on_a_steep_rise_above_an_atom(caplog):
+    """The margin check of the joint cosine expansion also probes the continuous part just above an atom at 0. For
+    bins 5 and 1 of the SFS at n = 10 through a short, strong bottleneck, the atom of bin 5 is 0.44 and its continuous
+    part rises within a small fraction of ``mean + 3 std``, where the joint margin at 128 cosine terms lies 0.066 below
+    the marginal CDF. Regression: the check probed only quadratically spaced points up to ``mean + 3 std``, whose
+    first lay past the rise, found 0.028 and logged nothing."""
+    coal = pg.Coalescent(n=10, demography=pg.Demography(pop_sizes={'pop_0': {0: 1, 0.1: 0.01, 0.15: 1}}))
+
+    with caplog.at_level('WARNING'):
+        err = coal.sfs.joint(5, 1)._cos2d_wiggle_check
+
+    assert err > 0.05
+    assert [r for r in caplog.records if 'joint inversion under-resolves' in r.getMessage()]
+
+
+def test_joint_margin_check_warns_on_a_narrow_body(caplog):
+    """The margin check of the joint cosine expansion probes the body of a marginal that holds its mass in a narrow
+    interval away from the origin. Through a short bottleneck to size 0.02 at n = 5, the tree height lies mostly
+    within [0.2, 0.25], where the joint margin at 128 cosine terms deviates from the marginal CDF by 0.11.
+    Regression: the check probed quadratically spaced points of which one fell in the body, found 0.012 and logged
+    nothing."""
+    coal = pg.Coalescent(n=5, demography=pg.Demography(pop_sizes={'pop_0': {0: 1, 0.2: 0.02, 0.25: 1}}))
+
+    with caplog.at_level('WARNING'):
+        err = coal.joint(pg.TreeHeightReward(), pg.TotalBranchLengthReward())._cos2d_wiggle_check
+
+    assert err > 0.05
+    assert [r for r in caplog.records if 'joint inversion under-resolves' in r.getMessage()]
+
+
+def test_reward_distribution_moments_match_the_phase_type_moments():
+    """RewardDistribution.moment() and its m2, m3 and m4 equal the moments of the phase-type distribution of the same
+    reward, as on its siblings. Regression: RewardDistribution provided only the mean and variance."""
+    coal = pg.Coalescent(n=5, demography=pg.Demography(pop_sizes={'pop_0': {0: 1, 0.5: 0.3}}))
+    dist, tbl = coal.total_branch_length.distribution(), coal.total_branch_length
+
+    assert dist.moment(3) == pytest.approx(tbl.moment(3), rel=1e-12)
+    assert dist.moment(2) == pytest.approx(dist.var, rel=1e-12)
+    for m in ('m2', 'm3', 'm4'):
+        assert getattr(dist, m) == pytest.approx(getattr(tbl, m), rel=1e-12)
+
+    assert coal.sfs.bin(1).moment(2, center=False) == pytest.approx(coal.sfs.m2.data[1], rel=1e-12)

@@ -28,9 +28,6 @@ _TOL = 2.0 ** -53
 #: Number of Taylor terms whose outer products are contracted in one batch of the reverse pass.
 _CHUNK = 64
 
-#: Relative tolerance of the reconstruction of a generator from the basis of :class:`_GeneratorBasis`.
-_BASIS_RTOL = 1e-10
-
 #: Largest step of the differences of the generator over a parameter of the coalescent model it is not affine in,
 #: relative to the magnitude of the parameter (at least 1).
 _PARAMETER_STEP = 1e-6
@@ -309,68 +306,41 @@ class _ClosedFormTape:
         self.factor: float = 1.0
 
 
-class _GeneratorBasis:
+class _GeneratorDerivatives:
     r"""
-    The generator as a linear function of the inverse coalescent time scales and the migration rates,
-
-    .. math::
-        \mathbf{S} = \mathbf{K} + \sum_d \frac{\mathbf{C}_d}{s(N_d)} + \sum_{a \neq b} m_{ab} \mathbf{M}_{ab},
-
-    where :math:`s(N)` is the time scale of the coalescent model at population size :math:`N`, :math:`\mathbf{C}_d`
-    the coalescence part of deme :math:`d` at unit inverse time scale, :math:`\mathbf{M}_{ab}` the migration part
-    from deme :math:`a` to deme :math:`b` at unit rate and :math:`\mathbf{K}` the part that depends on neither, such
-    as recombination.
+    The derivatives of the generator by the population sizes, the migration rates and the parameters of the coalescent
+    model, from the parts of the ``_GeneratorBasis`` of the state space.
     """
 
     def __init__(self, state_space: 'StateSpace') -> None:
         """
-        Build the basis from generators of the state space at unit population sizes.
+        Take the parts of the generator from the basis of the state space.
 
-        :param state_space: The state space, returned to its epoch afterwards.
+        :param state_space: The state space.
         """
+        basis = state_space._basis
+
         self.state_space = state_space
-        self.pops: List[str] = list(state_space.lineage_config.pop_names)
-        self.pairs: List[Tuple[str, str]] = [(a, b) for a in self.pops for b in self.pops if a != b]
+        self.pops: List[str] = basis.pops
+        self.pairs: List[Tuple[str, str]] = basis.pairs
 
-        epoch = state_space.epoch
-        model = state_space.model
+        #: Part depending on neither the population sizes nor the migration rates.
+        self.K: sp.csr_matrix = basis.part(0)
 
-        def generator(sizes: Dict[str, float], rates: Dict[Tuple[str, str], float]) -> sp.csr_matrix:
-            state_space.update_epoch(Epoch(pop_sizes=sizes, migration_rates=rates))
-            return sp.csr_matrix(state_space.S, dtype=float, copy=True)
+        #: Coalescence part of each deme at unit inverse time scale.
+        self.C: Dict[str, sp.csr_matrix] = {p: basis.part(1 + i) for i, p in enumerate(self.pops)}
 
-        try:
-            unit = {p: 1.0 for p in self.pops}
-            S0 = generator(unit, {})
-            c1, c2 = 1 / model._get_timescale(1.0), 1 / model._get_timescale(2.0)
-
-            #: Coalescence part of each deme at unit inverse time scale.
-            self.C: Dict[str, sp.csr_matrix] = {
-                p: ((S0 - generator(unit | {p: 2.0}, {})) / (c1 - c2)).tocsr() for p in self.pops
-            }
-
-            #: Migration part of each ordered pair at unit rate.
-            self.M: Dict[Tuple[str, str], sp.csr_matrix] = {
-                pair: (generator(unit, {pair: 1.0}) - S0).tocsr() for pair in self.pairs
-            }
-
-            #: Part depending on neither the population sizes nor the migration rates.
-            self.K: sp.csr_matrix = (S0 - sum((C * c1 for C in self.C.values()), sp.csr_matrix(S0.shape))).tocsr()
-
-            # the generator is affine in the inverse time scales and migration rates for every coalescent model, which
-            # an epoch away from the unit values checks
-            sizes = {p: 0.7 + 0.37 * i for i, p in enumerate(self.pops)}
-            rates = {pair: 0.3 + 0.21 * j for j, pair in enumerate(self.pairs)}
-            self._check(sizes, rates, generator(sizes, rates))
-        finally:
-            state_space.update_epoch(epoch)
+        #: Migration part of each ordered pair at unit rate.
+        self.M: Dict[Tuple[str, str], sp.csr_matrix] = {
+            pair: basis.part(1 + len(self.pops) + j) for j, pair in enumerate(self.pairs)
+        }
 
         self._transient: Dict[bytes, Tuple[Dict[str, sp.csr_matrix], Dict[Tuple[str, str], sp.csr_matrix],
                                            np.ndarray, np.ndarray]] = {}
 
-        #: Finite-difference stencils of the generator over the parameters of :func:`_rate_parameters`, as bases with
-        #: weights, by parameter, ``None`` for a parameter that cannot be varied.
-        self._stencils: Dict[str, Optional[List[Tuple['_GeneratorBasis', float]]]] = {}
+        #: Finite-difference stencils of the generator over the parameters of :func:`_rate_parameters`, as derivatives
+        #: of varied state spaces with weights, by parameter, ``None`` for a parameter that cannot be varied.
+        self._stencils: Dict[str, Optional[List[Tuple['_GeneratorDerivatives', float]]]] = {}
 
         #: The contractions of :meth:`contraction`, by set of states.
         self._contractions: Dict[bytes, '_Contraction'] = {}
@@ -413,26 +383,23 @@ class _GeneratorBasis:
 
     def _generator(self, sizes: Dict[str, float], rates: Dict[Tuple[str, str], float]) -> sp.csr_matrix:
         """
-        The generator rebuilt from the basis.
+        The generator from the basis of the state space.
 
         :param sizes: The population sizes by deme.
         :param rates: The migration rates by ordered pair, zero where absent.
         :return: The generator.
         """
-        model = self.state_space.model
-        S = self.K + sum((self.C[p] / model._get_timescale(sizes[p]) for p in self.pops), sp.csr_matrix(self.K.shape))
-        for pair in self.pairs:
-            S = S + rates.get(pair, 0.0) * self.M[pair]
+        basis = self.state_space._basis
 
-        return S.tocsr()
+        return basis.matrix(basis.coefficients(sizes, rates))
 
-    def _varied(self, name: str, value: float) -> '_GeneratorBasis':
+    def _varied(self, name: str, value: float) -> '_GeneratorDerivatives':
         """
-        The basis of the state space with one parameter of :func:`_rate_parameters` changed.
+        The derivatives of the generator of the state space with one parameter of :func:`_rate_parameters` changed.
 
         :param name: The parameter.
         :param value: Its value.
-        :return: The basis.
+        :return: The derivatives.
         :raises ValueError: If the value is invalid.
         """
         ss = self.state_space
@@ -441,9 +408,9 @@ class _GeneratorBasis:
                 raise ValueError('The recombination rate must not be negative.')
             locus_config = copy.copy(ss.locus_config)
             locus_config.recombination_rate = value
-            return _GeneratorBasis(ss._with(locus_config=locus_config))
+            return _GeneratorDerivatives(ss._with(locus_config=locus_config))
 
-        return _GeneratorBasis(ss._with(model=ss.model._with(**{name: value})))
+        return _GeneratorDerivatives(ss._with(model=ss.model._with(**{name: value})))
 
     def _valid(self, name: str, value: float) -> bool:
         """
@@ -463,15 +430,17 @@ class _GeneratorBasis:
 
         return True
 
-    def _stencil(self, name: str) -> Optional[List[Tuple['_GeneratorBasis', float]]]:
+    def _stencil(self, name: str) -> Optional[List[Tuple['_GeneratorDerivatives', float]]]:
         """
-        The bases and weights of a difference of the generator over a parameter, memoized. A parameter the generator
-        is affine in (the recombination rate and the parameters in ``_affine_parameters`` of the model) takes an exact
-        two-point difference with a large step towards valid values. Any other takes a second-order central
-        difference where it may vary by a thousand steps either way and a one-sided one towards valid values otherwise.
+        The varied state spaces and their weights in a difference of the generator over a parameter, memoized. A
+        parameter the generator is affine in (the recombination rate and the parameters in ``_affine_parameters`` of
+        the model) takes an exact two-point difference with a large step towards valid values. Any other takes a
+        second-order central difference where it may vary by a thousand steps either way and a one-sided one towards
+        valid values otherwise.
 
         :param name: The parameter.
-        :return: The bases with their weights, or ``None`` if the parameter cannot be varied.
+        :return: The derivatives of the varied state spaces with their weights, or ``None`` if the parameter cannot be
+            varied.
         """
         if name not in self._stencils:
             model = self.state_space.model
@@ -574,21 +543,6 @@ class _GeneratorBasis:
 
         return out
 
-    def _check(self, sizes: Dict[str, float], rates: Dict[Tuple[str, str], float], S: sp.csr_matrix) -> None:
-        """
-        Raise if the basis does not reproduce a generator.
-
-        :param sizes: The population sizes of the generator.
-        :param rates: Its migration rates.
-        :param S: The generator.
-        :raises ValueError: If the generator is not reproduced.
-        """
-        diff = abs(self._generator(sizes, rates) - S).max()
-        if diff > _BASIS_RTOL * max(abs(S).max(), 1e-300):
-            raise ValueError(
-                f"The generator is not affine in the inverse time scales and migration rates (deviation {diff:.3g})."
-            )
-
 
 class MeanGradient:
     """
@@ -613,7 +567,6 @@ class MeanGradient:
         :param rewards: The reward vectors over the states of the state space, one per column.
         :return: The mean and gradient of each column, or ``None`` where the occupation times are not defined in closed
             form.
-        :raises ValueError: If the generator is not affine in the inverse time scales and migration rates.
         """
         from .phase_type import DemographyGradient
 
@@ -625,7 +578,7 @@ class MeanGradient:
 
         m, idx_t = occupation
         nt = len(idx_t)
-        basis = _generator_basis(dist.state_space)
+        basis = _generator_derivatives(dist.state_space)
         con = basis.contraction(idx_t)
         names = basis.parameter_names
 
@@ -684,7 +637,7 @@ class _Contraction:
     states that the generators can take.
     """
 
-    def __init__(self, basis: _GeneratorBasis, idx: np.ndarray) -> None:
+    def __init__(self, basis: _GeneratorDerivatives, idx: np.ndarray) -> None:
         """
         Restrict the basis to a set of states.
 
@@ -767,7 +720,6 @@ class CrossMomentGradient:
         :param seeds: The weights of the moments of the last ``i`` rewards of the tail, one per column, by ``i``.
         :return: The weighted moment and its gradient of each column, ``None`` for a column without weight, or
             ``None`` where absorption is not certain in the last epoch.
-        :raises ValueError: If the generator is not affine in the inverse time scales and migration rates.
         """
         from math import factorial
         from ..rewards import CustomReward
@@ -781,7 +733,7 @@ class CrossMomentGradient:
         heads = np.asarray(heads, dtype=float)
         seeds = {i: np.asarray(w, dtype=float) for i, w in (seeds or {}).items()}
         n = dist.state_space.k
-        basis = _generator_basis(dist.state_space)
+        basis = _generator_derivatives(dist.state_space)
         names = basis.parameter_names
         full = basis.contraction(np.arange(n))
         rows = np.concatenate([j * n + full.rows for j in range(k + 1)])
@@ -961,28 +913,21 @@ def _zero_gradient(distribution: 'PhaseTypeDistribution', k: int) -> 'Demography
     """
     from .phase_type import DemographyGradient
 
-    basis = _generator_basis(distribution.state_space)
+    basis = _generator_derivatives(distribution.state_space)
     names = basis.parameter_names
 
     return DemographyGradient(distribution._get_epochs_until_unbounded(k), basis.pops, basis.pairs, parameters=names)
 
 
-def _generator_basis(state_space: 'StateSpace') -> _GeneratorBasis:
+def _generator_derivatives(state_space: 'StateSpace') -> _GeneratorDerivatives:
     """
-    The generator basis of a state space, kept on the state space, which :class:`~phasegen.inference.Inference`
-    shares across evaluations, as is the error of a space without one.
+    The derivatives of the generator of a state space, kept on the state space, which
+    :class:`~phasegen.inference.Inference` shares across evaluations.
 
     :param state_space: The state space.
-    :return: The basis.
-    :raises ValueError: If the generator is not affine in the inverse time scales and migration rates.
+    :return: The derivatives.
     """
-    if state_space._generator_basis is None:
-        try:
-            state_space._generator_basis = _GeneratorBasis(state_space)
-        except ValueError as e:
-            state_space._generator_basis = e
+    if state_space._generator_derivatives is None:
+        state_space._generator_derivatives = _GeneratorDerivatives(state_space)
 
-    if isinstance(state_space._generator_basis, ValueError):
-        raise state_space._generator_basis
-
-    return state_space._generator_basis
+    return state_space._generator_derivatives
