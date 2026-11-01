@@ -714,10 +714,16 @@ class Inference(Serializable):
                                                     exact, log_scale, penalty)
 
         # the optimizer sees the free parameters, with y = log(x) for those on a logarithmic scale, and dL/dy = x dL/dx,
-        # with x clipped to its bounds
+        # with x clipped to its bounds and equal to a bound where log(x) is at the logarithm of that bound
+        y_bounds = [(np.log(lo), np.log(hi)) if is_log else (lo, hi)
+                    for lo, hi, is_log in zip(lower[free], upper[free], log[free])]
+        y_lower, y_upper = np.array(y_bounds, dtype=float).reshape(-1, 2).T
+
         def to_x(y: np.ndarray) -> np.ndarray:
             x = start.copy()
             x[free] = np.where(log[free], np.clip(np.exp(np.where(log[free], y, 0)), lower[free], upper[free]), y)
+            x[free] = np.where(log[free] & (y <= y_lower), lower[free],
+                               np.where(log[free] & (y >= y_upper), upper[free], x[free]))
             return x
 
         def fun(y: np.ndarray) -> Any:
@@ -733,8 +739,7 @@ class Inference(Serializable):
                     fun=fun,
                     x0=np.where(log, np.log(np.where(log, start, 1)), start)[free],
                     method=method_mle,
-                    bounds=[(np.log(lo), np.log(hi)) if is_log else (lo, hi)
-                            for lo, hi, is_log in zip(lower[free], upper[free], log[free])],
+                    bounds=y_bounds,
                     jac=smooth or None,
                     options=opts,
                     callback=penalized.update

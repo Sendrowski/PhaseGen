@@ -1834,6 +1834,30 @@ def test_log_scale_estimate_on_a_bound_is_the_bound(caplog):
     assert 'lie on a bound' in caplog.text
 
 
+def test_log_scale_estimate_on_a_lower_bound_is_the_bound(caplog):
+    """An estimate on the logarithmic scale that the optimizer leaves on its lower bound is that bound exactly, and the
+    covariance warns that it lies on a bound. Here exp(log(0.1)) is 0.1 plus one ulp, inside the bounds, so the
+    estimate was 0.10000000000000002 and its standard error was reported without the on-bound warning."""
+    coal = lambda Ne: pg.Coalescent(n=6, demography=pg.Demography(pop_sizes={'pop_0': Ne}))
+    inf = pg.Inference(
+        bounds=dict(Ne=(0.1, 10)),
+        x0=dict(Ne=1.0),
+        coal=coal,
+        loss=lambda c, obs: pg.PoissonLikelihood().compute(obs.polymorphic, 2000 * c.sfs.mean.polymorphic),
+        observation=pg.SFS(np.concatenate([[0], 2000 * coal(0.02).sfs.mean.polymorphic, [0]])),
+        n_runs=1,
+        pbar=False,
+        log_scale=True
+    )
+    inf.run()
+
+    assert inf.params_inferred['Ne'] == 0.1
+
+    inf.standard_errors()
+
+    assert any('lie on a bound' in r.getMessage() and 'Ne' in r.getMessage() for r in caplog.records)
+
+
 def test_log_scale_accepts_a_single_name():
     """A single parameter name as ``log_scale`` puts that parameter on the logarithmic scale. It was split into its
     characters, raising ``ValueError`` for the unknown parameters ``['N', 'e']``."""
